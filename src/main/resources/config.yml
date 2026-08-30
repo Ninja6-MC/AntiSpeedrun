@@ -31,11 +31,6 @@ journey-book:
   title: "<gold>Ninja6 Survival Guide"
   author: "Ninja6-MC"
 
-launch-lock:
-  enabled: false                       # Set to true for scheduled Community Dragon Hunts
-  unlock-date: "2026-08-24 18:00:00"
-  prevent-eye-placement: true
-  locked-message: "<red>🔒 The End is sealed until <yellow>{UNLOCK_DATE} <red>for the Community Dragon Hunt!"
 
 boss-scaling:
   enabled: true                        # Master toggle for boss scaling module
