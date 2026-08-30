@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Ninja6-MC/AntiSpeedrun/security/policy
+    about: Exploits and vulnerabilities go through a private advisory, never a public issue.
+  - name: Question or discussion
+    url: https://discord.gg/KEHaeHC8FB
+    about: Not sure it is a bug? Ask before filing.

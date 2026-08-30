@@ -1,0 +1,32 @@
+name: AntiSpeedrun
+version: ${version}
+main: com.ninja6.antispeedrun.AntiSpeedrunPlugin
+api-version: '1.21'
+author: Ninja6-MC
+description: Unified anti-speedrun, dimension progression gates, anti-cheese, and multi-dragon combat scaling.
+commands:
+  antispeedrun:
+    description: Master AntiSpeedrun administration command
+    aliases: [asr]
+    permission: antispeedrun.admin
+  progress:
+    description: View your personal survival progression milestones
+    permission: antispeedrun.progress
+permissions:
+  antispeedrun.progress:
+    description: Allows viewing personal progression milestones via /progress or /asr progress
+    default: true
+  antispeedrun.book:
+    description: Allows obtaining the Journey Guide Book via /asr book
+    default: true
+  antispeedrun.admin:
+    description: Master administrative permission for AntiSpeedrun
+    default: op
+    children:
+      antispeedrun.admin.reload: true
+      antispeedrun.admin.unlock: true
+      antispeedrun.admin.info.others: true
+      antispeedrun.bypass: true
+  antispeedrun.bypass:
+    description: Bypasses all dimension progression gates and anti-cheese restrictions
+    default: false

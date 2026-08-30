@@ -1,0 +1,60 @@
+# AntiSpeedrun - Unified Anti-Speedrun, Progression Gates & Boss Combat Configuration
+
+dimension-gates:
+  nether:
+    enabled: true
+    require-playtime-hours: 2
+    require-advancements:
+      - "minecraft:story/smelt_iron"
+    rejection-message: "<red>🔒 The Nether is locked! Requires <yellow>2h playtime <red>and Iron gear. Type <gold>/progress"
+
+  the_end:
+    enabled: true
+    require-playtime-hours: 20
+    require-account-age-days: 7
+    require-advancements:
+      - "minecraft:story/mine_diamond"
+      - "minecraft:nether/obtain_blaze_rod"
+      - "minecraft:nether/find_fortress"
+    rejection-message: "<red>🔒 The End is sealed! Complete survival progression first. Type <gold>/progress"
+
+idle-reminder:
+  enabled: true
+  stand-still-seconds: 15              # Trigger when standing still for 15s
+  cooldown-minutes: 10                 # Minimum 10 min between reminders
+  display-duration-seconds: 5          # Display on screen for 5 seconds
+  display-type: "ACTIONBAR"            # Options: ACTIONBAR, TITLE, CHAT
+  message: "<yellow>💡 Next Goal: <white>{NEXT_STEP} <gray>(Run <gold>/progress<gray>)"
+
+journey-book:
+  give-on-first-join: true
+  title: "<gold>Ninja6 Survival Guide"
+  author: "Ninja6-MC"
+
+launch-lock:
+  enabled: false                       # Set to true for scheduled Community Dragon Hunts
+  unlock-date: "2026-08-24 18:00:00"
+  prevent-eye-placement: true
+  locked-message: "<red>🔒 The End is sealed until <yellow>{UNLOCK_DATE} <red>for the Community Dragon Hunt!"
+
+boss-scaling:
+  enabled: true                        # Master toggle for boss scaling module
+  multi-dragon:
+    enabled: true
+    multiplier: 0.5                    # Scaling factor (must be > 0.0)
+    rounding-mode: "HALF_UP"           # Options: HALF_UP, CEIL, FLOOR
+    max-dragons: 5
+  exit-portal-egg:
+    enabled: true
+    placement-mode: "TOP_PILLAR"       # Options: TOP_PILLAR, ITEM_DROP, NONE
+  skull-drop-chance: 0.05
+
+anti-cheese:
+  enabled: true                        # Master toggle for anti-cheese module
+  block-bed-anchor-boss-damage: true
+  block-early-eye-throwing: true
+  block-exit-portal-crystal-place: true
+
+villager-progression:
+  gate-mending-trade: false
+  required-advancement: "minecraft:story/cure_zombie_villager"

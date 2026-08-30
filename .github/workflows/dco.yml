@@ -1,0 +1,18 @@
+# The check itself lives in Ninja6-MC/.github and is maintained in one place; this file
+# is only the caller. Copied from that repo's templates/dco-stub.yml.
+name: DCO
+
+on: pull_request
+
+# The caller's top-level grant. A called workflow's permissions are CAPPED by what the
+# caller grants, so this has to cover what the reusable workflow asks for - it requests
+# `contents: read` and nothing more, so this is exactly enough.
+permissions:
+  contents: read
+
+# NOTE the doubled `.github`. A reusable workflow is referenced as
+# {owner}/{repo}/.github/workflows/{file}@{ref} - and here the repo is itself named
+# `.github`, so the segment appears twice.
+jobs:
+  dco:
+    uses: Ninja6-MC/.github/.github/workflows/dco.yml@main

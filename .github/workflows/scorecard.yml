@@ -1,0 +1,26 @@
+# The analysis lives in Ninja6-MC/.github and is maintained in one place; this file is
+# only the caller. Copied from that repo's templates/scorecard-stub.yml.
+name: Scorecard
+
+on:
+  # Re-score when branch protection changes, which is one of the things it scores.
+  branch_protection_rule:
+  schedule:
+    - cron: '41 7 * * 1'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: read-all
+
+# NOTE the doubled `.github`. A reusable workflow is referenced as
+# {owner}/{repo}/.github/workflows/{file}@{ref} - and here the repo is itself named
+# `.github`, so the segment appears twice.
+jobs:
+  scorecard:
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+      id-token: write
+    uses: Ninja6-MC/.github/.github/workflows/scorecard.yml@main

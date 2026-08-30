@@ -1,0 +1,10 @@
+# Standards exceptions for Ninja6-MC/AntiSpeedrun
+#
+# Schema and worked example: Ninja6-MC/.github standards/README.md section 3.
+# An empty `exceptions` list is a statement that this repository conforms; the file is
+# required either way (N6-REPO-05).
+
+repo: AntiSpeedrun
+
+# This repository has no exceptions: it conforms to every rule in the register.
+exceptions: []
