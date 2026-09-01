@@ -26,12 +26,12 @@ dimension-gates:
 # 2. Anti-Boosting & Item Progression Gating (Minecraft Tag & Pattern Resolution)
 item-progression:
   enabled: true
-  gate-natural-structure-chests: false # Default FALSE: Allows looting natural dungeon chests (Shipwrecks, Temples). Set TRUE for hardcore anti-seedrun.
-  dropper-can-retrieve: true          # Original dropper/miner can always retrieve their own dropped/mined items
-  death-drop-retrieval: true          # Players can always retrieve their own death drops
+  # Gating is a pure function of (player advancements, material). Naturally generated loot
+  # is not special-cased: see docs/provenance-model.md for why the exemption was removed
+  # rather than fixed. gate-natural-structure-chests, gate-player-placed-chests and
+  # gate-armor-stands are gone because each configured a distinction that no longer exists.
+  drop-recall-enabled: true           # A player can always re-collect an item entity they dropped or died with
   gate-dispensers: true               # Prevent dispensers from equipping locked armor onto unqualified players
-  gate-player-placed-chests: true     # Prevent siphoning locked items from player-crafted chests/barrels/furnaces at base
-  gate-armor-stands: true             # Prevent taking locked items from Armor Stands
   gate-nested-bundles: true           # Prevent extracting/spraying locked items from Bundles
   feedback-cooldown-seconds: 3        # Cooldown between action bar warning messages
   rejection-message: "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}"

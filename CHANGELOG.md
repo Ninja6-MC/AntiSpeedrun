@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Anti-cheese protections (blocking Bed/Anchor explosion damage on Ender Dragon and Wither, exit portal crystal placement blocking).
 - Standards-compliant CI workflows for DCO, OpenSSF Scorecard, and Standards validation.
 
+### Changed
+- Item gating is a pure function of `(player advancements, material)`. The natural-structure provenance system is removed: no `ItemStack` carries a plugin tag, which makes gear laundering structurally impossible. Decision record in `docs/provenance-model.md`.
+- `gate-natural-structure-chests`, `gate-player-placed-chests` and `gate-armor-stands` removed — each configured a distinction that no longer exists. `dropper-can-retrieve` and `death-drop-retrieval` collapse into `drop-recall-enabled`.
+- Mob item pickup is no longer intercepted; piglin bartering and Allay sorters are unaffected.
+- Soft-dependency matrix trimmed to Floodgate, the only optional integration the plugin consumes.
+
 ### Fixed
 - `antispeedrun.bypass` is no longer a child of `antispeedrun.admin`. Because `antispeedrun.admin` defaults to `op`, every operator was silently exempt from every dimension gate, item lock, and anti-cheese rule.
 - Dimension gate defaults are advancement-driven (`0` hours / `0` days), matching the specification. The shipped config previously required 2h playtime for the Nether and 20h plus a 7-day account age for The End.
