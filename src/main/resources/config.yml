@@ -1,23 +1,141 @@
-# AntiSpeedrun - Unified Anti-Speedrun, Progression Gates & Boss Combat Configuration
+# AntiSpeedrun - Unified Anti-Speedrun, Progression Gates, Anti-Boosting & Boss Combat
+# Configuration Profiles: CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM
+# Preset resources live at src/main/resources/profiles/<name>.yml
+# You can apply presets via command: /asr profile apply <PROFILE>
+profile: SMP_STANDARD
 
+# 1. Dimension Progression Gates
 dimension-gates:
   nether:
     enabled: true
-    require-playtime-hours: 2
+    require-playtime-hours: 0          # Default 0 (Advancement-driven). Set >0 for time gating.
     require-advancements:
       - "minecraft:story/smelt_iron"
-    rejection-message: "<red>🔒 The Nether is locked! Requires <yellow>2h playtime <red>and Iron gear. Type <gold>/progress"
+    rejection-message: "<red>🔒 The Nether is locked! Requires <yellow>Iron Gear<red> (Smelt an iron ingot). Type <gold>/progress"
 
   the_end:
     enabled: true
-    require-playtime-hours: 20
-    require-account-age-days: 7
+    require-playtime-hours: 0          # Default 0 (Advancement-driven). Set >0 for time gating.
+    require-account-age-days: 0        # Default 0 (Advancement-driven). Set >0 for age gating.
     require-advancements:
       - "minecraft:story/mine_diamond"
       - "minecraft:nether/obtain_blaze_rod"
       - "minecraft:nether/find_fortress"
     rejection-message: "<red>🔒 The End is sealed! Complete survival progression first. Type <gold>/progress"
 
+# 2. Anti-Boosting & Item Progression Gating (Minecraft Tag & Pattern Resolution)
+item-progression:
+  enabled: true
+  gate-natural-structure-chests: false # Default FALSE: Allows looting natural dungeon chests (Shipwrecks, Temples). Set TRUE for hardcore anti-seedrun.
+  dropper-can-retrieve: true          # Original dropper/miner can always retrieve their own dropped/mined items
+  death-drop-retrieval: true          # Players can always retrieve their own death drops
+  gate-dispensers: true               # Prevent dispensers from equipping locked armor onto unqualified players
+  gate-player-placed-chests: true     # Prevent siphoning locked items from player-crafted chests/barrels/furnaces at base
+  gate-armor-stands: true             # Prevent taking locked items from Armor Stands
+  gate-nested-bundles: true           # Prevent extracting/spraying locked items from Bundles
+  feedback-cooldown-seconds: 3        # Cooldown between action bar warning messages
+  rejection-message: "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}"
+  gated-items:
+    iron-tier:
+      # Match modes: PREFIX ("IRON_*"), SUFFIX ("*_IRON_ORE"), CONTAINS ("*_IRON_*").
+      # Prefix-only matching leaks the deepslate ore variants - DEEPSLATE_IRON_ORE does
+      # not start with IRON_, so silk-touched ore below Y=0 would be ungated.
+      match-patterns:
+        - "IRON_*"
+        - "RAW_IRON*"
+        - "CHAINMAIL_*"
+        - "*_IRON_ORE"
+      exclude-materials:
+        - "IRON_DOOR"
+        - "IRON_TRAPDOOR"
+        - "IRON_BARS"
+        - "HEAVY_WEIGHTED_PRESSURE_PLATE"
+        - "CHAIN"
+        - "LANTERN"
+        - "SOUL_LANTERN"
+      items:
+        - "SHIELD"
+        - "BUCKET"
+        - "SHEARS"
+        - "FLINT_AND_STEEL"
+        - "CROSSBOW"
+        - "TRIAL_KEY"
+        - "OMINOUS_TRIAL_KEY"
+        - "OMINOUS_BOTTLE"
+      require-advancements:
+        - "minecraft:story/mine_stone"
+      require-playtime-hours: 0
+      hint: "Mine Stone with a wooden pickaxe (Stone Age)"
+
+    diamond-tier:
+      match-patterns:
+        - "DIAMOND_*"
+        - "*_DIAMOND_ORE"
+      require-advancements:
+        - "minecraft:story/smelt_iron"
+      require-playtime-hours: 0
+      hint: "Smelt Iron Ingot"
+      # NOTE (audit R-16): story/smelt_iron is also the Nether gate prerequisite, so
+      # diamonds and the Nether currently unlock at the same moment. Deliberate?
+
+    nether-tier:
+      items:
+        - "BLAZE_ROD"
+        - "BLAZE_POWDER"
+        - "NETHER_WART"
+        - "BREWING_STAND"
+        - "GHAST_TEAR"
+        - "MAGMA_CREAM"
+        - "WITHER_SKELETON_SKULL"
+        - "BREEZE_ROD"
+        - "WIND_CHARGE"
+      require-advancements:
+        - "minecraft:story/smelt_iron"
+      require-playtime-hours: 0
+      hint: "Unlock the Nether Gate"
+
+    end-tier:
+      items:
+        - "ENDER_EYE"
+        - "END_CRYSTAL"
+        - "SHULKER_SHELL"
+        - "SHULKER_BOX"
+        - "ELYTRA"
+        - "DRAGON_BREATH"
+        - "DRAGON_HEAD"
+        - "DRAGON_EGG"
+        - "TOTEM_OF_UNDYING"
+      require-advancements:
+        - "minecraft:nether/obtain_blaze_rod"
+        - "minecraft:nether/find_fortress"
+      require-playtime-hours: 0          # Was 20.0 - contradicted the advancement-driven End gate above.
+      require-account-age-days: 0        # Was 7 - see the getFirstPlayed caveat in section 2.1.
+      hint: "Unlock The End Gate"
+
+    netherite-tier:
+      # Precedence: a Material matching two tiers resolves MOST-RESTRICTIVE-WINS.
+      # NETHERITE_UPGRADE_SMITHING_TEMPLATE matches NETHERITE_* but belongs to the
+      # trim system in section 3 - startup fails loudly on any unresolvable collision.
+      match-patterns:
+        - "NETHERITE_*"
+      items:
+        - "ANCIENT_DEBRIS"
+        - "MACE"
+        - "HEAVY_CORE"
+      require-advancements:
+        - "minecraft:story/mine_diamond"
+        - "minecraft:nether/obtain_blaze_rod"
+      hint: "Mine Diamonds & Explore the Nether"
+
+# 3. Armor Trim & Smithing Template Progression
+trim-progression:
+  enabled: true
+  gate-natural-trim-chests: false             # Default FALSE: Allows looting trim templates from dungeon chests. Set TRUE to gate by tier.
+  block-unearned-template-duplication: true   # Require structure discovery to clone templates in Crafting Table
+  block-unearned-smithing: true               # Require structure discovery to apply trim in Smithing Table
+  block-wearing-unearned-trims: true          # Prevent wearing armor with unearned trims
+
+# 4. Idle Reminder Engine (Per-Player EntityScheduler)
 idle-reminder:
   enabled: true
   stand-still-seconds: 15              # Trigger when standing still for 15s
@@ -26,30 +144,49 @@ idle-reminder:
   display-type: "ACTIONBAR"            # Options: ACTIONBAR, TITLE, CHAT
   message: "<yellow>💡 Next Goal: <white>{NEXT_STEP} <gray>(Run <gold>/progress<gray>)"
 
+# 5. Journey Guide Book
 journey-book:
   give-on-first-join: true
   title: "<gold>Ninja6 Survival Guide"
   author: "Ninja6-MC"
 
-
+# 6. Multi-Dragon Boss Combat Scaling
 boss-scaling:
-  enabled: true                        # Master toggle for boss scaling module
+  enabled: true
+  scale-resummoned-dragons: true       # Scale 4-End-Crystal respawn rituals
+  battle-prep-seconds: 30              # Party reinforcement window upon End entry / resummon
   multi-dragon:
     enabled: true
     multiplier: 0.5                    # Scaling factor (must be > 0.0)
     rounding-mode: "HALF_UP"           # Options: HALF_UP, CEIL, FLOOR
     max-dragons: 5
+    balanced-xp: true                  # 1st dragon full XP, secondary dragons 1,000 XP
   exit-portal-egg:
     enabled: true
     placement-mode: "TOP_PILLAR"       # Options: TOP_PILLAR, ITEM_DROP, NONE
   skull-drop-chance: 0.05
+  # Resummon battles only. During a world's FIRST fight the exit portal does not exist
+  # yet - vanilla generates it when the dragon dies - so this is a no-op on initial entry.
+  exit-portal-lock-during-battle: true
+  # Escape valve: releases the lock when no player has damaged a dragon for this long,
+  # so anyone who logs in mid-fight is not trapped in the End. 0 disables the release.
+  exit-portal-lock-release-minutes: 10
 
+# 7. Anti-Cheese Engine
 anti-cheese:
-  enabled: true                        # Master toggle for anti-cheese module
-  block-bed-anchor-boss-damage: true
+  enabled: true
+  block-bed-anchor-boss-damage: true   # Cancels DamageType.BAD_RESPAWN_POINT against bosses
+  # Time-to-kill budget, not just an anti-1-shot guard. The Ender Dragon has 200 HP and
+  # the Wither 300, so 50.0 still permits a 4-hit dragon kill. 12.0 gives roughly a
+  # 17-hit fight. Raise it for a faster fight; lower it to force sustained combat.
+  max-single-hit-boss-damage: 12.0
   block-early-eye-throwing: true
   block-exit-portal-crystal-place: true
+  block-gateway-pre-dragon: true       # Block bridging, pearling & chorus fruit to the Outer End
+  outer-end-radius: 500                # Boundary enforced until the world's first dragon dies
+  outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
 
+# 8. Villager Progression
 villager-progression:
   gate-mending-trade: false
   required-advancement: "minecraft:story/cure_zombie_villager"

@@ -51,6 +51,42 @@ jobs:
       - name: Ensure Gradle Wrapper Is Executable
         run: chmod +x ./gradlew
 
+      # Folia has no BukkitScheduler: Bukkit.getScheduler() throws
+      # UnsupportedOperationException at runtime, and BukkitRunnable is unusable.
+      # All scheduling must go through RegionScheduler, EntityScheduler, or
+      # AsyncScheduler. This is the default idiom in most Paper tutorials, so it
+      # gets caught here rather than on a production Folia server.
+      # Matches both routes to the illegal scheduler (Bukkit.getScheduler() and
+      # getServer().getScheduler()), BukkitRunnable, and the runTask*/schedule*
+      # method families. Deliberately does NOT match entity.getScheduler() or
+      # Bukkit.getRegionScheduler()/getAsyncScheduler()/getGlobalRegionScheduler(),
+      # which are the legal Folia replacements.
+      - name: Reject Bukkit Scheduler Usage
+        run: |
+          # Actions runs this as `bash -e`, so grep's exit 1 on a clean tree would
+          # terminate the step before the status check. `|| status=$?` suppresses
+          # errexit for this one command while still capturing the code.
+          status=0
+          grep -rnE '(\bBukkit\s*\.\s*getScheduler\s*\()|(getServer\s*\(\)\s*\.\s*getScheduler\s*\()|(\bBukkitRunnable\b)|(\.\s*runTask\w*\s*\()|(\bschedule(Sync|Async)\w*\s*\()' src/main/java || status=$?
+          # 0 = match found (a violation), 1 = clean, anything else = grep itself failed
+          # (missing directory, bad pattern) and must not be mistaken for a pass.
+          if [ $status -eq 0 ]; then
+            echo "::error::Bukkit scheduler API is not available on Folia. Use RegionScheduler, EntityScheduler, or AsyncScheduler."
+            exit 1
+          elif [ $status -ne 1 ]; then
+            echo "::error::Scheduler guard could not run (grep exit $status)."
+            exit 1
+          fi
+          echo "No Bukkit scheduler usage found."
+
+      - name: Verify Folia Manifest Declaration
+        run: |
+          if ! grep -qE '^folia-supported:[[:space:]]*true' src/main/resources/plugin.yml; then
+            echo "::error::plugin.yml must declare 'folia-supported: true' or Folia will refuse to enable the plugin."
+            exit 1
+          fi
+          echo "folia-supported: true is declared."
+
       - name: Run Tests
         run: ./gradlew test --no-daemon
 
@@ -62,4 +98,102 @@ jobs:
         with:
           name: AntiSpeedrun-SNAPSHOT
           path: build/libs/*.jar
+          retention-days: 7
+
+  folia-smoke:
+    name: Folia Boot Smoke Test
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Set up Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Download Built JAR
+        uses: actions/download-artifact@448e3f862ab3ef47aa50ff917776823c9946035b # v5.0.0
+        with:
+          name: AntiSpeedrun-SNAPSHOT
+          path: plugins
+
+      # PaperMC's v2 API (api.papermc.io) is sunset and now returns HTTP 410; builds are
+      # served by the v3 Fill API, which also hands back the download URL and checksum
+      # directly rather than having callers construct a filename.
+      #
+      # Folia publishes no STABLE channel builds - every 1.21.4 build is ALPHA. That is
+      # normal for Folia, so filtering on channel would select nothing. Take the newest
+      # build, preferring STABLE only if one ever appears.
+      - name: Download Folia
+        env:
+          MC_VERSION: '1.21.4'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, urllib.request
+
+          version = os.environ["MC_VERSION"]
+          ua = "AntiSpeedrun-CI/1.0 (+https://github.com/Ninja6-MC/AntiSpeedrun)"
+          url = f"https://fill.papermc.io/v3/projects/folia/versions/{version}/builds"
+
+          def get(target):
+              # PaperMC's CDN rejects default library user agents with HTTP 403, so every
+              # request needs a descriptive one - including the jar download, which is why
+              # this cannot use urlretrieve.
+              return urllib.request.urlopen(
+                  urllib.request.Request(target, headers={"User-Agent": ua}), timeout=60)
+
+          builds = json.load(get(url))
+          if not builds:
+              raise SystemExit(f"::error::No Folia builds published for {version}.")
+
+          stable = [b for b in builds if b["channel"] == "STABLE"]
+          build = max(stable or builds, key=lambda b: b["id"])
+          artifact = build["downloads"]["server:default"]
+          expected = artifact["checksums"]["sha256"]
+          print(f"Using Folia {version} build {build['id']} ({build['channel']})")
+
+          digest = hashlib.sha256()
+          with get(artifact["url"]) as response, open("folia.jar", "wb") as jar:
+              for chunk in iter(lambda: response.read(1 << 20), b""):
+                  digest.update(chunk)
+                  jar.write(chunk)
+
+          actual = digest.hexdigest()
+          if actual != expected:
+              raise SystemExit(
+                  f"::error::Checksum mismatch for folia.jar: expected {expected}, got {actual}")
+          print(f"Checksum verified: {actual}")
+          PY
+
+      - name: Boot Server and Assert Plugin Enables
+        run: |
+          set -uo pipefail
+          echo "eula=true" > eula.txt
+          # Give the server time to generate worlds and enable plugins, then shut it
+          # down cleanly. The outer timeout is a backstop for a hang, not the happy path.
+          ( sleep 150; echo stop ) | timeout 300 java -Xmx3G -jar folia.jar --nogui > server.log 2>&1 || true
+
+          if grep -qiE "Enabling AntiSpeedrun" server.log; then
+            echo "AntiSpeedrun enabled on Folia."
+          else
+            echo "::error::AntiSpeedrun did not enable on Folia."
+            tail -n 200 server.log
+            exit 1
+          fi
+
+          # A plugin that loads but throws on a Folia-illegal API call is still broken.
+          if grep -qiE "UnsupportedOperationException|is not supported on Folia|Could not load 'plugins" server.log; then
+            echo "::error::Folia rejected an unsupported API call."
+            grep -iE -A 15 "UnsupportedOperationException|is not supported on Folia|Could not load 'plugins" server.log
+            exit 1
+          fi
+
+      - name: Upload Server Log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: folia-server-log
+          path: server.log
           retention-days: 7

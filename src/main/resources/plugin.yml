@@ -3,30 +3,79 @@ version: ${version}
 main: com.ninja6.antispeedrun.AntiSpeedrunPlugin
 api-version: '1.21'
 author: Ninja6-MC
-description: Unified anti-speedrun, dimension progression gates, anti-cheese, and multi-dragon combat scaling.
+description: Unified anti-speedrun, dimension progression gates, anti-boosting, and multi-dragon combat scaling.
+
+# Folia refuses to enable any plugin that does not declare this. Every scheduler in
+# this plugin must be a RegionScheduler, EntityScheduler, or AsyncScheduler --
+# Bukkit.getScheduler() throws UnsupportedOperationException on Folia and is blocked in CI.
+folia-supported: true
+
 commands:
   antispeedrun:
     description: Master AntiSpeedrun administration command
+    usage: /asr <progress|book|reload|profile|unlock|bypass|inspect>
     aliases: [asr]
-    permission: antispeedrun.admin
   progress:
     description: View your personal survival progression milestones
+    usage: /progress
     permission: antispeedrun.progress
+  journeybook:
+    description: Receive the written Journey & Rules Guide Book
+    usage: /journeybook
+    aliases: [rulesbook]
+    permission: antispeedrun.book
+
 permissions:
   antispeedrun.progress:
-    description: Allows viewing personal progression milestones via /progress or /asr progress
+    description: Allows viewing personal progression status via /progress or /asr progress
     default: true
   antispeedrun.book:
     description: Allows obtaining the Journey Guide Book via /asr book
     default: true
+
   antispeedrun.admin:
     description: Master administrative permission for AntiSpeedrun
     default: op
     children:
       antispeedrun.admin.reload: true
+      antispeedrun.admin.profile: true
       antispeedrun.admin.unlock: true
-      antispeedrun.admin.info.others: true
-      antispeedrun.bypass: true
+      antispeedrun.admin.bypass: true
+      antispeedrun.admin.inspect: true
+  antispeedrun.admin.reload:
+    description: Allows hot-reloading config.yml via /asr reload
+    default: op
+  antispeedrun.admin.profile:
+    description: Allows applying configuration profiles via /asr profile apply
+    default: op
+  antispeedrun.admin.unlock:
+    description: Allows manually unlocking dimension gates via /asr unlock
+    default: op
+  antispeedrun.admin.bypass:
+    description: Allows granting and revoking bypass flags via /asr bypass
+    default: op
+  antispeedrun.admin.inspect:
+    description: Allows inspecting another player's progression via /asr inspect
+    default: op
+
+  # NOTE: antispeedrun.bypass is deliberately NOT a child of antispeedrun.admin.
+  # antispeedrun.admin defaults to op, so nesting it here would silently exempt every
+  # operator from every gate -- including staff playing survival, and including anyone
+  # trying to verify that the gates work at all. Granting the ability to hand out a
+  # bypass (antispeedrun.admin.bypass) is a separate thing from holding one.
   antispeedrun.bypass:
-    description: Bypasses all dimension progression gates and anti-cheese restrictions
+    description: Bypasses all dimension gates, item progression locks, and anti-cheese restrictions
+    default: false
+    children:
+      antispeedrun.bypass.gates: true
+      antispeedrun.bypass.items: true
+      antispeedrun.bypass.anticheese: true
+  antispeedrun.bypass.gates:
+    description: Bypasses dimension progression gates (Nether/End foot, vehicle, and stasis access)
+    default: false
+  antispeedrun.bypass.items:
+    description: Bypasses item pickup, dispenser, and container restrictions
+    default: false
+  antispeedrun.bypass.anticheese:
+    description: Bypasses anti-cheese combat restrictions
     default: false
