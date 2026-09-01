@@ -56,10 +56,23 @@ jobs:
       # All scheduling must go through RegionScheduler, EntityScheduler, or
       # AsyncScheduler. This is the default idiom in most Paper tutorials, so it
       # gets caught here rather than on a production Folia server.
+      # Matches both routes to the illegal scheduler (Bukkit.getScheduler() and
+      # getServer().getScheduler()), BukkitRunnable, and the runTask*/schedule*
+      # method families. Deliberately does NOT match entity.getScheduler() or
+      # Bukkit.getRegionScheduler()/getAsyncScheduler()/getGlobalRegionScheduler(),
+      # which are the legal Folia replacements.
       - name: Reject Bukkit Scheduler Usage
         run: |
-          if grep -rnE '\b(Bukkit\.getScheduler|BukkitRunnable|runTaskTimer|runTaskLater|runTaskAsynchronously|scheduleSyncRepeatingTask)\b' src/main/java; then
+          set -uo pipefail
+          grep -rnE '(\bBukkit\s*\.\s*getScheduler\s*\()|(getServer\s*\(\)\s*\.\s*getScheduler\s*\()|(\bBukkitRunnable\b)|(\.\s*runTask\w*\s*\()|(\bschedule(Sync|Async)\w*\s*\()' src/main/java
+          status=$?
+          # 0 = match found (a violation), 1 = clean, anything else = grep itself failed
+          # (missing directory, bad pattern) and must not be mistaken for a pass.
+          if [ $status -eq 0 ]; then
             echo "::error::Bukkit scheduler API is not available on Folia. Use RegionScheduler, EntityScheduler, or AsyncScheduler."
+            exit 1
+          elif [ $status -ne 1 ]; then
+            echo "::error::Scheduler guard could not run (grep exit $status)."
             exit 1
           fi
           echo "No Bukkit scheduler usage found."
