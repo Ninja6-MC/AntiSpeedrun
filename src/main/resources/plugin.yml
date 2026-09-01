@@ -10,6 +10,11 @@ description: Unified anti-speedrun, dimension progression gates, anti-boosting, 
 # Bukkit.getScheduler() throws UnsupportedOperationException on Folia and is blocked in CI.
 folia-supported: true
 
+# Floodgate is the only optional integration the plugin actually consumes: it identifies
+# Bedrock clients so /progress can fall back to a glyph-safe card. AuthMe, Plan and
+# LuckPerms were removed from the dependency matrix - see specification section 5.1.
+softdepend: [floodgate]
+
 commands:
   antispeedrun:
     description: Master AntiSpeedrun administration command
