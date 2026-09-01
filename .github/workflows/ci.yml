@@ -63,9 +63,11 @@ jobs:
       # which are the legal Folia replacements.
       - name: Reject Bukkit Scheduler Usage
         run: |
-          set -uo pipefail
-          grep -rnE '(\bBukkit\s*\.\s*getScheduler\s*\()|(getServer\s*\(\)\s*\.\s*getScheduler\s*\()|(\bBukkitRunnable\b)|(\.\s*runTask\w*\s*\()|(\bschedule(Sync|Async)\w*\s*\()' src/main/java
-          status=$?
+          # Actions runs this as `bash -e`, so grep's exit 1 on a clean tree would
+          # terminate the step before the status check. `|| status=$?` suppresses
+          # errexit for this one command while still capturing the code.
+          status=0
+          grep -rnE '(\bBukkit\s*\.\s*getScheduler\s*\()|(getServer\s*\(\)\s*\.\s*getScheduler\s*\()|(\bBukkitRunnable\b)|(\.\s*runTask\w*\s*\()|(\bschedule(Sync|Async)\w*\s*\()' src/main/java || status=$?
           # 0 = match found (a violation), 1 = clean, anything else = grep itself failed
           # (missing directory, bad pattern) and must not be mistaken for a pass.
           if [ $status -eq 0 ]; then
