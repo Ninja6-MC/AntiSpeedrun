@@ -263,7 +263,37 @@ class PluginConfigTest {
         void emptyDocument() throws Exception {
             PluginConfig config = PluginConfig.from(yaml("# nothing but a comment\n"));
             assertEquals(PluginConfig.defaults(), config);
-            assertTrue(config.isClean(), "a missing key is not a warning: " + config.warnings());
+            assertEquals(1, config.warnings().size(),
+                    "a missing key is not a warning; the only warning here is the empty tier table: "
+                            + config.warnings());
+            assertTrue(mentions(config.warnings(), "gated-items declares no tiers"));
+        }
+
+        @Test
+        @DisplayName("say out loud that the defaults gate nothing, rather than failing silently")
+        void defaultsAnnounceThatNoItemIsGated() {
+            PluginConfig defaults = PluginConfig.defaults();
+
+            // gated-items is the only section with no code-level default, and defaults() is the
+            // startup fallback when config.yml will not parse. Left silent, one YAML typo would
+            // disable every item gate while every other gate kept working.
+            assertTrue(defaults.itemProgression().enabled());
+            assertTrue(defaults.itemProgression().gatedItems().isEmpty());
+            assertFalse(defaults.isClean(), "this state must never be silent");
+            assertTrue(mentions(defaults.warnings(),
+                    "item-progression: gated-items declares no tiers while enabled is true"));
+            assertTrue(mentions(defaults.warnings(), "check whether config.yml failed to load"));
+        }
+
+        @Test
+        @DisplayName("stay quiet when item progression is switched off deliberately")
+        void noComplaintWhenItemProgressionIsDisabled() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      enabled: false
+                    """));
+            assertFalse(mentions(config.warnings(), "gated-items declares no tiers"),
+                    "an operator who turned the feature off does not need to be told it is off");
         }
 
         @Test
@@ -279,7 +309,9 @@ class PluginConfigTest {
             assertEquals(4.0D, config.antiCheese().maxSingleHitBossDamage());
             assertEquals(500, config.antiCheese().outerEndRadius(), "untouched sibling defaults");
             assertEquals(PluginConfig.defaults().dimensionGates(), config.dimensionGates());
-            assertTrue(config.isClean(), config.warnings().toString());
+            assertEquals(List.of(), config.warnings().stream()
+                            .filter(w -> !w.contains("gated-items declares no tiers")).toList(),
+                    "an unconfigured key is not a warning");
         }
 
         @Test

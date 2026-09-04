@@ -24,7 +24,16 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  */
 public final class AntiSpeedrunPlugin extends JavaPlugin {
 
-    private ConfigSnapshotHolder configHolder;
+    /**
+     * Volatile, not merely assigned once: this field is written on the enable thread and read from
+     * every Folia region thread, and nothing else in this class establishes a happens-before edge
+     * for it. The snapshot graph below the reference is safely published by the holder's own
+     * volatile write, but that says nothing about the reference to the holder itself. It cannot be
+     * {@code final} because {@code onEnable} is not a constructor, so {@code volatile} is the
+     * remaining way to publish it safely — and this class is the pattern every listener added later
+     * will copy.
+     */
+    private volatile ConfigSnapshotHolder configHolder;
 
     @Override
     public void onEnable() {
@@ -35,6 +44,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         this.configHolder = new ConfigSnapshotHolder(getLogger(), PluginConfig.defaults());
         if (!reloadConfiguration()) {
             getLogger().warning("Running on the shipped default configuration until config.yml loads.");
+            // The rejected-reload path logs why the file failed, but nothing has yet said what the
+            // fallback actually leaves running -- notably that the defaults gate no items at all.
+            configHolder.logWarnings(configHolder.get().warnings());
         }
 
         getLogger().info("AntiSpeedrun enabled successfully.");

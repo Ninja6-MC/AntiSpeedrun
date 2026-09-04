@@ -111,6 +111,11 @@ public record PluginConfig(
      * The shipped defaults, as parsed from an empty document. Used as the startup fallback when
      * {@code config.yml} cannot be read at all, so the plugin runs on known-good values rather
      * than being disabled.
+     *
+     * <p>This is deliberately <strong>not</strong> {@link #isClean() clean}: {@code gated-items}
+     * has no code-level default, so the defaults gate no items at all, and that warning is what
+     * makes the fallback state visible in the log instead of silent. Duplicating the shipped tier
+     * table as Java literals would remove the warning at the price of a second copy to drift.
      */
     public static PluginConfig defaults() {
         try {
@@ -167,8 +172,20 @@ public record PluginConfig(
             parsed.add(parseItemTier(id, tiers.child(id)));
         }
 
+        boolean enabled = r.bool("enabled", true);
+        if (enabled && parsed.isEmpty()) {
+            // gated-items is the one section with no code-level default, so this combination is
+            // exactly what defaults() produces -- and defaults() is the startup fallback when
+            // config.yml cannot be parsed. Without this line a single YAML typo would leave every
+            // dimension gate and anti-cheese rule working while every item gate was silently
+            // inert, with nothing in the log saying so.
+            r.note("gated-items declares no tiers while enabled is true, so NO item is gated. "
+                    + "Item progression is effectively off. This is also what the built-in "
+                    + "defaults produce, so check whether config.yml failed to load.");
+        }
+
         return new ItemProgression(
-                r.bool("enabled", true),
+                enabled,
                 r.bool("drop-recall-enabled", true),
                 r.bool("gate-dispensers", true),
                 r.bool("gate-nested-bundles", true),

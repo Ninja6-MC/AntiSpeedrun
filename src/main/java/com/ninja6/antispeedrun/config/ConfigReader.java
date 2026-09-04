@@ -182,6 +182,14 @@ final class ConfigReader {
         }
     }
 
+    /**
+     * Records a warning about this section as a whole, rather than about one key. Used for states
+     * that are individually well-formed but jointly meaningless.
+     */
+    void note(String message) {
+        warnings.add(path.isEmpty() ? message : path + ": " + message);
+    }
+
     private void warn(String key, String expected, Object found) {
         warnings.add(qualify(key) + ": expected " + expected + " but found " + describe(found)
                 + "; using the default");
