@@ -6,9 +6,12 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -33,6 +36,13 @@ import org.bukkit.configuration.file.YamlConfiguration;
  * exists to prevent.
  */
 public final class YamlStateFile implements StateFile {
+
+    /** Stamp appended to a quarantined document. Sortable, and filename-safe on Windows. */
+    private static final DateTimeFormatter CORRUPT_STAMP =
+            DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+
+    /** How many suffixed names to try when two quarantines land in the same second. */
+    private static final int MAX_COLLISION_ATTEMPTS = 100;
 
     private final Path file;
 
@@ -67,6 +77,30 @@ public final class YamlStateFile implements StateFile {
             }
         }
         return Map.copyOf(flat);
+    }
+
+    /**
+     * Renames the unreadable document to {@code state.yml.corrupt-<timestamp>} beside itself.
+     *
+     * <p>A rename rather than a copy, so the damaged bytes exist in exactly one place and the next
+     * {@link #save} writes a clean file rather than appending to a broken one. The timestamp keeps
+     * a second incident from overwriting the evidence of the first.
+     */
+    @Override
+    public Optional<String> quarantine() throws IOException {
+        if (!Files.exists(file)) {
+            return Optional.empty();
+        }
+        String stamp = CORRUPT_STAMP.format(LocalDateTime.now());
+        Path target = file.resolveSibling(file.getFileName() + ".corrupt-" + stamp);
+        for (int attempt = 1; Files.exists(target) && attempt <= MAX_COLLISION_ATTEMPTS; attempt++) {
+            target = file.resolveSibling(file.getFileName() + ".corrupt-" + stamp + "-" + attempt);
+        }
+        if (Files.exists(target)) {
+            throw new IOException("Could not find an unused quarantine name beside " + file);
+        }
+        Files.move(file, target);
+        return Optional.of(target.getFileName().toString());
     }
 
     @Override

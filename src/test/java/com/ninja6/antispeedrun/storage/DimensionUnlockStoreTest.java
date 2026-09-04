@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -34,6 +35,12 @@ class DimensionUnlockStoreTest {
         private int saves;
         private IOException failWith;
 
+        /** Set independently of {@code failWith}: a file can be unreadable but still movable. */
+        private IOException failQuarantineWith;
+
+        /** Documents quarantine moved aside, in order. Empty until damage is preserved. */
+        private final List<Map<String, Object>> quarantined = new ArrayList<>();
+
         @Override
         public Map<String, Object> load() throws IOException {
             if (failWith != null) {
@@ -49,6 +56,21 @@ class DimensionUnlockStoreTest {
                 throw failWith;
             }
             this.document = Map.copyOf(document);
+        }
+
+        @Override
+        public Optional<String> quarantine() throws IOException {
+            if (failQuarantineWith != null) {
+                throw failQuarantineWith;
+            }
+            if (document.isEmpty()) {
+                return Optional.empty();
+            }
+            // Stands in for the rename: the damaged bytes leave the live document and survive.
+            quarantined.add(document);
+            document = Map.of();
+            failWith = null;
+            return Optional.of("state.yml.corrupt-20260904-153012");
         }
     }
 
@@ -174,6 +196,85 @@ class DimensionUnlockStoreTest {
         assertEquals(UnlockState.empty(), store.state());
         assertTrue(logged.stream().anyMatch(record -> record.getLevel() == Level.SEVERE),
                 "an unreadable state file must be logged at SEVERE, not swallowed");
+    }
+
+    @Test
+    @DisplayName("a damaged file is moved aside, not overwritten, by the next unlock")
+    void damagedFileIsPreservedBeforeBeingReplaced() {
+        List<LogRecord> logged = new ArrayList<>();
+        InMemoryStateFile file = new InMemoryStateFile();
+        // A server that had both dimensions open, whose state.yml is now unreadable.
+        file.document = Map.of("dimension-unlocks.nether", 1L, "dimension-unlocks.the_end", 2L);
+        Map<String, Object> damaged = file.document;
+        file.failWith = new IOException("state.yml is truncated");
+
+        DimensionUnlockStore store = new DimensionUnlockStore(quietLogger(logged), file, INLINE);
+        assertFalse(store.loadNow());
+        assertTrue(store.isAwaitingQuarantine());
+
+        store.unlock(DimensionUnlock.NETHER, 99L);
+
+        // The regression: this used to replace the only surviving record of what had been
+        // unlocked with an empty document, silently. The damaged bytes must still exist.
+        assertEquals(List.of(damaged), file.quarantined,
+                "the damaged document must be moved aside before anything overwrites it");
+        assertFalse(store.isAwaitingQuarantine(), "quarantine clears the latch");
+        assertEquals(1, file.saves);
+    }
+
+    @Test
+    @DisplayName("once quarantined, the new state persists normally across a restart")
+    void writesResumeAfterQuarantine() {
+        InMemoryStateFile file = new InMemoryStateFile();
+        file.document = Map.of("dimension-unlocks.nether", 1L);
+        file.failWith = new IOException("state.yml is truncated");
+
+        DimensionUnlockStore store = new DimensionUnlockStore(quietLogger(new ArrayList<>()), file, INLINE);
+        store.loadNow();
+        store.unlock(DimensionUnlock.THE_END, 99L);
+
+        // Refusing to persist at all would have kept the damaged file intact but made every unlock
+        // for the rest of the run silently non-durable. Quarantine gets both.
+        DimensionUnlockStore afterRestart =
+                new DimensionUnlockStore(quietLogger(new ArrayList<>()), file, INLINE);
+        assertTrue(afterRestart.loadNow());
+        assertTrue(afterRestart.isUnlocked(DimensionUnlock.THE_END));
+    }
+
+    @Test
+    @DisplayName("if the damaged file cannot be moved aside, nothing is written over it")
+    void unmovableDamagedFileIsLeftAlone() {
+        List<LogRecord> logged = new ArrayList<>();
+        InMemoryStateFile file = new InMemoryStateFile();
+        Map<String, Object> damaged = Map.of("dimension-unlocks.nether", 1L);
+        file.document = damaged;
+        file.failWith = new IOException("state.yml is truncated");
+        file.failQuarantineWith = new IOException("permission denied");
+
+        DimensionUnlockStore store = new DimensionUnlockStore(quietLogger(logged), file, INLINE);
+        store.loadNow();
+        store.unlock(DimensionUnlock.THE_END, 99L);
+
+        assertEquals(0, file.saves, "the write must be abandoned, not attempted");
+        assertEquals(damaged, file.document, "the damaged document must be exactly as it was");
+        assertTrue(store.isAwaitingQuarantine(), "the latch stays set so a later unlock retries");
+        assertTrue(logged.stream().anyMatch(record -> record.getLevel() == Level.SEVERE));
+        // The unlock is still in effect for this run; only its durability was lost.
+        assertTrue(store.isUnlocked(DimensionUnlock.THE_END));
+    }
+
+    @Test
+    @DisplayName("a clean load never quarantines anything")
+    void healthyFileIsNeverQuarantined() {
+        InMemoryStateFile file = new InMemoryStateFile();
+        file.document = Map.of("dimension-unlocks.nether", 1L);
+
+        DimensionUnlockStore store = new DimensionUnlockStore(quietLogger(new ArrayList<>()), file, INLINE);
+        assertTrue(store.loadNow());
+        store.unlock(DimensionUnlock.THE_END, 2L);
+
+        assertTrue(file.quarantined.isEmpty());
+        assertFalse(store.isAwaitingQuarantine());
     }
 
     @Test

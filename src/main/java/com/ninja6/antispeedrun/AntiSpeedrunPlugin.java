@@ -128,7 +128,15 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 getLogger(),
                 new YamlStateFile(new File(getDataFolder(), "state.yml").toPath()),
                 write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
-        dimensionUnlocks.loadNow();
+        if (!dimensionUnlocks.loadNow()) {
+            // Deliberately not fatal, and deliberately not silent. The store has already logged the
+            // cause at SEVERE and has latched itself so the damaged file is moved aside rather than
+            // overwritten by the next unlock; this line only makes the degraded state visible in the
+            // startup banner, where an operator reading the log after a crash will actually see it.
+            getLogger().warning("Starting with no dimension unlocks recorded. The unreadable state "
+                    + "file has been left in place and will be preserved under a .corrupt name if a "
+                    + "new unlock has to be written.");
+        }
         this.bypasses = new BypassStore(this);
         this.journeyBook = new JourneyBookStore(this);
 
