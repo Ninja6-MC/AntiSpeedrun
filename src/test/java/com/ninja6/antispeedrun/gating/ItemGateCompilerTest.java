@@ -380,6 +380,43 @@ class ItemGateCompilerTest {
         }
 
         @Test
+        @DisplayName("three tiers resolve to the same winner in every declaration order")
+        void threeTiersAreOrderIndependent() throws Exception {
+            // B and C are incomparable with each other; A dominates both, so A is the unique
+            // maximum and the answer is unambiguous. A pairwise fold gets this wrong: declared
+            // B, C, A it compares B against C first, throws, and never consults A at all.
+            PluginConfig.ItemTier a = requiring("a", List.of("x", "y", "z"), 0.0D, 0, "MACE");
+            PluginConfig.ItemTier b = requiring("b", List.of("x", "y"), 0.0D, 0, "MACE");
+            PluginConfig.ItemTier c = requiring("c", List.of("x", "z"), 0.0D, 0, "MACE");
+
+            for (List<PluginConfig.ItemTier> order : List.of(
+                    List.of(a, b, c), List.of(a, c, b), List.of(b, a, c),
+                    List.of(b, c, a), List.of(c, a, b), List.of(c, b, a))) {
+                warnings.clear();
+                assertEquals("a", tierOf(compileAll(order), TestMaterial.MACE),
+                        "order " + order.stream().map(PluginConfig.ItemTier::id).toList());
+                assertEquals(List.of(), warnings);
+            }
+        }
+
+        @Test
+        @DisplayName("three tiers with no maximum fail in every declaration order")
+        void threeTiersWithNoMaximumAlwaysCollide() {
+            // A dominates B, but C is incomparable with both, so no claimant beats every other.
+            PluginConfig.ItemTier a = requiring("a", List.of("x", "y"), 0.0D, 0, "MACE");
+            PluginConfig.ItemTier b = requiring("b", List.of("x"), 0.0D, 0, "MACE");
+            PluginConfig.ItemTier c = requiring("c", List.of("z"), 0.0D, 0, "MACE");
+
+            for (List<PluginConfig.ItemTier> order : List.of(
+                    List.of(a, b, c), List.of(a, c, b), List.of(b, a, c),
+                    List.of(b, c, a), List.of(c, a, b), List.of(c, b, a))) {
+                warnings.clear();
+                assertThrows(GateCollisionException.class, () -> compileAll(order),
+                        "order " + order.stream().map(PluginConfig.ItemTier::id).toList());
+            }
+        }
+
+        @Test
         @DisplayName("a partial-overlap advancement set is a collision, not a superset")
         void partialOverlapIsACollision() {
             PluginConfig.ItemTier a = requiring("a", List.of("x", "y"), 0.0D, 0, "MACE");

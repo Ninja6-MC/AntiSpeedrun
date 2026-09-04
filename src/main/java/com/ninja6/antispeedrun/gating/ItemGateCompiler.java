@@ -43,6 +43,10 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  *       requirement sets, and the {@code exclude-materials} line that resolves it.</li>
  * </ol>
  *
+ * <p>Steps 2 to 4 are evaluated over the whole set of tiers claiming a material at once, never as a
+ * running pairwise fold — see {@link #resolve}. Which tier wins, and whether the configuration is
+ * rejected at all, are both independent of the order the tiers are written in.</p>
+ *
  * <h2>Cost</h2>
  *
  * Every string operation in the whole gating feature happens here, once per configuration snapshot:
@@ -93,23 +97,22 @@ public final class ItemGateCompiler {
         EnumMap<M, PluginConfig.ItemTier> byMaterial = new EnumMap<>(universe);
         EnumSet<M> gated = EnumSet.noneOf(universe);
 
+        List<PluginConfig.ItemTier> claimants = new ArrayList<>(4);
         for (M value : values) {
             String name = value.name();
-            PluginConfig.ItemTier winner = null;
+            claimants.clear();
             for (CompiledTier candidate : compiled) {
-                if (!candidate.claims(name)) {
-                    continue;
+                if (candidate.claims(name)) {
+                    claimants.add(candidate.tier());
                 }
-                if (winner == null) {
-                    winner = candidate.tier();
-                    continue;
-                }
-                winner = resolve(name, winner, candidate.tier(), warnings);
             }
-            if (winner != null) {
-                byMaterial.put(value, winner);
-                gated.add(value);
+            if (claimants.isEmpty()) {
+                continue;
             }
+            PluginConfig.ItemTier winner =
+                    claimants.size() == 1 ? claimants.get(0) : resolve(name, claimants, warnings);
+            byMaterial.put(value, winner);
+            gated.add(value);
         }
 
         for (CompiledTier tier : compiled) {
@@ -120,37 +123,93 @@ public final class ItemGateCompiler {
     }
 
     /**
-     * Applies the precedence rule to two tiers that both claim {@code materialName}.
+     * Applies the precedence rule to every tier that claims {@code materialName}.
      *
-     * @return whichever tier owns the material
-     * @throws GateCollisionException when neither dominates the other
+     * <p>Deliberately <strong>not</strong> a pairwise fold. Folding picks a running winner and
+     * compares the next claimant against it, which makes the outcome depend on declaration order as
+     * soon as three tiers overlap: with {@code B} and {@code C} incomparable and {@code A}
+     * dominating both, {@code A, B, C} folds cleanly to {@code A} while {@code B, C, A} throws on
+     * the first pair and never consults {@code A} at all. Same tiers, same requirements, different
+     * line order, different answer — which is exactly what #55 asks not to happen.
+     *
+     * <p>Instead the whole claimant set is considered at once and the unique maximum of the
+     * dominance order is selected: the tier that dominates or equals every other claimant. That is
+     * order-independent by construction. It is quadratic in the number of tiers claiming one
+     * material, which is one or two in practice and runs once per material at load time.
+     *
+     * @return the tier that owns the material
+     * @throws GateCollisionException when no claimant dominates or equals all the others
      */
     private static PluginConfig.ItemTier resolve(String materialName,
-                                                 PluginConfig.ItemTier incumbent,
-                                                 PluginConfig.ItemTier challenger,
+                                                 List<PluginConfig.ItemTier> claimants,
                                                  List<String> warnings) throws GateCollisionException {
-        Set<String> incumbentAdvancements = new LinkedHashSet<>(incumbent.requireAdvancements());
-        Set<String> challengerAdvancements = new LinkedHashSet<>(challenger.requireAdvancements());
+        int size = claimants.size();
+        List<Set<String>> advancements = new ArrayList<>(size);
+        for (PluginConfig.ItemTier claimant : claimants) {
+            advancements.add(new LinkedHashSet<>(claimant.requireAdvancements()));
+        }
 
-        boolean sameRequirements = incumbentAdvancements.equals(challengerAdvancements)
-                && incumbent.requirePlaytimeHours() == challenger.requirePlaytimeHours()
-                && incumbent.requireAccountAgeDays() == challenger.requireAccountAgeDays();
-        if (sameRequirements) {
+        // A maximum dominates or equals every other claimant. Maxima can only be tied with one
+        // another -- dominance is antisymmetric, so a tier another tier dominates is never itself a
+        // maximum -- which is why document order is a safe tie-break among them and only among them.
+        List<Integer> maxima = new ArrayList<>(2);
+        for (int i = 0; i < size; i++) {
+            boolean beatsEveryone = true;
+            for (int j = 0; j < size && beatsEveryone; j++) {
+                if (i == j) {
+                    continue;
+                }
+                beatsEveryone = dominates(claimants.get(i), advancements.get(i),
+                        claimants.get(j), advancements.get(j))
+                        || same(claimants.get(i), advancements.get(i),
+                        claimants.get(j), advancements.get(j));
+            }
+            if (beatsEveryone) {
+                maxima.add(i);
+            }
+        }
+
+        if (maxima.isEmpty()) {
+            throw collision(materialName, claimants, advancements);
+        }
+
+        int winner = maxima.get(0);
+        if (maxima.size() > 1) {
             warnings.add("item-progression.gated-items: " + materialName + " is gated by both \""
-                    + incumbent.id() + "\" and \"" + challenger.id()
-                    + "\", which have identical requirements; \"" + incumbent.id()
+                    + claimants.get(winner).id() + "\" and \""
+                    + claimants.get(maxima.get(1)).id()
+                    + "\", which have identical requirements; \"" + claimants.get(winner).id()
                     + "\" owns it because it is declared first. Remove the duplicate, or exclude "
                     + materialName + " from one of them.");
-            return incumbent;
         }
+        return claimants.get(winner);
+    }
 
-        if (dominates(challenger, challengerAdvancements, incumbent, incumbentAdvancements)) {
-            return challenger;
+    /** Names the first genuinely incomparable pair, for an error a reader can act on. */
+    private static GateCollisionException collision(String materialName,
+                                                    List<PluginConfig.ItemTier> claimants,
+                                                    List<Set<String>> advancements) {
+        for (int i = 0; i < claimants.size(); i++) {
+            for (int j = i + 1; j < claimants.size(); j++) {
+                boolean comparable =
+                        dominates(claimants.get(i), advancements.get(i), claimants.get(j), advancements.get(j))
+                                || dominates(claimants.get(j), advancements.get(j), claimants.get(i), advancements.get(i))
+                                || same(claimants.get(i), advancements.get(i), claimants.get(j), advancements.get(j));
+                if (!comparable) {
+                    return new GateCollisionException(materialName, claimants.get(i), claimants.get(j));
+                }
+            }
         }
-        if (dominates(incumbent, incumbentAdvancements, challenger, challengerAdvancements)) {
-            return incumbent;
-        }
-        throw new GateCollisionException(materialName, incumbent, challenger);
+        // Unreachable: a set with no maximum must contain an incomparable pair.
+        return new GateCollisionException(materialName, claimants.get(0), claimants.get(1));
+    }
+
+    /** Whether two tiers unlock at exactly the same moment, so the choice between them is free. */
+    private static boolean same(PluginConfig.ItemTier a, Set<String> advancementsOfA,
+                                PluginConfig.ItemTier b, Set<String> advancementsOfB) {
+        return advancementsOfA.equals(advancementsOfB)
+                && a.requirePlaytimeHours() == b.requirePlaytimeHours()
+                && a.requireAccountAgeDays() == b.requireAccountAgeDays();
     }
 
     /** Whether {@code a} demands everything {@code b} does, and strictly more of something. */
