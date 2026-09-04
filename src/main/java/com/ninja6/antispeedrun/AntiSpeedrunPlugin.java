@@ -13,6 +13,10 @@ import com.ninja6.antispeedrun.config.ConfigSection;
 import com.ninja6.antispeedrun.config.ConfigSnapshotHolder;
 import com.ninja6.antispeedrun.config.ConfigSource;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
+import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
+import com.ninja6.antispeedrun.progression.ProgressionListener;
+import com.ninja6.antispeedrun.progression.ProgressionManager;
 
 /**
  * AntiSpeedrun - Unified anti-speedrun, dimension progression gates,
@@ -35,6 +39,16 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     private volatile ConfigSnapshotHolder configHolder;
 
+    /**
+     * Every per-player map in the plugin registers here, so {@code PlayerQuitEvent} clears all of
+     * them in one call and a feature added later cannot forget to (finding R-08). Assigned in
+     * {@code onEnable} and read from every region thread, hence {@code volatile} for the same
+     * reason as {@link #configHolder}.
+     */
+    private volatile PlayerStateRegistry playerState;
+
+    private volatile ProgressionManager progression;
+
     @Override
     public void onEnable() {
         saveDefaultConfig();
@@ -49,12 +63,32 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
             configHolder.logWarnings(configHolder.get().warnings());
         }
 
+        this.playerState = new PlayerStateRegistry();
+        this.progression = new ProgressionManager(
+                getLogger(), new BukkitAdvancementLookup(getLogger()), playerState);
+        getServer().getPluginManager().registerEvents(new ProgressionListener(this, progression), this);
+
         getLogger().info("AntiSpeedrun enabled successfully.");
     }
 
     @Override
     public void onDisable() {
+        // Handlers are unregistered by the server before this runs, so nothing can repopulate the
+        // maps; clearing them keeps a /reload cycle from leaving the previous run's entries behind.
+        if (playerState != null) {
+            playerState.forgetAll();
+        }
         getLogger().info("AntiSpeedrun disabled.");
+    }
+
+    /** The progression service. Gates, commands and the progress card all evaluate through it. */
+    public ProgressionManager progression() {
+        return progression;
+    }
+
+    /** The registry every per-player map belongs to. Register here, get quit cleanup for free. */
+    public PlayerStateRegistry playerState() {
+        return playerState;
     }
 
     /**
@@ -78,7 +112,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      *         previous one remains live. Never disables the plugin.
      */
     public boolean reloadConfiguration() {
-        return configHolder.reload(fileSource());
+        boolean swapped = configHolder.reload(fileSource());
+        if (swapped && progression != null) {
+            // A new configuration can require advancements no live snapshot ever queried, and can
+            // enable a gate whose unlock has never been announced. Both are cache state, not
+            // configuration state, so the swap alone does not fix them.
+            progression.onConfigurationReloaded();
+        }
+        return swapped;
     }
 
     /**
