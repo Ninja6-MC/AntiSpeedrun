@@ -214,6 +214,8 @@ class PluginConfigTest {
 
             PluginConfig.ItemTier diamond = items.tier("diamond-tier").orElseThrow();
             assertEquals(List.of("DIAMOND_*", "*_DIAMOND_ORE"), diamond.matchPatterns());
+            assertEquals(List.of("DIAMOND"), diamond.items(),
+                    "DIAMOND_* has no trailing underscore, so the gem needs naming outright");
 
             PluginConfig.ItemTier end = items.tier("end-tier").orElseThrow();
             assertEquals(0.0D, end.requirePlaytimeHours(), "was 20h before #50");
@@ -222,6 +224,8 @@ class PluginConfigTest {
             PluginConfig.ItemTier netherite = items.tier("netherite-tier").orElseThrow();
             assertEquals(List.of("NETHERITE_*"), netherite.matchPatterns());
             assertTrue(netherite.items().containsAll(List.of("ANCIENT_DEBRIS", "MACE", "HEAVY_CORE")));
+            assertEquals(List.of("NETHERITE_UPGRADE_SMITHING_TEMPLATE"), netherite.excludeMaterials(),
+                    "the template matches NETHERITE_* but belongs to trim-progression");
 
             assertTrue(items.tier("no-such-tier").isEmpty());
         }

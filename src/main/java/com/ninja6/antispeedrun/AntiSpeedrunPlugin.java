@@ -2,7 +2,11 @@ package com.ninja6.antispeedrun;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Level;
 
+import org.bukkit.Material;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -14,6 +18,9 @@ import com.ninja6.antispeedrun.config.ConfigSection;
 import com.ninja6.antispeedrun.config.ConfigSnapshotHolder;
 import com.ninja6.antispeedrun.config.ConfigSource;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.gating.GateCollisionException;
+import com.ninja6.antispeedrun.gating.ItemGateTable;
+import com.ninja6.antispeedrun.gating.MaterialGates;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
 import com.ninja6.antispeedrun.progression.ProgressionListener;
@@ -50,6 +57,13 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
 
     private volatile ProgressionManager progression;
 
+    /**
+     * The compiled item-gate lookup, rebuilt from whichever snapshot is live. Volatile for the same
+     * reason as {@link #configHolder}: written on the enable and command threads, read from every
+     * region thread. Never mutated in place — a recompile replaces the whole table in one write.
+     */
+    private volatile ItemGateTable<Material> itemGates = MaterialGates.empty();
+
     @Override
     public void onEnable() {
         saveDefaultConfig();
@@ -57,11 +71,23 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // Start on the shipped defaults so a broken file at startup degrades to known-good values
         // instead of disabling the plugin; the reload below replaces them when the file is valid.
         this.configHolder = new ConfigSnapshotHolder(getLogger(), PluginConfig.defaults());
-        if (!reloadConfiguration()) {
+        if (!configHolder.reload(fileSource())) {
             getLogger().warning("Running on the shipped default configuration until config.yml loads.");
             // The rejected-reload path logs why the file failed, but nothing has yet said what the
             // fallback actually leaves running -- notably that the defaults gate no items at all.
             configHolder.logWarnings(configHolder.get().warnings());
+        }
+
+        // An unresolvable tier collision is not a recoverable parse problem. At startup there is no
+        // previous table to keep, and staying up with every item ungated is precisely the silent
+        // failure audit finding R-11 objects to -- so this one condition does stop the plugin,
+        // where a malformed config.yml deliberately does not. Checked before anything else is
+        // built, so a doomed startup does not register listeners it is about to tear down.
+        if (!recompileItemGates()) {
+            getLogger().severe("AntiSpeedrun will not start while item-progression.gated-items "
+                    + "contains an unresolvable tier collision. Fix config.yml and restart.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
         }
 
         this.playerState = new PlayerStateRegistry();
@@ -112,14 +138,33 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     }
 
     /**
-     * Re-reads {@code config.yml} and swaps the snapshot in one assignment.
+     * The compiled item-gate lookup for the live snapshot. Read once per event, exactly like
+     * {@link #configuration()}; the two are recompiled together, so a pair read at the top of a
+     * handler always agrees.
      *
-     * @return {@code true} if the new snapshot is live, {@code false} if it was rejected and the
-     *         previous one remains live. Never disables the plugin.
+     * <p>This is the entry point the pickup and container listeners (#12, #9) need:
+     * {@code itemGates().isGated(material)} and {@code itemGates().tierFor(material)}.
+     */
+    public ItemGateTable<Material> itemGates() {
+        return itemGates;
+    }
+
+    /**
+     * Re-reads {@code config.yml}, swaps the snapshot in one assignment, recompiles the item gates
+     * from it, and refreshes everything else derived from a configuration.
+     *
+     * @return {@code true} if the new snapshot and its compiled gates are live, {@code false} if
+     *         either was rejected and the previous pair remains live. Never disables the plugin —
+     *         only the startup path in {@link #onEnable()} does that, and only for a collision.
      */
     public boolean reloadConfiguration() {
-        boolean swapped = configHolder.reload(fileSource());
-        if (swapped && progression != null) {
+        if (!configHolder.reload(fileSource()) || !recompileItemGates()) {
+            // Nothing derived from a configuration is refreshed on a rejected reload: the previous
+            // configuration is still the live one, so the progression cache built from it is still
+            // correct and dropping it would discard good captures over a failed file.
+            return false;
+        }
+        if (progression != null) {
             // A new configuration can require advancements no live snapshot ever queried, so every
             // capture is stale. Dropping them is cache state, not configuration state, so the swap
             // alone does not fix it.
@@ -129,7 +174,33 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
             // once per reload, to everyone.
             primeOnlinePlayers(configuration());
         }
-        return swapped;
+        return true;
+    }
+
+    /**
+     * Compiles a whole new {@link ItemGateTable} from the live snapshot and publishes it with one
+     * volatile write. Nothing is mutated in place, so {@code /asr reload} flushes the old table
+     * simply by making it unreachable.
+     *
+     * @return {@code false} if compilation failed, in which case the previous table stays live
+     */
+    private boolean recompileItemGates() {
+        PluginConfig snapshot = configHolder.get();
+        List<String> warnings = new ArrayList<>();
+        ItemGateTable<Material> compiled;
+        try {
+            compiled = MaterialGates.compile(snapshot.itemProgression(), warnings);
+        } catch (GateCollisionException collision) {
+            getLogger().log(Level.SEVERE, "GateCollisionException: the item gates were NOT "
+                    + "recompiled and the previously compiled table remains live. "
+                    + collision.getMessage(), collision);
+            return false;
+        }
+        this.itemGates = compiled;
+        configHolder.logWarnings(warnings);
+        getLogger().info("Item gates compiled: " + compiled.size() + " materials across "
+                + snapshot.itemProgression().gatedItems().size() + " tiers.");
+        return true;
     }
 
     /**
