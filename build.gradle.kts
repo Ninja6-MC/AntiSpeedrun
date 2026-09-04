@@ -24,6 +24,12 @@ dependencies {
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // paper-api is compileOnly, so Bukkit's YamlConfiguration is not on the test classpath.
+    // PluginConfig therefore parses from com.ninja6.antispeedrun.config.ConfigSection rather than
+    // from FileConfiguration, and the tests drive that seam with real YAML through SnakeYAML --
+    // the same parser Bukkit itself uses. Test scope only: nothing in src/main imports it.
+    testImplementation("org.yaml:snakeyaml:2.2")
 }
 
 tasks {
