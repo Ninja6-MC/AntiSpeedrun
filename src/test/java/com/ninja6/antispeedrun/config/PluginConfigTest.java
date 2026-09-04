@@ -214,6 +214,8 @@ class PluginConfigTest {
 
             PluginConfig.ItemTier diamond = items.tier("diamond-tier").orElseThrow();
             assertEquals(List.of("DIAMOND_*", "*_DIAMOND_ORE"), diamond.matchPatterns());
+            assertEquals(List.of("DIAMOND"), diamond.items(),
+                    "DIAMOND_* has no trailing underscore, so the gem needs naming outright");
 
             PluginConfig.ItemTier end = items.tier("end-tier").orElseThrow();
             assertEquals(0.0D, end.requirePlaytimeHours(), "was 20h before #50");
@@ -222,6 +224,8 @@ class PluginConfigTest {
             PluginConfig.ItemTier netherite = items.tier("netherite-tier").orElseThrow();
             assertEquals(List.of("NETHERITE_*"), netherite.matchPatterns());
             assertTrue(netherite.items().containsAll(List.of("ANCIENT_DEBRIS", "MACE", "HEAVY_CORE")));
+            assertEquals(List.of("NETHERITE_UPGRADE_SMITHING_TEMPLATE"), netherite.excludeMaterials(),
+                    "the template matches NETHERITE_* but belongs to trim-progression");
 
             assertTrue(items.tier("no-such-tier").isEmpty());
         }
@@ -544,6 +548,71 @@ class PluginConfigTest {
             }));
             assertSame(initial, holder.get());
             assertEquals(1, log.at(Level.SEVERE).size());
+        }
+
+        @Test
+        @DisplayName("state derived from the candidate is built before the candidate is published")
+        void derivedStateIsBuiltBeforePublication() {
+            CapturingLogger log = new CapturingLogger();
+            ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+            AtomicReference<PluginConfig> seenByBinding = new AtomicReference<>();
+
+            java.util.Optional<String> derived = holder.reload(() -> yaml("profile: HARDCORE\n"),
+                    candidate -> {
+                        // The binding must see the candidate, and the holder must still be serving
+                        // the previous snapshot while it runs -- that ordering is the whole point.
+                        seenByBinding.set(candidate);
+                        assertEquals(PluginConfig.Profile.SMP_STANDARD, holder.get().profile(),
+                                "the candidate must not be live yet");
+                        return "derived from " + candidate.profile();
+                    });
+
+            assertEquals("derived from HARDCORE", derived.orElseThrow());
+            assertEquals(PluginConfig.Profile.HARDCORE, holder.get().profile());
+            assertEquals(PluginConfig.Profile.HARDCORE, seenByBinding.get().profile());
+        }
+
+        @Test
+        @DisplayName("a binding that rejects the candidate leaves the previous snapshot live")
+        void rejectedDerivedStateChangesNothing() {
+            // Task 4.2.1's item gate table is compiled through this path. Compiling it after the
+            // swap would leave the operator's new tiers live beside the old material assignments,
+            // and a listener reading both would enforce requirements from two different files.
+            CapturingLogger log = new CapturingLogger();
+            ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+            assertTrue(holder.reload(() -> yaml("profile: CASUAL\n")));
+            PluginConfig live = holder.get();
+
+            java.util.Optional<String> derived = holder.reload(() -> yaml("profile: HARDCORE\n"),
+                    candidate -> {
+                        throw new IllegalStateException("tiers collide over MACE");
+                    });
+
+            assertTrue(derived.isEmpty());
+            assertSame(live, holder.get(), "the rejected candidate must not have been published");
+            assertEquals(PluginConfig.Profile.CASUAL, holder.get().profile());
+
+            List<LogRecord> severe = log.at(Level.SEVERE);
+            assertEquals(1, severe.size());
+            assertTrue(severe.get(0).getMessage().contains("was NOT applied"),
+                    severe.get(0).getMessage());
+            assertTrue(severe.get(0).getMessage().contains("tiers collide over MACE"),
+                    "the cause must name itself: " + severe.get(0).getMessage());
+        }
+
+        @Test
+        @DisplayName("a binding is not consulted at all when the document will not parse")
+        void bindingIsSkippedWhenParsingFails() {
+            CapturingLogger log = new CapturingLogger();
+            ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+            AtomicBoolean called = new AtomicBoolean();
+
+            assertTrue(holder.reload(() -> yaml("profile: HARDCORE\n  bad: indent\n"),
+                    candidate -> {
+                        called.set(true);
+                        return candidate;
+                    }).isEmpty());
+            assertFalse(called.get());
         }
 
         @Test

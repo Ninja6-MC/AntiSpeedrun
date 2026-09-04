@@ -2,7 +2,12 @@ package com.ninja6.antispeedrun;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.bukkit.Material;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -14,6 +19,9 @@ import com.ninja6.antispeedrun.config.ConfigSection;
 import com.ninja6.antispeedrun.config.ConfigSnapshotHolder;
 import com.ninja6.antispeedrun.config.ConfigSource;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.gating.GateCollisionException;
+import com.ninja6.antispeedrun.gating.ItemGateTable;
+import com.ninja6.antispeedrun.gating.MaterialGates;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
 import com.ninja6.antispeedrun.progression.ProgressionListener;
@@ -50,6 +58,13 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
 
     private volatile ProgressionManager progression;
 
+    /**
+     * The compiled item-gate lookup, rebuilt from whichever snapshot is live. Volatile for the same
+     * reason as {@link #configHolder}: written on the enable and command threads, read from every
+     * region thread. Never mutated in place — a recompile replaces the whole table in one write.
+     */
+    private volatile ItemGateTable<Material> itemGates = MaterialGates.empty();
+
     @Override
     public void onEnable() {
         saveDefaultConfig();
@@ -57,11 +72,33 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // Start on the shipped defaults so a broken file at startup degrades to known-good values
         // instead of disabling the plugin; the reload below replaces them when the file is valid.
         this.configHolder = new ConfigSnapshotHolder(getLogger(), PluginConfig.defaults());
-        if (!reloadConfiguration()) {
-            getLogger().warning("Running on the shipped default configuration until config.yml loads.");
-            // The rejected-reload path logs why the file failed, but nothing has yet said what the
-            // fallback actually leaves running -- notably that the defaults gate no items at all.
-            configHolder.logWarnings(configHolder.get().warnings());
+        // Runs before anything else is built, so a startup doomed by a tier collision does not
+        // register listeners it is about to tear down. Progression does not exist yet at this
+        // point, which is why applyConfiguration's refresh of it is null-guarded rather than
+        // unconditional -- priming online players is done explicitly further down instead.
+        switch (applyConfiguration()) {
+            case APPLIED -> {
+                // Nothing more to do: the snapshot and the gates it compiled to are both live.
+            }
+            case CONFIG_REJECTED -> {
+                getLogger().warning(
+                        "Running on the shipped default configuration until config.yml loads.");
+                // The rejected-reload path logs why the file failed, but nothing has yet said what
+                // the fallback actually leaves running -- notably that the defaults gate no items
+                // at all, which is what the empty table this field starts on already expresses.
+                configHolder.logWarnings(configHolder.get().warnings());
+            }
+            case GATES_REJECTED -> {
+                // An unresolvable tier collision is not a recoverable parse problem. At startup
+                // there is no previous table to keep, and staying up with every item ungated is
+                // precisely the silent failure audit finding R-11 objects to -- so this one
+                // condition does stop the plugin, where a malformed config.yml deliberately
+                // does not.
+                getLogger().severe("AntiSpeedrun will not start while item-progression.gated-items "
+                        + "contains an unresolvable tier collision. Fix config.yml and restart.");
+                getServer().getPluginManager().disablePlugin(this);
+                return;
+            }
         }
 
         this.playerState = new PlayerStateRegistry();
@@ -112,24 +149,102 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     }
 
     /**
-     * Re-reads {@code config.yml} and swaps the snapshot in one assignment.
+     * The compiled item-gate lookup for the live snapshot. Read once per event, exactly like
+     * {@link #configuration()}. This table is always compiled from the snapshot
+     * {@link #configuration()} returns: a reload that cannot compile publishes neither, so the two
+     * never come to rest out of step, and the {@code ItemTier} {@link ItemGateTable#tierFor} hands
+     * back is always one the live snapshot contains.
      *
-     * @return {@code true} if the new snapshot is live, {@code false} if it was rejected and the
-     *         previous one remains live. Never disables the plugin.
+     * <p>This is the entry point the pickup and container listeners (#12, #9) need:
+     * {@code itemGates().isGated(material)} and {@code itemGates().tierFor(material)}.
+     */
+    public ItemGateTable<Material> itemGates() {
+        return itemGates;
+    }
+
+    /**
+     * Re-reads {@code config.yml} and applies it, all or nothing: the snapshot, the item gate table
+     * compiled from it, and the progression cache built against it.
+     *
+     * @return {@code true} if the new snapshot and its compiled gates are live, {@code false} if
+     *         either was rejected — in which case <em>nothing</em> was applied and the previous
+     *         snapshot, table and progression cache all remain live together. Never disables the
+     *         plugin; only the startup path in {@link #onEnable()} does that, and only for a
+     *         collision.
      */
     public boolean reloadConfiguration() {
-        boolean swapped = configHolder.reload(fileSource());
-        if (swapped && progression != null) {
+        return applyConfiguration() == ReloadOutcome.APPLIED;
+    }
+
+    /** Why a reload attempt ended the way it did. The startup path treats the two failures apart. */
+    private enum ReloadOutcome {
+        /** The new snapshot and the gates compiled from it are both live. */
+        APPLIED,
+        /** {@code config.yml} could not be parsed; nothing changed. Recoverable, never fatal. */
+        CONFIG_REJECTED,
+        /** The file parsed but its tiers collide; nothing changed. Fatal at startup only. */
+        GATES_REJECTED
+    }
+
+    /**
+     * Re-reads {@code config.yml}, compiles the item gates from the <em>candidate</em> snapshot, and
+     * publishes both only if each succeeded.
+     *
+     * <p>The compile deliberately happens before the snapshot is published. Compiling afterwards
+     * would leave a rejected collision with the operator's new configuration live beside the old
+     * material assignments — {@code tierFor} would hand a listener an {@code ItemTier} that is not
+     * in the live snapshot at all, and the two would stay out of step until the next successful
+     * reload. {@link ConfigSnapshotHolder#reload(ConfigSource, ConfigSnapshotHolder.SnapshotBinding)}
+     * exists for exactly this ordering.
+     *
+     * <p>Nothing is ever mutated in place, so {@code /asr reload} flushes the old table simply by
+     * making it unreachable.
+     *
+     * <p>Four things happen here, and the order is the point: parse the candidate, compile the gate
+     * table <em>from the candidate</em>, publish both, then refresh what was derived from the
+     * previous configuration. The progression cache is refreshed last and only on the applied path.
+     * Invalidating it after a rejected reload would throw away good captures because a file failed
+     * to parse — the mirror image of publishing a snapshot beside a stale table, and wrong for the
+     * same reason. It is also why {@code primeOnlinePlayers} is handed {@link #configuration()},
+     * the snapshot that is now live, rather than the candidate it was compiled from.
+     */
+    private ReloadOutcome applyConfiguration() {
+        List<String> gateWarnings = new ArrayList<>();
+        AtomicBoolean collided = new AtomicBoolean();
+
+        Optional<ItemGateTable<Material>> compiled = configHolder.reload(fileSource(), candidate -> {
+            try {
+                return MaterialGates.compile(candidate.itemProgression(), gateWarnings);
+            } catch (GateCollisionException collision) {
+                collided.set(true);
+                throw collision;
+            }
+        });
+
+        if (compiled.isEmpty()) {
+            return collided.get() ? ReloadOutcome.GATES_REJECTED : ReloadOutcome.CONFIG_REJECTED;
+        }
+
+        this.itemGates = compiled.get();
+        configHolder.logWarnings(gateWarnings);
+        getLogger().info("Item gates compiled: " + compiled.get().size() + " materials across "
+                + configHolder.get().itemProgression().gatedItems().size() + " tiers.");
+
+        if (progression != null) {
+            // Null during onEnable, which calls this before the manager exists and primes online
+            // players itself afterwards.
+            //
             // A new configuration can require advancements no live snapshot ever queried, so every
             // capture is stale. Dropping them is cache state, not configuration state, so the swap
             // alone does not fix it.
             progression.onConfigurationReloaded();
             // Re-prime rather than reset: an emptied "already told" set would make the next
             // advancement any online player earns re-announce every gate they cleared weeks ago,
-            // once per reload, to everyone.
+            // once per reload, to everyone. Priming dispatches through each player's
+            // EntityScheduler, so it must be given the configuration that is live by then.
             primeOnlinePlayers(configuration());
         }
-        return swapped;
+        return ReloadOutcome.APPLIED;
     }
 
     /**

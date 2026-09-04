@@ -2,6 +2,7 @@ package com.ninja6.antispeedrun.config;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -16,7 +17,11 @@ import java.util.logging.Logger;
  *   <li>{@link #get()} is a single volatile read. Callers read it <em>once</em> per event and use
  *       the returned local for the rest of the handler, so a decision cannot straddle a swap.</li>
  *   <li>{@link #reload(ConfigSource)} parses and validates an entire new snapshot before touching
- *       the reference, then publishes it with one volatile write. Because {@link PluginConfig} is
+ *       the reference, then publishes it with one volatile write. Its
+ *       {@link #reload(ConfigSource, SnapshotBinding)} overload extends that to state compiled
+ *       <em>from</em> a snapshot: the derived value is built from the candidate before the
+ *       candidate is published, so a failure to build it leaves both untouched rather than
+ *       publishing a configuration whose derived state was rejected. Because {@link PluginConfig} is
  *       deeply immutable, that write is a safe publication of the whole graph: a reader sees the
  *       complete old configuration or the complete new one, never a mixture.</li>
  *   <li>A reload that fails changes nothing. The previous snapshot stays live, a named
@@ -58,21 +63,76 @@ public final class ConfigSnapshotHolder {
      *         the previous snapshot remains live
      */
     public boolean reload(ConfigSource source) {
+        return reload(source, candidate -> Boolean.TRUE).isPresent();
+    }
+
+    /**
+     * Derives whatever must be swapped alongside a snapshot, from the <em>candidate</em>, before the
+     * candidate is published.
+     *
+     * <p>Anything compiled out of the configuration — the item gate table is the first such thing —
+     * has to be built from a snapshot that is not live yet, or a failure to build it leaves the new
+     * configuration published beside derived state from the old one. Throwing from
+     * {@link #bind(PluginConfig)} rejects the whole reload, so a caller's derived state and the
+     * snapshot it came from are never out of step.
+     *
+     * @param <T> the derived value handed back to the caller on success
+     */
+    @FunctionalInterface
+    public interface SnapshotBinding<T> {
+
+        /**
+         * @param candidate the parsed but not yet published snapshot
+         * @return the derived value to hand back; must not be {@code null}
+         * @throws Exception to reject the candidate. Nothing is published and the previous snapshot
+         *                   stays live
+         */
+        T bind(PluginConfig candidate) throws Exception;
+    }
+
+    /**
+     * Parses a candidate snapshot, lets {@code binding} derive from it, and publishes the candidate
+     * only once both have succeeded.
+     *
+     * <p>This is the all-or-nothing form of {@link #reload(ConfigSource)}: parse, derive, then one
+     * volatile write. A failure in either half changes nothing at all.
+     *
+     * @return the derived value if the new snapshot is now live; empty if the reload was rejected,
+     *         in which case the previous snapshot — and whatever the caller derived from it —
+     *         remains live and the plugin is not disabled
+     */
+    public <T> Optional<T> reload(ConfigSource source, SnapshotBinding<T> binding) {
         Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(binding, "binding");
+
         PluginConfig candidate;
         try {
             candidate = PluginConfig.from(source.load());
         } catch (ConfigLoadException failure) {
             reject(failure);
-            return false;
+            return Optional.empty();
         } catch (RuntimeException failure) {
             reject(new ConfigLoadException("config.yml could not be read: " + failure, failure));
-            return false;
+            return Optional.empty();
+        }
+
+        T derived;
+        try {
+            derived = Objects.requireNonNull(binding.bind(candidate), "binding returned null");
+        } catch (Exception rejection) {
+            logger.log(Level.SEVERE,
+                    rejection.getClass().getSimpleName() + ": config.yml parsed, but state derived "
+                            + "from it could not be built, so the new configuration was NOT applied. "
+                            + "The previously loaded configuration and everything derived from it "
+                            + "remain live and the plugin stays enabled. Cause: "
+                            + rejection.getMessage(),
+                    rejection);
+            return Optional.empty();
         }
 
         this.snapshot = candidate;
         logWarnings(candidate.warnings());
-        return true;
+        return Optional.of(derived);
     }
 
     /** Logs the recoverable problems recorded on a snapshot, one line each. */

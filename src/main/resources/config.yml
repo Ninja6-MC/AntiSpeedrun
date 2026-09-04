@@ -71,6 +71,11 @@ item-progression:
       match-patterns:
         - "DIAMOND_*"
         - "*_DIAMOND_ORE"
+      items:
+        # DIAMOND_* does not match DIAMOND itself - there is no trailing underscore - so the
+        # gem escaped every pattern while the tools made from it were gated. Same class of
+        # leak as the deepslate ores above.
+        - "DIAMOND"
       require-advancements:
         - "minecraft:story/smelt_iron"
       require-playtime-hours: 0
@@ -113,11 +118,17 @@ item-progression:
       hint: "Unlock The End Gate"
 
     netherite-tier:
-      # Precedence: a Material matching two tiers resolves MOST-RESTRICTIVE-WINS.
-      # NETHERITE_UPGRADE_SMITHING_TEMPLATE matches NETHERITE_* but belongs to the
-      # trim system in section 3 - startup fails loudly on any unresolvable collision.
+      # Precedence: a Material matching two tiers resolves MOST-RESTRICTIVE-WINS - the tier
+      # whose requirements are a strict superset owns it, identical requirements fall back to
+      # document order, and an incomparable pair fails startup with a named error rather than
+      # letting map ordering decide. An exclude-materials entry is applied last and wins
+      # outright, which is how a material claimed by two systems is handed to the right one.
       match-patterns:
         - "NETHERITE_*"
+      exclude-materials:
+        # Matches NETHERITE_* but is a smithing template, owned by trim-progression in
+        # section 3, not by this tier. Excluding it here is the resolution, not a collision.
+        - "NETHERITE_UPGRADE_SMITHING_TEMPLATE"
       items:
         - "ANCIENT_DEBRIS"
         - "MACE"
