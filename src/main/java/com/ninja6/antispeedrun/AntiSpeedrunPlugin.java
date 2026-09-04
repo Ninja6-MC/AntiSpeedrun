@@ -5,6 +5,7 @@ import java.io.IOException;
 
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import com.ninja6.antispeedrun.config.BukkitConfigSection;
@@ -13,6 +14,10 @@ import com.ninja6.antispeedrun.config.ConfigSection;
 import com.ninja6.antispeedrun.config.ConfigSnapshotHolder;
 import com.ninja6.antispeedrun.config.ConfigSource;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
+import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
+import com.ninja6.antispeedrun.progression.ProgressionListener;
+import com.ninja6.antispeedrun.progression.ProgressionManager;
 
 /**
  * AntiSpeedrun - Unified anti-speedrun, dimension progression gates,
@@ -35,6 +40,16 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     private volatile ConfigSnapshotHolder configHolder;
 
+    /**
+     * Every per-player map in the plugin registers here, so {@code PlayerQuitEvent} clears all of
+     * them in one call and a feature added later cannot forget to (finding R-08). Assigned in
+     * {@code onEnable} and read from every region thread, hence {@code volatile} for the same
+     * reason as {@link #configHolder}.
+     */
+    private volatile PlayerStateRegistry playerState;
+
+    private volatile ProgressionManager progression;
+
     @Override
     public void onEnable() {
         saveDefaultConfig();
@@ -49,12 +64,37 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
             configHolder.logWarnings(configHolder.get().warnings());
         }
 
+        this.playerState = new PlayerStateRegistry();
+        this.progression = new ProgressionManager(
+                getLogger(), new BukkitAdvancementLookup(getLogger()), playerState);
+        getServer().getPluginManager().registerEvents(new ProgressionListener(this, progression), this);
+
+        // Players already online -- a hot install, or a /reload -- never fire PlayerJoinEvent for
+        // this listener, so without priming here their first advancement would announce every gate
+        // they had already cleared.
+        primeOnlinePlayers(configuration());
+
         getLogger().info("AntiSpeedrun enabled successfully.");
     }
 
     @Override
     public void onDisable() {
+        // Handlers are unregistered by the server before this runs, so nothing can repopulate the
+        // maps; clearing them keeps a /reload cycle from leaving the previous run's entries behind.
+        if (playerState != null) {
+            playerState.forgetAll();
+        }
         getLogger().info("AntiSpeedrun disabled.");
+    }
+
+    /** The progression service. Gates, commands and the progress card all evaluate through it. */
+    public ProgressionManager progression() {
+        return progression;
+    }
+
+    /** The registry every per-player map belongs to. Register here, get quit cleanup for free. */
+    public PlayerStateRegistry playerState() {
+        return playerState;
     }
 
     /**
@@ -78,7 +118,37 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      *         previous one remains live. Never disables the plugin.
      */
     public boolean reloadConfiguration() {
-        return configHolder.reload(fileSource());
+        boolean swapped = configHolder.reload(fileSource());
+        if (swapped && progression != null) {
+            // A new configuration can require advancements no live snapshot ever queried, so every
+            // capture is stale. Dropping them is cache state, not configuration state, so the swap
+            // alone does not fix it.
+            progression.onConfigurationReloaded();
+            // Re-prime rather than reset: an emptied "already told" set would make the next
+            // advancement any online player earns re-announce every gate they cleared weeks ago,
+            // once per reload, to everyone.
+            primeOnlinePlayers(configuration());
+        }
+        return swapped;
+    }
+
+    /**
+     * Records what every online player already satisfies, without announcing any of it.
+     *
+     * <p>Priming reads {@code getStatistic} and {@code getAdvancementProgress}, which on Folia are
+     * owned by the player's region — so each player's priming is dispatched to their own
+     * {@code EntityScheduler} rather than run in a loop on the calling thread. The retired callback
+     * is {@code null} because a player who is gone before the task runs needs nothing done; the
+     * {@code isOnline} guard covers the same case for a player who leaves in between.
+     */
+    private void primeOnlinePlayers(PluginConfig config) {
+        for (Player player : getServer().getOnlinePlayers()) {
+            player.getScheduler().run(this, task -> {
+                if (player.isOnline()) {
+                    progression.primeUnlocks(player, config);
+                }
+            }, null);
+        }
     }
 
     /**
