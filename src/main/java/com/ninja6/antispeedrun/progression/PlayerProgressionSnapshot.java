@@ -1,5 +1,6 @@
 package com.ninja6.antispeedrun.progression;
 
+import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
@@ -126,6 +127,51 @@ public record PlayerProgressionSnapshot(
             }
         }
         return true;
+    }
+
+    /**
+     * A copy of this snapshot in which any of {@code keys} it does not already cover is recorded as
+     * {@linkplain #unresolvableAdvancements() unresolvable}.
+     *
+     * <p>The escape hatch for a requirement that no capture against the live configuration can ever
+     * answer — a {@link MilestoneRequirement} built from a configuration snapshot other than the one
+     * the caller passed in, which the evaluation API cannot structurally prevent because the two
+     * arrive as independent parameters. Without this, an unqueried key is absent from both
+     * {@code earnedAdvancements} and {@code unresolvableAdvancements}, and
+     * {@link MilestoneEvaluator} reads it as simply unearned — locking the player out of a gate they
+     * may well have cleared. That is fail-<em>closed</em>, and it is the one case in this package
+     * that would not follow the fail-open policy every other unevaluable requirement follows.
+     *
+     * <p>Returns {@code this} when nothing needs waiving, so the common path allocates nothing. The
+     * copy is deliberately not cached: it is an answer for one call, not a fact about the player.
+     */
+    public PlayerProgressionSnapshot withWaived(Iterable<String> keys) {
+        Set<String> uncovered = new LinkedHashSet<>();
+        for (String key : keys) {
+            if (!queriedAdvancements.contains(key)) {
+                uncovered.add(key);
+            }
+        }
+        if (uncovered.isEmpty()) {
+            return this;
+        }
+        Set<String> widenedQueried = new LinkedHashSet<>(queriedAdvancements);
+        widenedQueried.addAll(uncovered);
+        Set<String> widenedUnresolvable = new LinkedHashSet<>(unresolvableAdvancements);
+        widenedUnresolvable.addAll(uncovered);
+        return new PlayerProgressionSnapshot(widenedQueried, earnedAdvancements, widenedUnresolvable,
+                playtimeHours, accountAgeDays, accountAgeKnown, capturedAtMillis);
+    }
+
+    /** The subset of {@code keys} this capture never looked up. */
+    public Set<String> uncovered(Iterable<String> keys) {
+        Set<String> uncovered = new LinkedHashSet<>();
+        for (String key : keys) {
+            if (!queriedAdvancements.contains(key)) {
+                uncovered.add(key);
+            }
+        }
+        return Set.copyOf(uncovered);
     }
 
     /** Whether {@code key} is a requirement this snapshot could not resolve to any advancement. */

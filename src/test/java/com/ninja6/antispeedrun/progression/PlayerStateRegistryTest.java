@@ -162,6 +162,32 @@ class PlayerStateRegistryTest {
     }
 
     @Test
+    void putIfAbsentReportsWhatWasAlreadyHeld() {
+        PlayerStateRegistry registry = new PlayerStateRegistry();
+        PlayerStateMap<String> map = registry.register("map");
+        UUID player = UUID.randomUUID();
+
+        assertTrue(map.putIfAbsent(player, "first").isEmpty());
+        assertEquals("first", map.putIfAbsent(player, "second").orElseThrow());
+        assertEquals("first", map.get(player).orElseThrow());
+    }
+
+    @Test
+    @DisplayName("a conditional remove does not discard what another thread installed")
+    void conditionalRemoveOnlyDropsTheExpectedValue() {
+        PlayerStateRegistry registry = new PlayerStateRegistry();
+        PlayerStateMap<String> map = registry.register("map");
+        UUID player = UUID.randomUUID();
+        map.put(player, "fresh");
+
+        assertFalse(map.remove(player, "stale"), "a stale expectation removes nothing");
+        assertEquals("fresh", map.get(player).orElseThrow());
+
+        assertTrue(map.remove(player, "fresh"));
+        assertFalse(map.contains(player));
+    }
+
+    @Test
     void removeReturnsWhatWasHeld() {
         PlayerStateRegistry registry = new PlayerStateRegistry();
         PlayerStateMap<Long> map = registry.register("map");

@@ -46,10 +46,11 @@ import java.util.function.Supplier;
  * <h2>Threading</h2>
  *
  * Thread-safe. Entries live in a {@link PlayerStateMap}, so a quitting player's entry is dropped
- * along with every other per-player map. {@code get} builds through
- * {@link PlayerStateMap#computeIfAbsent} so that two threads cannot both build for the same player;
- * in practice they never race, because a given player's snapshot is only ever captured on that
- * player's own region thread.
+ * along with every other per-player map. Capture happens <em>outside</em> the map, and the result is
+ * installed with {@code putIfAbsent}: no server read ever runs while a map bin is held. Two threads
+ * capturing for the same player would waste one capture and agree on the winner, and in practice
+ * they never race at all, because a given player's snapshot is only ever captured on that player's
+ * own region thread.
  */
 public final class ProgressionCache {
 
@@ -101,13 +102,28 @@ public final class ProgressionCache {
         if (held != null && !isExpired(held)) {
             return held;
         }
-        // Expired entries are removed rather than overwritten so that computeIfAbsent, and not a
-        // read-modify-write, is what decides who captures.
-        if (held != null) {
-            entries.remove(player);
+
+        // Capture OUTSIDE any map lock. Routing this through computeIfAbsent would run
+        // Bukkit.getAdvancement, getAdvancementProgress, getStatistic and a possible log write while
+        // a ConcurrentHashMap bin is held, serialising two region threads whose players merely hash
+        // together -- an odd thing to do in the class that owns the concurrency contract. The only
+        // cost of capturing first is a discarded duplicate in a race that cannot arise in practice:
+        // a given player's snapshot is only ever captured on that player's own region thread.
+        PlayerProgressionSnapshot fresh =
+                Objects.requireNonNull(capture.get(), "capture returned no snapshot");
+
+        PlayerProgressionSnapshot installed = entries.putIfAbsent(player, fresh).orElse(null);
+        if (installed == null) {
+            return fresh;
         }
-        return entries.computeIfAbsent(player, ignored ->
-                Objects.requireNonNull(capture.get(), "capture returned no snapshot"));
+        if (isExpired(installed)) {
+            // Either the expired entry read above, or another one that expired meanwhile.
+            entries.put(player, fresh);
+            return fresh;
+        }
+        // Another thread captured concurrently and its entry is live; prefer it, so callers on both
+        // threads observe the same instance and the duplicate is simply dropped.
+        return installed;
     }
 
     /** The held snapshot if one is present and unexpired; never captures. For {@code /progress}. */

@@ -2,6 +2,7 @@ package com.ninja6.antispeedrun.progression;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -262,6 +263,50 @@ class MilestoneEvaluatorTest {
 
             assertTrue(held.covers(List.of("a:one")));
             assertFalse(held.covers(List.of("a:one", "a:two")));
+            assertEquals(Set.of("a:two"), held.uncovered(List.of("a:one", "a:two")));
+            assertTrue(held.uncovered(List.of("a:one")).isEmpty());
+        }
+
+        @Test
+        @DisplayName("an uncoverable requirement key must not lock the player out")
+        void anUncoverableKeyFailsOpen() {
+            // The reachable case: a requirement built from one configuration snapshot, evaluated
+            // against a capture taken for another. No capture against the live config can ever
+            // answer "a:absent", so the choice is fail-open or lock the player out of a gate they
+            // may well have cleared.
+            PlayerProgressionSnapshot captured = withAdvancements(Set.of("a:one"), Set.of("a:one"));
+            MilestoneRequirement requirement =
+                    new MilestoneRequirement(List.of("a:one", "a:absent"), 0.0D, 0);
+
+            EligibilityResult naive = MilestoneEvaluator.evaluate(requirement, captured);
+            assertFalse(naive.eligible(), "an unqueried key would otherwise read as unearned");
+
+            EligibilityResult waived = MilestoneEvaluator.evaluate(requirement,
+                    captured.withWaived(captured.uncovered(requirement.advancements())));
+
+            assertTrue(waived.eligible());
+            assertTrue(waived.missingAdvancements().isEmpty());
+            assertEquals(List.of("a:absent"), waived.unresolvableAdvancements());
+            assertTrue(waived.fallbackHint().orElseThrow().contains("a:absent"));
+        }
+
+        @Test
+        void waivingNothingReturnsTheSameSnapshot() {
+            PlayerProgressionSnapshot held = withAdvancements(Set.of("a:one"), Set.of("a:one"));
+
+            assertSame(held, held.withWaived(List.of()));
+            assertSame(held, held.withWaived(List.of("a:one")));
+        }
+
+        @Test
+        void waivingLeavesEarnedAdvancementsAlone() {
+            PlayerProgressionSnapshot held = withAdvancements(Set.of("a:one"), Set.of("a:one"));
+
+            PlayerProgressionSnapshot waived = held.withWaived(List.of("a:two"));
+
+            assertTrue(waived.hasEarned("a:one"));
+            assertTrue(waived.isUnresolvable("a:two"));
+            assertTrue(waived.covers(List.of("a:one", "a:two")));
         }
     }
 }

@@ -72,6 +72,12 @@ public final class ProgressionManager {
     private final AtomicBoolean warnedMissingFirstPlayed = new AtomicBoolean();
 
     /**
+     * Requirement keys already reported as uncapturable. Bounded by the number of distinct keys any
+     * caller passes, so it needs no eviction.
+     */
+    private final Set<String> uncoveredReported = ConcurrentHashMap.newKeySet();
+
+    /**
      * @param logger      plugin logger
      * @param advancements how configured advancement keys are resolved
      * @param state       registry every per-player map in this class is registered with, so quit
@@ -147,13 +153,51 @@ public final class ProgressionManager {
                                                Iterable<String> mustCover) {
         UUID id = player.getUniqueId();
         PlayerProgressionSnapshot held = cache.get(id, () -> capture(player, config));
-        if (held.covers(mustCover)) {
+
+        Set<String> uncovered = held.uncovered(mustCover);
+        if (uncovered.isEmpty()) {
             return held;
         }
-        // A reload introduced a key this capture predates. Treating an unqueried key as unearned
-        // would seal a gate against a player who had already cleared it, so re-capture instead.
-        cache.invalidate(id);
-        return cache.get(id, () -> capture(player, config));
+
+        // Ask whether a re-capture could even help before paying for one. capture() queries exactly
+        // allRequiredAdvancements(config), so a key outside that set will be missing from the second
+        // snapshot too -- and re-capturing regardless would mean two Bukkit captures on every call
+        // for the rest of the session, permanently, with nothing in the log to say why.
+        if (Milestone.allRequiredAdvancements(config).containsAll(uncovered)) {
+            // A reload introduced a key this capture predates. One re-capture answers it.
+            cache.invalidate(id);
+            held = cache.get(id, () -> capture(player, config));
+            uncovered = held.uncovered(mustCover);
+            if (uncovered.isEmpty()) {
+                return held;
+            }
+        }
+
+        // Nothing this configuration can capture will ever answer these keys -- the requirement was
+        // built from a different configuration snapshot than the one passed in. Waive them, exactly
+        // as an advancement the server does not define is waived, so the player is not locked out of
+        // a gate by a mismatch they cannot see and cannot act on.
+        reportUncovered(player, uncovered);
+        return held.withWaived(uncovered);
+    }
+
+    /**
+     * Logs an uncovered requirement key once per key, not once per call: this condition persists
+     * for as long as the mismatched pairing does, and a per-call line would bury the log at pickup
+     * rates.
+     */
+    private void reportUncovered(Player player, Set<String> uncovered) {
+        for (String key : uncovered) {
+            if (uncoveredReported.add(key)) {
+                logger.log(Level.WARNING, "Requirement \"{0}\" was evaluated for {1} against a "
+                        + "configuration snapshot that does not declare it, so no capture can answer "
+                        + "it. Treating it as unresolvable rather than unmet. This means a "
+                        + "MilestoneRequirement and a PluginConfig from two different snapshots were "
+                        + "passed to ProgressionManager; read plugin.configuration() once per event "
+                        + "and derive the requirement from that same local.",
+                        new Object[] {key, player.getName()});
+            }
+        }
     }
 
     /**
@@ -196,8 +240,9 @@ public final class ProgressionManager {
     /**
      * Records which milestones the player already satisfies, <em>without</em> announcing them.
      *
-     * <p>Called on join. Without it the first advancement of a session would announce every gate
-     * the player cleared weeks ago.
+     * <p>Called on join, on {@code /asr reload}, and for players already online when the plugin
+     * enables. Without it the next advancement earned would announce every gate the player cleared
+     * weeks ago.
      */
     public void primeUnlocks(Player player, PluginConfig config) {
         announced.put(player.getUniqueId(), eligibleIds(player, config));
@@ -209,6 +254,15 @@ public final class ProgressionManager {
      *
      * <p>Called from {@code PlayerAdvancementDoneEvent}, after the cache has been invalidated, so
      * the announcement lands in the same tick the advancement is earned.
+     *
+     * <p><strong>Known limitation, tracked in #68.</strong> This is the only trigger, so a gate
+     * whose last outstanding requirement is {@code require-playtime-hours} or
+     * {@code require-account-age-days} opens in silence — nothing fires at the moment the duration
+     * elapses. Harmless on the shipped configuration, where both durations are {@code 0} on both
+     * gates and every gate is therefore advancement-driven, but that is a fact about the defaults
+     * and not about this mechanism. The region-legal fix is a per-player {@code EntityScheduler}
+     * task armed only while a time-based requirement is outstanding; a global sweeper is not, for
+     * the reason given in {@link ProgressionCache}.
      *
      * @return the milestones announced, in configured order; empty when nothing changed
      */
@@ -274,16 +328,22 @@ public final class ProgressionManager {
     }
 
     /**
-     * Drops every cached snapshot and every recorded announcement.
+     * Drops every cached snapshot after a configuration swap.
      *
      * <p>{@code /asr reload} (#40) must call this: a new configuration can require advancements the
-     * live snapshots never queried, and can enable a gate whose unlock has never been announced.
-     * Snapshots would recover on their own through {@link PlayerProgressionSnapshot#covers}, but
-     * the announcement bookkeeping would not.
+     * live snapshots never queried, and the captures are keyed to the configuration that produced
+     * them.
+     *
+     * <p>It deliberately does <strong>not</strong> clear {@link #announced}. Clearing it would leave
+     * every online player with an empty "already told" set, so the next advancement any of them
+     * earned would re-announce every gate they cleared weeks ago — the precise behaviour
+     * {@link #primeUnlocks} exists to prevent, inflicted on the whole server by a routine reload.
+     * Re-priming is the correct repair and it reads player state, so it must run on each player's
+     * own region thread; {@code AntiSpeedrunPlugin} arms it through their {@code EntityScheduler}
+     * after calling this.
      */
     public void onConfigurationReloaded() {
         cache.invalidateAll();
-        announced.clear();
     }
 
     /** The per-player state registry, so later features register their maps with the same one. */

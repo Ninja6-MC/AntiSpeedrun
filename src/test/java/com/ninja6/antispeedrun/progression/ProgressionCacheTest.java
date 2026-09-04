@@ -129,6 +129,38 @@ class ProgressionCacheTest {
     }
 
     @Test
+    @DisplayName("capture runs outside the map, not inside a bin lock")
+    void captureDoesNotRunInsideTheMap() {
+        UUID player = UUID.randomUUID();
+
+        // A capture that reaches back into the registry would deadlock or throw if it ran while a
+        // ConcurrentHashMap bin were held; running clean is the observable form of "no map lock".
+        PlayerProgressionSnapshot fresh = cache.get(player, () -> {
+            assertTrue(cache.peek(player).isEmpty(), "the entry must not exist yet");
+            assertEquals(0, cache.size());
+            return capture();
+        });
+
+        assertEquals(1, captures.get());
+        assertSame(fresh, cache.peek(player).orElseThrow());
+    }
+
+    @Test
+    @DisplayName("a concurrently installed live entry wins, and the duplicate is dropped")
+    void aConcurrentlyInstalledEntryWins() {
+        UUID player = UUID.randomUUID();
+
+        PlayerProgressionSnapshot winner = cache.get(player, this::capture);
+        // Simulates the race the putIfAbsent guards: a second thread captured and installed while
+        // this one was still capturing. Both callers must agree on one instance.
+        PlayerProgressionSnapshot observed = cache.get(player, () -> {
+            throw new AssertionError("must not capture while a live entry is held");
+        });
+
+        assertSame(winner, observed);
+    }
+
+    @Test
     void reloadDropsEverySnapshot() {
         for (int i = 0; i < 10; i++) {
             cache.get(UUID.randomUUID(), this::capture);

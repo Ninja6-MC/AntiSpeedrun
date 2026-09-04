@@ -67,6 +67,31 @@ public final class PlayerStateMap<T> {
         return values.computeIfAbsent(player, factory);
     }
 
+    /**
+     * Stores {@code value} only if the player has no state, atomically.
+     *
+     * @return the state already held, or empty if {@code value} was stored
+     */
+    public Optional<T> putIfAbsent(UUID player, T value) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(value, "value");
+        return Optional.ofNullable(values.putIfAbsent(player, value));
+    }
+
+    /**
+     * Removes the player's state only if it is still {@code expected}, atomically.
+     *
+     * <p>The conditional form matters wherever a caller decided to remove based on a value it read
+     * earlier: an unconditional remove would discard whatever another thread installed in between.
+     *
+     * @return whether the entry was removed
+     */
+    public boolean remove(UUID player, T expected) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(expected, "expected");
+        return values.remove(player, expected);
+    }
+
     /** Removes and returns the player's state, if any. */
     public Optional<T> remove(UUID player) {
         return Optional.ofNullable(values.remove(Objects.requireNonNull(player, "player")));
