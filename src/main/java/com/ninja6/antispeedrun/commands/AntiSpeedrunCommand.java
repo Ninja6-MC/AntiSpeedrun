@@ -248,35 +248,43 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
     // unlock
     // -----------------------------------------------------------------------------------------
 
+    /**
+     * Opens or closes a dimension gate server-wide.
+     *
+     * <p>The parse is {@link UnlockArgument}, not inline, because this is the subcommand that
+     * writes durable state and its two actions are exact opposites — see that type for the typo
+     * this shape exists to make impossible.
+     */
     private void unlock(CommandSender sender, String[] args) {
-        if (args.length < 2) {
-            reply(sender, "<red>Usage: <yellow>" + Subcommand.UNLOCK.usage());
-            return;
+        switch (UnlockArgument.parse(args)) {
+            case UnlockArgument.Open open -> {
+                DimensionUnlock target = open.dimension();
+                boolean changed = plugin.dimensionUnlocks().unlock(target, System.currentTimeMillis());
+                reply(sender, changed
+                        ? "<green>" + target.displayName() + " is now open to everyone. "
+                                + "<gray>This survives a restart; undo it with <white>/asr unlock "
+                                + target.argument() + " lock<gray>."
+                        : "<gray>" + target.displayName() + " was already unlocked.");
+            }
+            case UnlockArgument.Close close -> {
+                DimensionUnlock target = close.dimension();
+                boolean changed = plugin.dimensionUnlocks().lock(target);
+                reply(sender, changed
+                        ? "<yellow>" + target.displayName() + " is gated by progression again."
+                        : "<gray>" + target.displayName()
+                                + " was not manually unlocked; nothing changed.");
+            }
+            case UnlockArgument.Invalid invalid -> reply(sender, switch (invalid.reason()) {
+                case MISSING_DIMENSION -> "<red>Usage: <yellow>" + Subcommand.UNLOCK.usage();
+                case UNKNOWN_DIMENSION -> "<red>Unknown dimension <yellow>"
+                        + escape(invalid.token())
+                        + "<red>. Choose <yellow>nether<red> or <yellow>end<red>.";
+                case UNKNOWN_OPTION -> "<red>Unknown option <yellow>" + escape(invalid.token())
+                        + "<red>. The only third word is <yellow>lock<red>, which closes the "
+                        + "dimension again. Nothing was changed. Usage: <yellow>"
+                        + Subcommand.UNLOCK.usage();
+            });
         }
-        Optional<DimensionUnlock> dimension = DimensionUnlock.parse(args[1]);
-        if (dimension.isEmpty()) {
-            reply(sender, "<red>Unknown dimension <yellow>" + escape(args[1])
-                    + "<red>. Choose <yellow>nether<red> or <yellow>end<red>.");
-            return;
-        }
-
-        boolean relock = args.length >= 3 && "lock".equalsIgnoreCase(args[2]);
-        DimensionUnlock target = dimension.get();
-
-        if (relock) {
-            boolean changed = plugin.dimensionUnlocks().lock(target);
-            reply(sender, changed
-                    ? "<yellow>" + target.displayName() + " is gated by progression again."
-                    : "<gray>" + target.displayName() + " was not manually unlocked; nothing changed.");
-            return;
-        }
-
-        boolean changed = plugin.dimensionUnlocks().unlock(target, System.currentTimeMillis());
-        reply(sender, changed
-                ? "<green>" + target.displayName() + " is now open to everyone. "
-                        + "<gray>This survives a restart; undo it with <white>/asr unlock "
-                        + target.argument() + " lock<gray>."
-                : "<gray>" + target.displayName() + " was already unlocked.");
     }
 
     // -----------------------------------------------------------------------------------------

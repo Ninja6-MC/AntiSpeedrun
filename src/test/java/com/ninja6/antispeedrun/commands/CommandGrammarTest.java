@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import com.ninja6.antispeedrun.storage.BypassGrant;
+import com.ninja6.antispeedrun.storage.DimensionUnlock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -222,6 +223,64 @@ class CommandGrammarTest {
             assertEquals("2d", BypassDuration.format(BypassDuration.parse("2d").orElseThrow()));
             assertEquals("45s", BypassDuration.format(45_000L));
             assertEquals("permanent", BypassDuration.format(BypassGrant.PERMANENT));
+        }
+    }
+
+    @Nested
+    @DisplayName("unlock arguments")
+    class Unlock {
+
+        @Test
+        @DisplayName("two words open the dimension")
+        void opens() {
+            assertEquals(new UnlockArgument.Open(DimensionUnlock.THE_END),
+                    UnlockArgument.parse(new String[] {"unlock", "end"}));
+            assertEquals(new UnlockArgument.Open(DimensionUnlock.NETHER),
+                    UnlockArgument.parse(new String[] {"unlock", "NETHER"}));
+        }
+
+        @Test
+        @DisplayName("a third word of lock closes it")
+        void closes() {
+            assertEquals(new UnlockArgument.Close(DimensionUnlock.THE_END),
+                    UnlockArgument.parse(new String[] {"unlock", "end", "lock"}));
+            // Both spellings of the dimension, and the option, are case-insensitive.
+            assertEquals(new UnlockArgument.Close(DimensionUnlock.THE_END),
+                    UnlockArgument.parse(new String[] {"unlock", "the_end", "LOCK"}));
+            assertEquals(new UnlockArgument.Close(DimensionUnlock.NETHER),
+                    UnlockArgument.parse(new String[] {"unlock", "nether", " lock "}));
+        }
+
+        @Test
+        @DisplayName("a misspelt lock is rejected, never treated as an unlock")
+        void typoDoesNotInvertTheIntent() {
+            // The regression. "/asr unlock end lcok" previously fell through to the unlock branch
+            // and opened The End to the whole server, persisted it, and reported success -- the
+            // exact opposite of what was typed, on durable state.
+            UnlockArgument parsed = UnlockArgument.parse(new String[] {"unlock", "end", "lcok"});
+
+            assertEquals(new UnlockArgument.Invalid(UnlockArgument.Reason.UNKNOWN_OPTION, "lcok"),
+                    parsed);
+            assertFalse(parsed instanceof UnlockArgument.Open,
+                    "a typo must never resolve to opening a dimension");
+        }
+
+        @Test
+        @DisplayName("a trailing extra word is rejected too")
+        void extraWordRejected() {
+            assertEquals(new UnlockArgument.Invalid(UnlockArgument.Reason.UNKNOWN_OPTION, "lock"),
+                    UnlockArgument.parse(new String[] {"unlock", "end", "lock", "please"}));
+        }
+
+        @Test
+        @DisplayName("a missing or unknown dimension each report their own reason")
+        void dimensionFailures() {
+            assertEquals(new UnlockArgument.Invalid(UnlockArgument.Reason.MISSING_DIMENSION, ""),
+                    UnlockArgument.parse(new String[] {"unlock"}));
+            assertEquals(new UnlockArgument.Invalid(UnlockArgument.Reason.UNKNOWN_DIMENSION, "overworld"),
+                    UnlockArgument.parse(new String[] {"unlock", "overworld"}));
+            assertEquals(new UnlockArgument.Invalid(UnlockArgument.Reason.MISSING_DIMENSION, ""),
+                    UnlockArgument.parse(null));
         }
     }
 
