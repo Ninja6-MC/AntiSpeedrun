@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `/antispeedrun` (`/asr`) administration command with tab completion: `reload`, `profile apply
+  <CASUAL|SMP_STANDARD|HARDCORE>`, `unlock <nether|end> [lock]`, `bypass <player> [duration|off]`
+  and `inspect <player>`. Each subcommand is gated on its own `antispeedrun.admin.*` node, and
+  completion offers nothing — including player names — under a subcommand the sender cannot run.
+- Durable state, so an unlock or a bypass no longer evaporates at the next restart. Server-wide
+  dimension unlocks are written to `state.yml`; per-player bypass grants, which carry an expiry,
+  and the journey-book delivered flag live in the player's persistent data container.
+- Journey-book delivery is recorded by the plugin rather than inferred from
+  `hasPlayedBefore()`, which is false for every player who joined before the plugin was installed
+  and would have skipped an established server's entire population. No listener consumes the flag
+  yet; the journey-book feature itself is a separate task.
+- Configuration profile presets shipped as `profiles/casual.yml`, `profiles/smp_standard.yml` and
+  `profiles/hardcore.yml`. `/asr profile apply` copies the previous `config.yml` to
+  `backups/config-<timestamp>.yml` before overwriting it.
 - Wildcard match modes for `match-patterns` — prefix (`IRON_*`), suffix (`*_IRON_ORE`), contains (`*_DIAMOND_*`) and exact — compiled once per configuration snapshot into an `EnumMap`/`EnumSet` material lookup that allocates nothing per item pickup.
 - Most-restrictive-wins precedence when two tiers claim one material, resolved by requirement dominance and then by document order; an incomparable pair fails startup with an error naming the material, both tiers and the `exclude-materials` line that resolves it.
 - Folia platform support declaration (`folia-supported: true`), without which Folia refuses to enable the plugin.
