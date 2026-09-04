@@ -1,0 +1,197 @@
+# AntiSpeedrun - CASUAL preset
+#
+# Applied by: /asr profile apply CASUAL
+# Applying a preset OVERWRITES config.yml wholesale. The previous file is copied to
+# plugins/AntiSpeedrun/backups/config-<timestamp>.yml first, so a preset applied by
+# mistake is recoverable.
+#
+# For a server that wants the shape of progression without the enforcement. Dimension
+# gates stay on, because they are what stops a fresh join from being handed the End on
+# day one -- but the End is gated on one advancement rather than three, item pickup
+# gating is off entirely, and anti-cheese keeps only the rules that stop a boss fight
+# being skipped outright. Nothing anywhere requires waiting.
+#
+# Configuration Profiles: CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM. Hand-editing away
+# from a preset means setting profile: CUSTOM yourself -- nothing rewrites this key.
+profile: CASUAL
+
+# 1. Dimension Progression Gates
+dimension-gates:
+  nether:
+    enabled: true
+    require-playtime-hours: 0          # Advancement-driven. CASUAL never gates on time.
+    require-advancements:
+      - "minecraft:story/smelt_iron"
+    rejection-message: "<red>🔒 The Nether is locked! Requires <yellow>Iron Gear<red> (Smelt an iron ingot). Type <gold>/progress"
+
+  the_end:
+    enabled: true
+    require-playtime-hours: 0
+    require-account-age-days: 0
+    # One requirement rather than SMP_STANDARD's three: a party that has found a fortress
+    # and beaten a blaze has done the interesting part of the journey.
+    require-advancements:
+      - "minecraft:nether/obtain_blaze_rod"
+    rejection-message: "<red>🔒 The End is sealed! Find a Nether Fortress and beat a Blaze first. Type <gold>/progress"
+
+# 2. Anti-Boosting & Item Progression Gating
+item-progression:
+  # OFF for CASUAL. The tier table below is kept intact and unused, so an operator who
+  # wants the gates back only has to flip this one key -- deleting the tiers would make
+  # that a re-authoring job instead.
+  enabled: false
+  drop-recall-enabled: true
+  gate-dispensers: true
+  gate-nested-bundles: true
+  feedback-cooldown-seconds: 3
+  rejection-message: "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}"
+  gated-items:
+    iron-tier:
+      match-patterns:
+        - "IRON_*"
+        - "RAW_IRON*"
+        - "CHAINMAIL_*"
+        - "*_IRON_ORE"
+      exclude-materials:
+        - "IRON_DOOR"
+        - "IRON_TRAPDOOR"
+        - "IRON_BARS"
+        - "HEAVY_WEIGHTED_PRESSURE_PLATE"
+        - "CHAIN"
+        - "LANTERN"
+        - "SOUL_LANTERN"
+      items:
+        - "SHIELD"
+        - "BUCKET"
+        - "SHEARS"
+        - "FLINT_AND_STEEL"
+        - "CROSSBOW"
+        - "TRIAL_KEY"
+        - "OMINOUS_TRIAL_KEY"
+        - "OMINOUS_BOTTLE"
+      require-advancements:
+        - "minecraft:story/mine_stone"
+      require-playtime-hours: 0
+      hint: "Mine Stone with a wooden pickaxe (Stone Age)"
+
+    diamond-tier:
+      match-patterns:
+        - "DIAMOND_*"
+        - "*_DIAMOND_ORE"
+      items:
+        - "DIAMOND"
+      require-advancements:
+        - "minecraft:story/smelt_iron"
+      require-playtime-hours: 0
+      hint: "Smelt Iron Ingot"
+
+    nether-tier:
+      items:
+        - "BLAZE_ROD"
+        - "BLAZE_POWDER"
+        - "NETHER_WART"
+        - "BREWING_STAND"
+        - "GHAST_TEAR"
+        - "MAGMA_CREAM"
+        - "WITHER_SKELETON_SKULL"
+        - "BREEZE_ROD"
+        - "WIND_CHARGE"
+      require-advancements:
+        - "minecraft:story/smelt_iron"
+      require-playtime-hours: 0
+      hint: "Unlock the Nether Gate"
+
+    end-tier:
+      items:
+        - "ENDER_EYE"
+        - "END_CRYSTAL"
+        - "SHULKER_SHELL"
+        - "SHULKER_BOX"
+        - "ELYTRA"
+        - "DRAGON_BREATH"
+        - "DRAGON_HEAD"
+        - "DRAGON_EGG"
+        - "TOTEM_OF_UNDYING"
+      require-advancements:
+        - "minecraft:nether/obtain_blaze_rod"
+      require-playtime-hours: 0
+      require-account-age-days: 0
+      hint: "Unlock The End Gate"
+
+    netherite-tier:
+      match-patterns:
+        - "NETHERITE_*"
+      exclude-materials:
+        - "NETHERITE_UPGRADE_SMITHING_TEMPLATE"
+      items:
+        - "ANCIENT_DEBRIS"
+        - "MACE"
+        - "HEAVY_CORE"
+      require-advancements:
+        - "minecraft:story/mine_diamond"
+        - "minecraft:nether/obtain_blaze_rod"
+      hint: "Mine Diamonds & Explore the Nether"
+
+# 3. Armor Trim & Smithing Template Progression
+trim-progression:
+  # OFF for CASUAL: trims are cosmetic, and gating cosmetics is the first thing a relaxed
+  # server complains about.
+  enabled: false
+  gate-natural-trim-chests: false
+  block-unearned-template-duplication: false
+  block-unearned-smithing: false
+  block-wearing-unearned-trims: false
+
+# 4. Idle Reminder Engine (Per-Player EntityScheduler)
+idle-reminder:
+  enabled: true
+  stand-still-seconds: 20
+  cooldown-minutes: 15                 # Less nagging than SMP_STANDARD's 10.
+  display-duration-seconds: 5
+  display-type: "ACTIONBAR"
+  message: "<yellow>💡 Next Goal: <white>{NEXT_STEP} <gray>(Run <gold>/progress<gray>)"
+
+# 5. Journey Guide Book
+journey-book:
+  give-on-first-join: true
+  title: "<gold>Ninja6 Survival Guide"
+  author: "Ninja6-MC"
+
+# 6. Multi-Dragon Boss Combat Scaling
+boss-scaling:
+  enabled: true
+  scale-resummoned-dragons: false
+  battle-prep-seconds: 15
+  multi-dragon:
+    # OFF for CASUAL. One dragon, as vanilla, so a small group can still finish the fight.
+    enabled: false
+    multiplier: 0.5
+    rounding-mode: "HALF_UP"
+    max-dragons: 2
+    balanced-xp: true
+  exit-portal-egg:
+    enabled: true
+    placement-mode: "TOP_PILLAR"
+  skull-drop-chance: 0.05
+  exit-portal-lock-during-battle: false
+  exit-portal-lock-release-minutes: 5
+
+# 7. Anti-Cheese Engine
+anti-cheese:
+  # Kept on: these are the rules that stop the fight being skipped rather than played,
+  # which is the one thing even a relaxed server usually wants intact.
+  enabled: true
+  block-bed-anchor-boss-damage: true
+  # 50.0 still permits a 4-hit dragon kill, so this is an anti-one-shot guard rather than
+  # a time-to-kill budget.
+  max-single-hit-boss-damage: 50.0
+  block-early-eye-throwing: false
+  block-exit-portal-crystal-place: true
+  block-gateway-pre-dragon: false
+  outer-end-radius: 250
+  outer-end-poll-seconds: 3
+
+# 8. Villager Progression
+villager-progression:
+  gate-mending-trade: false
+  required-advancement: "minecraft:story/cure_zombie_villager"

@@ -1,0 +1,206 @@
+# AntiSpeedrun - HARDCORE preset
+#
+# Applied by: /asr profile apply HARDCORE
+# Applying a preset OVERWRITES config.yml wholesale. The previous file is copied to
+# plugins/AntiSpeedrun/backups/config-<timestamp>.yml first, so a preset applied by
+# mistake is recoverable.
+#
+# Every gate on and every one of them strict. This is the only preset that gates on
+# playtime as well as advancement, so read the two notes below before applying it to a
+# live server -- both change who can play, not just how fast.
+#
+# NOTE 1 -- playtime. require-playtime-hours reads Statistic.PLAY_ONE_MINUTE, which is
+# per-player and accumulates from the moment the player first joined this server. It is
+# not affected by the plugin being installed later, so applying HARDCORE to an
+# established world does not reset anyone.
+#
+# NOTE 2 -- tenure. require-account-age-days is left at 0 everywhere on purpose, even
+# here. It is derived from getFirstPlayed(), which measures first join to THIS server and
+# has nothing to do with the age of the Mojang account (audit finding R-15). On a fresh
+# world a non-zero value seals the dimension for the entire server for that many days,
+# regardless of skill, and it is not an anti-alt measure. Set it only deliberately, and
+# only on an established world.
+#
+# Configuration Profiles: CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM. Hand-editing away
+# from a preset means setting profile: CUSTOM yourself -- nothing rewrites this key.
+profile: HARDCORE
+
+# 1. Dimension Progression Gates
+dimension-gates:
+  nether:
+    enabled: true
+    require-playtime-hours: 2.0        # See NOTE 1 above.
+    require-account-age-days: 0        # See NOTE 2 above.
+    require-advancements:
+      - "minecraft:story/smelt_iron"
+      - "minecraft:story/upgrade_tools"
+    rejection-message: "<red>🔒 The Nether is locked! Requires <yellow>Iron Gear<red> and <yellow>2 hours<red> of survival. Type <gold>/progress"
+
+  the_end:
+    enabled: true
+    require-playtime-hours: 10.0
+    require-account-age-days: 0
+    require-advancements:
+      - "minecraft:story/mine_diamond"
+      - "minecraft:nether/obtain_blaze_rod"
+      - "minecraft:nether/find_fortress"
+      - "minecraft:story/enchant_item"
+    rejection-message: "<red>🔒 The End is sealed! Requires full survival progression and <yellow>10 hours<red> of play. Type <gold>/progress"
+
+# 2. Anti-Boosting & Item Progression Gating
+item-progression:
+  enabled: true
+  drop-recall-enabled: true
+  gate-dispensers: true
+  gate-nested-bundles: true
+  feedback-cooldown-seconds: 5
+  rejection-message: "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}"
+  gated-items:
+    iron-tier:
+      match-patterns:
+        - "IRON_*"
+        - "RAW_IRON*"
+        - "CHAINMAIL_*"
+        - "*_IRON_ORE"
+      exclude-materials:
+        - "IRON_DOOR"
+        - "IRON_TRAPDOOR"
+        - "IRON_BARS"
+        - "HEAVY_WEIGHTED_PRESSURE_PLATE"
+        - "CHAIN"
+        - "LANTERN"
+        - "SOUL_LANTERN"
+      items:
+        - "SHIELD"
+        - "BUCKET"
+        - "SHEARS"
+        - "FLINT_AND_STEEL"
+        - "CROSSBOW"
+        - "TRIAL_KEY"
+        - "OMINOUS_TRIAL_KEY"
+        - "OMINOUS_BOTTLE"
+      require-advancements:
+        - "minecraft:story/mine_stone"
+      require-playtime-hours: 0
+      hint: "Mine Stone with a wooden pickaxe (Stone Age)"
+
+    diamond-tier:
+      match-patterns:
+        - "DIAMOND_*"
+        - "*_DIAMOND_ORE"
+      items:
+        - "DIAMOND"
+      require-advancements:
+        - "minecraft:story/smelt_iron"
+      require-playtime-hours: 2.0
+      hint: "Smelt Iron Ingot and put 2 hours in"
+
+    nether-tier:
+      items:
+        - "BLAZE_ROD"
+        - "BLAZE_POWDER"
+        - "NETHER_WART"
+        - "BREWING_STAND"
+        - "GHAST_TEAR"
+        - "MAGMA_CREAM"
+        - "WITHER_SKELETON_SKULL"
+        - "BREEZE_ROD"
+        - "WIND_CHARGE"
+      require-advancements:
+        - "minecraft:story/smelt_iron"
+        - "minecraft:story/upgrade_tools"
+      require-playtime-hours: 2.0
+      hint: "Unlock the Nether Gate"
+
+    end-tier:
+      items:
+        - "ENDER_EYE"
+        - "END_CRYSTAL"
+        - "SHULKER_SHELL"
+        - "SHULKER_BOX"
+        - "ELYTRA"
+        - "DRAGON_BREATH"
+        - "DRAGON_HEAD"
+        - "DRAGON_EGG"
+        - "TOTEM_OF_UNDYING"
+      require-advancements:
+        - "minecraft:nether/obtain_blaze_rod"
+        - "minecraft:nether/find_fortress"
+        - "minecraft:story/enchant_item"
+      require-playtime-hours: 10.0
+      require-account-age-days: 0      # See NOTE 2 above.
+      hint: "Unlock The End Gate"
+
+    netherite-tier:
+      match-patterns:
+        - "NETHERITE_*"
+      exclude-materials:
+        - "NETHERITE_UPGRADE_SMITHING_TEMPLATE"
+      items:
+        - "ANCIENT_DEBRIS"
+        - "MACE"
+        - "HEAVY_CORE"
+      require-advancements:
+        - "minecraft:story/mine_diamond"
+        - "minecraft:nether/obtain_blaze_rod"
+      require-playtime-hours: 10.0
+      hint: "Mine Diamonds & Explore the Nether"
+
+# 3. Armor Trim & Smithing Template Progression
+trim-progression:
+  enabled: true
+  gate-natural-trim-chests: true       # TRUE here: dungeon-chest templates are tier-gated too.
+  block-unearned-template-duplication: true
+  block-unearned-smithing: true
+  block-wearing-unearned-trims: true
+
+# 4. Idle Reminder Engine (Per-Player EntityScheduler)
+idle-reminder:
+  enabled: true
+  stand-still-seconds: 15
+  cooldown-minutes: 5
+  display-duration-seconds: 5
+  display-type: "ACTIONBAR"
+  message: "<yellow>💡 Next Goal: <white>{NEXT_STEP} <gray>(Run <gold>/progress<gray>)"
+
+# 5. Journey Guide Book
+journey-book:
+  give-on-first-join: true
+  title: "<gold>Ninja6 Survival Guide"
+  author: "Ninja6-MC"
+
+# 6. Multi-Dragon Boss Combat Scaling
+boss-scaling:
+  enabled: true
+  scale-resummoned-dragons: true
+  battle-prep-seconds: 60
+  multi-dragon:
+    enabled: true
+    multiplier: 1.0                    # One extra dragon per additional participant.
+    rounding-mode: "CEIL"
+    max-dragons: 8
+    balanced-xp: true
+  exit-portal-egg:
+    enabled: true
+    placement-mode: "TOP_PILLAR"
+  skull-drop-chance: 0.10
+  exit-portal-lock-during-battle: true
+  exit-portal-lock-release-minutes: 15
+
+# 7. Anti-Cheese Engine
+anti-cheese:
+  enabled: true
+  block-bed-anchor-boss-damage: true
+  # 8.0 against a 200 HP dragon is roughly a 25-hit fight: a sustained engagement rather
+  # than a burst. Raise it if your players find it a slog.
+  max-single-hit-boss-damage: 8.0
+  block-early-eye-throwing: true
+  block-exit-portal-crystal-place: true
+  block-gateway-pre-dragon: true
+  outer-end-radius: 1000
+  outer-end-poll-seconds: 1
+
+# 8. Villager Progression
+villager-progression:
+  gate-mending-trade: true             # TRUE here: Mending must be earned, not traded for.
+  required-advancement: "minecraft:story/cure_zombie_villager"
