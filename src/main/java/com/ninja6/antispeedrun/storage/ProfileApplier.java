@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 import com.ninja6.antispeedrun.config.PluginConfig.Profile;
 
@@ -197,7 +198,12 @@ public final class ProfileApplier {
         // single path was the second half of #75, since two applies staging through it could
         // interleave into a config.yml that was neither preset. The staging file is a sibling of
         // the configuration so the move below stays within one filesystem and can be atomic.
-        Path staged = Files.createTempFile(parent, configFile.getFileName() + ".", ".incoming");
+        //
+        // Named rather than Files.createTempFile, which pre-creates the file owner-only on POSIX:
+        // the staging file becomes config.yml, so it would hand the operator a configuration they
+        // can no longer read as anyone but the server user.
+        Path staged = configFile.resolveSibling(
+                configFile.getFileName() + "." + UUID.randomUUID() + ".incoming");
         boolean moved = false;
         try {
             Files.copy(preset, staged, StandardCopyOption.REPLACE_EXISTING);
