@@ -21,16 +21,23 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.ninja6.antispeedrun.config.PluginConfig.Profile;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link ProfileApplier#apply} on a real temporary directory: the backup is taken before anything
- * is written, the replacement is all-or-nothing, and the preset stream is closed however the method
- * exits.
+ * {@link ProfileApplier} on a real temporary directory: the backup is taken before anything is
+ * written, it is named and suffixed the way the operator is promised, the replacement is
+ * all-or-nothing, and the preset stream is closed however the method exits.
  *
  * <p>Plain {@code java.nio}, no Bukkit — the seam {@link ProfileApplier} exists to keep.
+ *
+ * <p>{@code resourcePath} is asserted here as well as in {@code PresetProfileTest}, which resolves
+ * each preset through it. The overlap is deliberate: that test would fail on a wrong path, but it
+ * says nothing about {@code CUSTOM} being refused or about what {@code applicable()} contains, and
+ * both are part of what {@code /asr profile apply} will accept.
  */
 class ProfileApplierTest {
 
@@ -78,6 +85,100 @@ class ProfileApplierTest {
         assertEquals("profile: SMP_STANDARD\n", Files.readString(backup.orElseThrow()));
         assertTrue(preset.closed, "the preset stream must be closed on the happy path too");
         assertTrue(stagingFiles(folder).isEmpty(), "no staging file may survive a successful apply");
+        // The backup lands under the documented name, in the backup directory and not beside
+        // config.yml -- the server must never read a backup as a configuration.
+        assertEquals("config-20260904-153012.yml", backup.orElseThrow().getFileName().toString());
+        assertEquals(folder.resolve(ProfileApplier.BACKUP_DIRECTORY), backup.orElseThrow().getParent());
+    }
+
+    @Test
+    @DisplayName("the filename is derived from the enum constant, so the two cannot drift")
+    void resourcePathDerivedFromEnum() {
+        assertEquals("profiles/casual.yml", ProfileApplier.resourcePath(Profile.CASUAL));
+        assertEquals("profiles/smp_standard.yml", ProfileApplier.resourcePath(Profile.SMP_STANDARD));
+        assertEquals("profiles/hardcore.yml", ProfileApplier.resourcePath(Profile.HARDCORE));
+    }
+
+    @Test
+    @DisplayName("CUSTOM is refused: it marks a hand-edited file, it is not a preset")
+    void customIsNotAPreset() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ProfileApplier.resourcePath(Profile.CUSTOM));
+        // Asserted as a whole list, not merely searched for CUSTOM: applicable() is what
+        // tab completion offers and what /asr profile apply accepts, so an extra constant
+        // slipping into it is as much a fault as CUSTOM appearing in it.
+        assertEquals(List.of(Profile.CASUAL, Profile.SMP_STANDARD, Profile.HARDCORE),
+                ProfileApplier.applicable());
+    }
+
+    @Test
+    @DisplayName("the stamp goes before the extension, so the copy still opens as YAML")
+    void stampBeforeExtension() {
+        assertEquals("config-20260904-153012.yml",
+                ProfileApplier.backupFileName("config.yml", AT, ZONE));
+    }
+
+    @Test
+    @DisplayName("a name with no extension simply gets the stamp appended")
+    void noExtension() {
+        assertEquals("config-20260904-153012", ProfileApplier.backupFileName("config", AT, ZONE));
+    }
+
+    @Test
+    @DisplayName("two applies in the same second keep both backups")
+    void collidingBackupsAreBothKept(@TempDir Path folder) throws Exception {
+        Path config = folder.resolve("config.yml");
+        Path backups = folder.resolve(ProfileApplier.BACKUP_DIRECTORY);
+        Files.writeString(config, "first\n");
+
+        Path one = ProfileApplier.apply(new CloseRecordingStream("second\n"), config, backups, AT, ZONE)
+                .orElseThrow();
+        Path two = ProfileApplier.apply(new CloseRecordingStream("third\n"), config, backups, AT, ZONE)
+                .orElseThrow();
+
+        // The whole point of a backup is that experimenting with two presets in a row still
+        // leaves the original recoverable, so the second must not overwrite the first.
+        assertEquals("first\n", Files.readString(one));
+        assertEquals("second\n", Files.readString(two));
+        assertEquals("config-20260904-153012-1.yml", two.getFileName().toString());
+        assertEquals("third\n", Files.readString(config));
+    }
+
+    @Test
+    @DisplayName("a backup refuses rather than overwrites once the suffixes are exhausted")
+    void collisionAttemptsAreBounded(@TempDir Path folder) throws Exception {
+        Path config = folder.resolve("config.yml");
+        Path backups = folder.resolve(ProfileApplier.BACKUP_DIRECTORY);
+        Files.writeString(config, "original\n");
+        Files.createDirectories(backups);
+
+        // Occupy the unsuffixed name and every suffix the applier is willing to try. The bound
+        // exists so a pathological directory ends in a reported failure rather than an endless
+        // search, and nothing else in the suite pins it.
+        String base = ProfileApplier.backupFileName("config.yml", AT, ZONE);
+        Files.writeString(backups.resolve(base), "taken\n");
+        for (int attempt = 1; attempt <= 100; attempt++) {
+            Files.writeString(backups.resolve("config-20260904-153012-" + attempt + ".yml"), "taken\n");
+        }
+
+        assertThrows(IOException.class, () -> ProfileApplier.apply(
+                new CloseRecordingStream("new\n"), config, backups, AT, ZONE));
+        // The backup is taken before anything is written, so a refusal there leaves the
+        // configuration exactly as it was.
+        assertEquals("original\n", Files.readString(config));
+        assertTrue(stagingFiles(folder).isEmpty(), "a refused apply must stage nothing");
+    }
+
+    @Test
+    @DisplayName("the backup directory is created on demand, nesting and all")
+    void createsBackupDirectory(@TempDir Path folder) throws Exception {
+        Path config = folder.resolve("config.yml");
+        Path backups = folder.resolve("nested").resolve(ProfileApplier.BACKUP_DIRECTORY);
+        Files.writeString(config, "old\n");
+
+        ProfileApplier.apply(new CloseRecordingStream("new\n"), config, backups, AT, ZONE);
+
+        assertTrue(Files.isDirectory(backups));
     }
 
     @Test
