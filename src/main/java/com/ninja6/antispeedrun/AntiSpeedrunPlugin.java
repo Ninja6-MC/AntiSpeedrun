@@ -10,9 +10,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.bukkit.Material;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import com.ninja6.antispeedrun.commands.AntiSpeedrunCommand;
 import com.ninja6.antispeedrun.config.BukkitConfigSection;
 import com.ninja6.antispeedrun.config.ConfigLoadException;
 import com.ninja6.antispeedrun.config.ConfigSection;
@@ -26,6 +28,10 @@ import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
 import com.ninja6.antispeedrun.progression.ProgressionListener;
 import com.ninja6.antispeedrun.progression.ProgressionManager;
+import com.ninja6.antispeedrun.storage.BypassStore;
+import com.ninja6.antispeedrun.storage.DimensionUnlockStore;
+import com.ninja6.antispeedrun.storage.JourneyBookStore;
+import com.ninja6.antispeedrun.storage.YamlStateFile;
 
 /**
  * AntiSpeedrun - Unified anti-speedrun, dimension progression gates,
@@ -64,6 +70,15 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * region thread. Never mutated in place — a recompile replaces the whole table in one write.
      */
     private volatile ItemGateTable<Material> itemGates = MaterialGates.empty();
+
+    /** Server-wide dimension unlocks, persisted to {@code state.yml}. Volatile for the usual reason. */
+    private volatile DimensionUnlockStore dimensionUnlocks;
+
+    /** Temporary bypass grants, held in each player's persistent data container. */
+    private volatile BypassStore bypasses;
+
+    /** Whether a player has already received the journey book, held in their container. */
+    private volatile JourneyBookStore journeyBook;
 
     @Override
     public void onEnable() {
@@ -106,6 +121,38 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 getLogger(), new BukkitAdvancementLookup(getLogger()), playerState);
         getServer().getPluginManager().registerEvents(new ProgressionListener(this, progression), this);
 
+        // Durable state (#57). Writes go to the AsyncScheduler because file I/O must never sit on a
+        // region thread; the read below is deliberately synchronous, since a store that filled in
+        // asynchronously would answer "locked" for the first moments of the server's life.
+        this.dimensionUnlocks = new DimensionUnlockStore(
+                getLogger(),
+                new YamlStateFile(new File(getDataFolder(), "state.yml").toPath()),
+                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
+        if (!dimensionUnlocks.loadNow()) {
+            // Deliberately not fatal, and deliberately not silent. The store has already logged the
+            // cause at SEVERE and has latched itself so the damaged file is moved aside rather than
+            // overwritten by the next unlock; this line only makes the degraded state visible in the
+            // startup banner, where an operator reading the log after a crash will actually see it.
+            getLogger().warning("Starting with no dimension unlocks recorded. The unreadable state "
+                    + "file has been left in place and will be preserved under a .corrupt name if a "
+                    + "new unlock has to be written.");
+        }
+        this.bypasses = new BypassStore(this);
+        this.journeyBook = new JourneyBookStore(this);
+
+        AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
+        PluginCommand antispeedrun = getCommand("antispeedrun");
+        if (antispeedrun == null) {
+            // Only reachable if plugin.yml and this class disagree, which is a packaging fault
+            // rather than a runtime condition -- but silently having no admin command at all is
+            // exactly the kind of failure that is discovered weeks later by an operator.
+            getLogger().severe("plugin.yml declares no \"antispeedrun\" command, so /asr is "
+                    + "unavailable. This build is broken; reinstall the plugin jar.");
+        } else {
+            antispeedrun.setExecutor(admin);
+            antispeedrun.setTabCompleter(admin);
+        }
+
         // Players already online -- a hot install, or a /reload -- never fire PlayerJoinEvent for
         // this listener, so without priming here their first advancement would announce every gate
         // they had already cleared.
@@ -127,6 +174,41 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     /** The progression service. Gates, commands and the progress card all evaluate through it. */
     public ProgressionManager progression() {
         return progression;
+    }
+
+    /**
+     * Server-wide dimension unlocks granted with {@code /asr unlock}, and the persisted record of
+     * them (#57).
+     *
+     * <p>An unlock here is an <em>override</em>: the dimension listeners (#34, #35) admit everyone
+     * when {@code isUnlocked} is true and otherwise fall through to the normal progression gate.
+     * Reading it is a single volatile read and is legal from any thread.
+     */
+    public DimensionUnlockStore dimensionUnlocks() {
+        return dimensionUnlocks;
+    }
+
+    /**
+     * Temporary bypass grants handed out with {@code /asr bypass} (#57).
+     *
+     * <p>Separate from the {@code antispeedrun.bypass} permission, which is the standing exemption.
+     * A gate should let a player through when either applies. Every method needs the player's own
+     * region thread; see {@link BypassStore}.
+     */
+    public BypassStore bypasses() {
+        return bypasses;
+    }
+
+    /**
+     * Whether a player has already been given the Journey Guide Book (#57).
+     *
+     * <p>The replacement for {@code !player.hasPlayedBefore()}, which is false for everyone who
+     * joined before the plugin was installed. Nothing consults this yet: the journey-book feature
+     * itself is a separate task, and this store is published ahead of it so that task has a
+     * persisted flag to read rather than inventing a second one.
+     */
+    public JourneyBookStore journeyBook() {
+        return journeyBook;
     }
 
     /** The registry every per-player map belongs to. Register here, get quit cleanup for free. */
