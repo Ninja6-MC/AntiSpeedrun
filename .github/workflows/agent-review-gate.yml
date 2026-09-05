@@ -28,10 +28,20 @@
 #      the context. Both derive the state from the same review, so they cannot
 #      disagree; the later write simply repeats the earlier one.
 #
-# CAVEAT: `pull_request_review` workflows run in the BASE-BRANCH context, i.e. GitHub
-# executes the copy of this file that is on `main`, not the copy on the pull request's
-# head branch. Changes to the `resolve` job therefore have no effect until they are
-# merged to `main`, and cannot be tested on the pull request that introduces them.
+# WHICH COPY OF THIS FILE RUNS, AND WHY THAT IS NOT SETTLED: GitHub documents
+# `pull_request_review` as running in the base-branch context — the copy of this file on
+# `main`, not the copy on the pull request's head branch. Observed behaviour differs.
+# When the reviewer approved the pull request that introduced the `resolve` job, GitHub
+# ran a `pull_request_review` workflow at head `4191386` whose jobs were named
+# `Register Review Status` and `Resolve Review Status`. Those names existed only on the
+# head branch: `main` carried a single job named `gate` and no `pull_request_review`
+# trigger at all, so that run cannot have come from `main`. The head copy ran, and it
+# resolved the status correctly.
+#
+# That is ONE observation, on a same-repo pull request, contradicting the documented rule.
+# Do not rely on either reading. It has not been checked for pull requests from forks,
+# where the token is read-only and a status write would fail regardless. When changing the
+# `resolve` job, verify which jobs a run actually executed rather than assuming.
 
 name: agent-review-gate
 

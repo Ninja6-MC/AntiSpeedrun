@@ -96,17 +96,32 @@ Options 1 and 2 are not exclusive; 1 is the safety net for 2.
 
 ---
 
-## Caveat: base-branch context
+## Which copy of this workflow runs
 
-`pull_request_review` workflows run in the **base-branch context**. GitHub executes the
-copy of `agent-review-gate.yml` that is on `main`, not the copy on the pull request's head
-branch.
+GitHub documents `pull_request_review` as running in the **base-branch context**: the copy
+of `agent-review-gate.yml` on `main`, not the copy on the pull request's head branch. This
+decision record originally stated that as settled, and drew two consequences from it — that
+the fix could only take effect after merging, and that it could not be exercised on the
+pull request introducing it.
 
-Two consequences:
+**Both were contradicted by the first review this gate handled.** When the reviewer
+approved that pull request, GitHub ran a `pull_request_review` workflow at head `4191386`
+whose jobs were `Register Review Status` and `Resolve Review Status`. Those job names
+existed only on the head branch — `main` carried a single job named `gate` and no
+`pull_request_review` trigger at all — so the run cannot have come from `main`. The head
+copy ran, and it resolved `ninja6-agent/review` to `success` correctly.
 
-- The fix takes effect only for reviews submitted **after** it merges to `main`.
-- Changes to the `resolve` job cannot be exercised on the pull request that introduces
-  them. Verification happens on the next pull request reviewed after the merge.
+What that does and does not establish:
+
+- It establishes that the `resolve` job worked, on a same-repo pull request, before merging.
+- It does **not** establish a general rule in the opposite direction. It is one observation
+  against documented behaviour, and the documented behaviour may hold in cases not tested
+  here.
+- Fork pull requests were **not** tested. There the `GITHUB_TOKEN` is read-only, so the
+  status write fails regardless of which copy runs.
+
+When changing the `resolve` job, check which jobs a run actually executed rather than
+assuming either rule.
 
 Pull requests already open when this merges keep whatever status they were left with;
 their next review submission resolves it.
