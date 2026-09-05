@@ -5,7 +5,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -275,6 +279,75 @@ class DimensionUnlockStoreTest {
 
         assertTrue(file.quarantined.isEmpty());
         assertFalse(store.isAwaitingQuarantine());
+    }
+
+    @Test
+    @DisplayName("two dimensions unlocked at the same instant cannot lose one of the updates")
+    void concurrentMutationsDoNotLoseUpdates() throws Exception {
+        // #75: unlock and lock each read `state`, derived a new UnlockState from that read and
+        // wrote it back. Two commands interleaving lost whichever update was derived from the
+        // older snapshot -- silently, with both commands reporting success. Repeated because a
+        // lost update is a race, not a certainty.
+        for (int round = 0; round < 200; round++) {
+            InMemoryStateFile file = new InMemoryStateFile();
+            DimensionUnlockStore store =
+                    new DimensionUnlockStore(quietLogger(new ArrayList<>()), file, INLINE);
+
+            CyclicBarrier start = new CyclicBarrier(2);
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                Future<Boolean> nether = pool.submit(() -> {
+                    start.await();
+                    return store.unlock(DimensionUnlock.NETHER, 1L);
+                });
+                Future<Boolean> end = pool.submit(() -> {
+                    start.await();
+                    return store.unlock(DimensionUnlock.THE_END, 2L);
+                });
+                assertTrue(nether.get(), "the nether unlock changed something, so it must say so");
+                assertTrue(end.get(), "the end unlock changed something, so it must say so");
+            } finally {
+                pool.shutdownNow();
+            }
+
+            assertTrue(store.isUnlocked(DimensionUnlock.NETHER)
+                            && store.isUnlocked(DimensionUnlock.THE_END),
+                    "round " + round + ": both unlocks must survive, in state " + store.state());
+        }
+    }
+
+    @Test
+    @DisplayName("an unlock and a lock racing each other both take effect")
+    void concurrentUnlockAndLockBothLand() throws Exception {
+        for (int round = 0; round < 200; round++) {
+            InMemoryStateFile file = new InMemoryStateFile();
+            DimensionUnlockStore store =
+                    new DimensionUnlockStore(quietLogger(new ArrayList<>()), file, INLINE);
+            // The End starts open, so the racing lock has something to remove.
+            store.unlock(DimensionUnlock.THE_END, 1L);
+
+            CyclicBarrier start = new CyclicBarrier(2);
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                Future<Boolean> opening = pool.submit(() -> {
+                    start.await();
+                    return store.unlock(DimensionUnlock.NETHER, 2L);
+                });
+                Future<Boolean> closing = pool.submit(() -> {
+                    start.await();
+                    return store.lock(DimensionUnlock.THE_END);
+                });
+                assertTrue(opening.get());
+                assertTrue(closing.get());
+            } finally {
+                pool.shutdownNow();
+            }
+
+            assertTrue(store.isUnlocked(DimensionUnlock.NETHER),
+                    "round " + round + ": the nether unlock was lost, state " + store.state());
+            assertFalse(store.isUnlocked(DimensionUnlock.THE_END),
+                    "round " + round + ": the end lock was lost, state " + store.state());
+        }
     }
 
     @Test

@@ -36,7 +36,11 @@ import com.ninja6.antispeedrun.config.PluginConfig.Profile;
  * <h2>Threading</h2>
  *
  * Every method here touches the filesystem. None may run on a Folia region thread; the command
- * dispatches them onto the {@code AsyncScheduler} and only hops back to reload.
+ * dispatches them onto the {@code AsyncScheduler}.
+ *
+ * <p>{@link #apply} is serialised against itself, so two operators applying different presets at
+ * the same moment cannot interleave into a {@code config.yml} that is neither of them (#75). That
+ * lock is only ever contended on the {@code AsyncScheduler}, where blocking is legal.
  */
 public final class ProfileApplier {
 
@@ -50,6 +54,13 @@ public final class ProfileApplier {
 
     /** How many suffixed names to try when two backups land in the same second. */
     private static final int MAX_COLLISION_ATTEMPTS = 100;
+
+    /**
+     * Serialises {@link #apply}. Static because the thing being guarded is {@code config.yml}
+     * itself, of which the server has exactly one; a per-instance lock would guard nothing, as this
+     * class is never instantiated. Taken only on the {@code AsyncScheduler}.
+     */
+    private static final Object APPLY_LOCK = new Object();
 
     private ProfileApplier() {
     }
@@ -160,7 +171,14 @@ public final class ProfileApplier {
         // The stream is the outermost resource deliberately: backup(...) below can throw, and
         // before this it did so with the stream still open.
         try (InputStream in = preset) {
-            return replace(in, configFile, backupDirectory, at, zone);
+            // Serialised so that backup-then-replace is one unit. Two operators applying different
+            // presets in the same instant must leave one whole preset on disk with a backup that
+            // corresponds to it, not a config.yml assembled from both (#75). The lock is only ever
+            // taken on the AsyncScheduler -- apply() is never called from a region thread -- so
+            // blocking here blocks nothing that ticks.
+            synchronized (APPLY_LOCK) {
+                return replace(in, configFile, backupDirectory, at, zone);
+            }
         }
     }
 
@@ -170,16 +188,37 @@ public final class ProfileApplier {
         Optional<Path> backup = backup(configFile, backupDirectory, at, zone);
 
         Path parent = configFile.toAbsolutePath().getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
+        if (parent == null) {
+            throw new IOException(configFile + " has no parent directory to stage a write in");
         }
-        Path staged = configFile.resolveSibling(configFile.getFileName() + ".incoming");
-        Files.copy(preset, staged, StandardCopyOption.REPLACE_EXISTING);
+        Files.createDirectories(parent);
+
+        // A name of this apply's own, rather than the one shared "config.yml.incoming": that
+        // single path was the second half of #75, since two applies staging through it could
+        // interleave into a config.yml that was neither preset. The staging file is a sibling of
+        // the configuration so the move below stays within one filesystem and can be atomic.
+        Path staged = Files.createTempFile(parent, configFile.getFileName() + ".", ".incoming");
+        boolean moved = false;
         try {
-            Files.move(staged, configFile,
-                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException unsupported) {
-            Files.move(staged, configFile, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(preset, staged, StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.move(staged, configFile,
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(staged, configFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            moved = true;
+        } finally {
+            if (!moved) {
+                // A half-written staging file is litter in the data folder and nothing else; the
+                // failure that got us here is what the caller is told about, so a failure to tidy
+                // up must not replace it.
+                try {
+                    Files.deleteIfExists(staged);
+                } catch (IOException ignored) {
+                    // Nothing useful to do, and the real exception is already propagating.
+                }
+            }
         }
         return backup;
     }
