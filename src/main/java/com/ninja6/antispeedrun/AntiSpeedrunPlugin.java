@@ -171,7 +171,20 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         getLogger().info("AntiSpeedrun disabled.");
     }
 
-    /** The progression service. Gates, commands and the progress card all evaluate through it. */
+    /**
+     * The progression service. Gates, commands and the progress card all evaluate through it.
+     *
+     * <p><strong>Null before {@code onEnable} has assigned it.</strong> The field is
+     * {@code volatile}, so once assigned it is visible to every region thread — but the assignment
+     * happens partway through {@code onEnable}, and this accessor cannot distinguish "not yet
+     * assigned" from "assigned to null". Callers do not need to null-check, because there is no
+     * legal way for one of them to run inside that window: listeners are registered after this
+     * field is set, commands are registered after that, and the scheduler holds nothing until the
+     * plugin is enabled. The window is real but unreachable, and it is documented here rather than
+     * guarded so that a caller who does see null knows it means their caller is running too early —
+     * a listener registered by hand in a constructor, say — and not that progression is optional.
+     * The same applies to {@link #playerState()} and {@link #dimensionUnlocks()}.
+     */
     public ProgressionManager progression() {
         return progression;
     }
@@ -211,7 +224,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         return journeyBook;
     }
 
-    /** The registry every per-player map belongs to. Register here, get quit cleanup for free. */
+    /**
+     * The registry every per-player map belongs to. Register here, get quit cleanup for free.
+     *
+     * <p>Null before {@code onEnable} assigns it, on the same terms as {@link #progression()}.
+     * Registration itself is expected during {@code onEnable} and after this field is set; a map
+     * name must be unique across the plugin, and {@link PlayerStateRegistry#register(String)}
+     * throws rather than merging a duplicate.
+     */
     public PlayerStateRegistry playerState() {
         return playerState;
     }

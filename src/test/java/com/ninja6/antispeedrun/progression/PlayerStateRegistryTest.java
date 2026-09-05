@@ -2,9 +2,11 @@ package com.ninja6.antispeedrun.progression;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -94,6 +96,46 @@ class PlayerStateRegistryTest {
         assertEquals(2, registry.sizes().size());
         assertEquals(1, registry.sizes().get("item-feedback-throttle"));
         assertEquals(0, registry.sizes().get("bypass-flags"));
+    }
+
+    @Test
+    @DisplayName("a duplicate map name is rejected rather than silently merged — #68 item 5")
+    void registerRefusesADuplicateName() {
+        PlayerStateRegistry registry = new PlayerStateRegistry();
+        registry.register("progression-snapshots");
+
+        IllegalArgumentException refusal = assertThrows(IllegalArgumentException.class,
+                () -> registry.register("progression-snapshots"));
+        assertTrue(refusal.getMessage().contains("progression-snapshots"),
+                "the refusal names the map, so whoever added the second one can find it");
+    }
+
+    @Test
+    @DisplayName("a refused registration leaves the registry as it was")
+    void aRefusedRegistrationRegistersNothing() {
+        PlayerStateRegistry registry = new PlayerStateRegistry();
+        PlayerStateMap<Long> first = registry.register("map");
+        first.put(UUID.randomUUID(), 1L);
+
+        assertThrows(IllegalArgumentException.class, () -> registry.register("map"));
+
+        assertEquals(1, registry.registered().size());
+        assertEquals(Map.of("map", 1), registry.sizes());
+    }
+
+    @Test
+    @DisplayName("sizes() reports one row per map, so a row attributes a leak to one feature")
+    void sizesDoNotCollapseAcrossFeatures() {
+        PlayerStateRegistry registry = new PlayerStateRegistry();
+        PlayerStateMap<Long> snapshots = registry.register("progression-snapshots");
+        PlayerStateMap<Long> watches = registry.register("progression-unlock-watches");
+        for (int i = 0; i < 5; i++) {
+            snapshots.put(UUID.randomUUID(), 1L);
+        }
+        watches.put(UUID.randomUUID(), 1L);
+
+        assertEquals(Map.of("progression-snapshots", 5, "progression-unlock-watches", 1),
+                registry.sizes());
     }
 
     @Test

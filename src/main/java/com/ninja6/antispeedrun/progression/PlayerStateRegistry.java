@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -34,13 +35,34 @@ public final class PlayerStateRegistry {
     private final CopyOnWriteArrayList<PlayerStateMap<?>> maps = new CopyOnWriteArrayList<>();
 
     /**
+     * Names already taken, so {@link #register(String)} can refuse a duplicate rather than let two
+     * features share one row in {@link #sizes()}.
+     */
+    private final Set<String> names = ConcurrentHashMap.newKeySet();
+
+    /**
      * Creates a per-player map that is cleaned up on quit along with every other registered map.
      *
-     * @param name diagnostic name, unique per feature; appears in {@link #sizes()}
+     * <p>The name must be unique across the whole plugin, and this method enforces that rather than
+     * merely documenting it. Two features registering under one name is not a harmless collision:
+     * {@link #sizes()} would report a single row carrying their combined entry count, so the one
+     * diagnostic this type exists to provide — <em>which</em> map grew — would name a map that is
+     * really two, and a leak in either would be indistinguishable from ordinary traffic in the
+     * other. Failing at registration puts that in front of whoever added the second map, during
+     * {@code onEnable}, instead of in front of whoever is chasing the leak months later.
+     *
+     * @param name diagnostic name, unique across every registered map; appears in {@link #sizes()}
      * @param <T>  the state held per player
+     * @throws IllegalArgumentException if a map is already registered under {@code name}
      */
     public <T> PlayerStateMap<T> register(String name) {
         Objects.requireNonNull(name, "name");
+        if (!names.add(name)) {
+            throw new IllegalArgumentException("A per-player map is already registered as \"" + name
+                    + "\". Names must be unique: PlayerStateRegistry.sizes() reports one row per "
+                    + "name, so a shared name hides which feature's map is growing. Pick a name "
+                    + "that identifies this feature.");
+        }
         PlayerStateMap<T> map = new PlayerStateMap<>(name);
         maps.add(map);
         return map;
@@ -66,11 +88,16 @@ public final class PlayerStateRegistry {
         }
     }
 
-    /** Registered map names against their current entry counts, for leak diagnostics. */
+    /**
+     * Registered map names against their current entry counts, for leak diagnostics.
+     *
+     * <p>One row per map, and {@link #register(String)} guarantees one map per name, so a row is
+     * always attributable to exactly one feature.
+     */
     public Map<String, Integer> sizes() {
         Map<String, Integer> counts = new LinkedHashMap<>();
         for (PlayerStateMap<?> map : maps) {
-            counts.merge(map.name(), map.size(), Integer::sum);
+            counts.put(map.name(), map.size());
         }
         return Map.copyOf(counts);
     }

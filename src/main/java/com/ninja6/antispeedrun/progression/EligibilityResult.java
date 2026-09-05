@@ -76,4 +76,23 @@ public record EligibilityResult(
     public boolean hasActionableRequirements() {
         return !missingAdvancements.isEmpty() || missingPlaytimeHours > 0.0D || missingAccountAgeDays > 0;
     }
+
+    /**
+     * Whether this milestone fails only because a duration has not elapsed yet.
+     *
+     * <p>The arming condition for {@link UnlockWatch}, and the reason it exists: an advancement
+     * announces itself through {@code PlayerAdvancementDoneEvent}, but the passage of time raises
+     * no event, so a milestone in this state will open in silence unless something is watching it.
+     * A milestone still missing an advancement is deliberately excluded — that event will fire and
+     * the question will be re-asked then, so a task armed now would do nothing until it does.
+     *
+     * <p>{@link #unresolvableAdvancements()} does not count against this. {@link MilestoneEvaluator}
+     * has already waived those, and an unknown account age is likewise already treated as
+     * satisfied, so what remains here really is only the clock.
+     */
+    public boolean outstandingOnTimeAlone() {
+        return !eligible
+                && missingAdvancements.isEmpty()
+                && (missingPlaytimeHours > 0.0D || missingAccountAgeDays > 0);
+    }
 }
