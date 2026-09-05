@@ -183,6 +183,32 @@ jobs:
             exit 1
           fi
 
+          # "Enabling AntiSpeedrun" is logged by Bukkit BEFORE onEnable runs, so on its own it
+          # proves only that the jar loaded. onEnable disables the plugin outright when the item
+          # gate compiler finds a tier collision, and that path never reaches the line below.
+          #
+          # This is the only place a tier collision is checked against the real Material enum.
+          # paper-api is compileOnly and deliberately not on the test classpath, so the unit tests
+          # compile config.yml against a ~100-constant fixture rather than Bukkit's ~1,400: an
+          # overlap that exists only among the constants the fixture omits is invisible to every
+          # test and would surface as a production server failing to start. Asserting the compile
+          # succeeded here turns that into a CI failure instead. Do not weaken this to a grep for
+          # "Enabling"; that is the assertion this replaces.
+          if grep -qE "Item gates compiled: [1-9][0-9]* materials across [1-9][0-9]* tiers" server.log; then
+            grep -E "Item gates compiled:" server.log
+          else
+            echo "::error::AntiSpeedrun loaded but never compiled its item gates against the real Material enum. A tier collision in config.yml, or a config.yml that failed to parse, will do this."
+            grep -iE "gated-items|unresolvable tier collision|Disabling AntiSpeedrun" server.log || true
+            tail -n 200 server.log
+            exit 1
+          fi
+
+          if grep -qiE "unresolvable tier collision" server.log; then
+            echo "::error::item-progression.gated-items contains a tier collision over the real Material enum."
+            grep -iE -B 5 "unresolvable tier collision" server.log
+            exit 1
+          fi
+
           # A plugin that loads but throws on a Folia-illegal API call is still broken.
           if grep -qiE "UnsupportedOperationException|is not supported on Folia|Could not load 'plugins" server.log; then
             echo "::error::Folia rejected an unsupported API call."
