@@ -1,15 +1,64 @@
+# agent-review-gate
+#
+# Owns the `ninja6-agent/review` commit status for its whole lifecycle: it registers
+# the context as pending when a pull request opens, and moves it off pending when
+# `ninja6-agent[bot]` submits a review.
+#
+# ----------------------------------------------------------------------------------
+# DO NOT ADD `ninja6-agent/review` TO main's REQUIRED STATUS CHECKS.
+# ----------------------------------------------------------------------------------
+# A green tick on this context means "an independent agent reviewer approved", never
+# "a human approved". Reviewers are spawned with no prior context, so the author of a
+# change writes no part of the reviewer's prompt — that narrows the failure mode, but
+# it is still the same system certifying its own work. Making this context required
+# would make an agent's approval sufficient to merge, with no human in the loop.
+#
+# The required contexts on `main` are, deliberately, only:
+#   dco / Check Sign-off, standards / Check Standards, Build and Test
+#
+# Rationale in full: docs/agent-review-gate.md (decision record, issue #70).
+# ----------------------------------------------------------------------------------
+#
+# Two mechanisms write this context, deliberately and non-exclusively:
+#
+#   1. `agent/tools/review-as-bot.mjs status` — the fast path. The reviewer sets the
+#      status itself as its last step, immediately after posting its review.
+#   2. This workflow — the safety net. If a reviewer dies between posting its review
+#      and setting the status, the `pull_request_review` trigger below still resolves
+#      the context. Both derive the state from the same review, so they cannot
+#      disagree; the later write simply repeats the earlier one.
+#
+# WHICH COPY OF THIS FILE RUNS, AND WHY THAT IS NOT SETTLED: GitHub documents
+# `pull_request_review` as running in the base-branch context — the copy of this file on
+# `main`, not the copy on the pull request's head branch. Observed behaviour differs.
+# When the reviewer approved the pull request that introduced the `resolve` job, GitHub
+# ran a `pull_request_review` workflow at head `4191386` whose jobs were named
+# `Register Review Status` and `Resolve Review Status`. Those names existed only on the
+# head branch: `main` carried a single job named `gate` and no `pull_request_review`
+# trigger at all, so that run cannot have come from `main`. The head copy ran, and it
+# resolved the status correctly.
+#
+# That is ONE observation, on a same-repo pull request, contradicting the documented rule.
+# Do not rely on either reading. It has not been checked for pull requests from forks,
+# where the token is read-only and a status write would fail regardless. When changing the
+# `resolve` job, verify which jobs a run actually executed rather than assuming.
+
 name: agent-review-gate
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   statuses: write
   pull-requests: read
 
 jobs:
-  gate:
+  register:
+    name: Register Review Status
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -33,3 +82,50 @@ jobs:
               -f context="ninja6-agent/review" \
               -f description="Waiting for ninja6-agent review"
           fi
+
+  resolve:
+    name: Resolve Review Status
+    # Only the agent reviewer's own verdict may move this context. A review from any
+    # other account — human or bot — is ignored here.
+    if: >-
+      github.event_name == 'pull_request_review' &&
+      github.event.review.user.login == 'ninja6-agent[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve Review Status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Webhook payloads deliver this lowercased ("approved"), the REST API
+          # uppercased ("APPROVED"). Normalise below rather than trusting either.
+          REVIEW_STATE: ${{ github.event.review.state }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+          REVIEW_URL: ${{ github.event.review.html_url }}
+        run: |
+          state=$(printf '%s' "$REVIEW_STATE" | tr '[:upper:]' '[:lower:]')
+          case "$state" in
+            approved)
+              status=success
+              description="ninja6-agent approved (not a human approval)"
+              ;;
+            changes_requested)
+              status=failure
+              description="ninja6-agent requested changes"
+              ;;
+            commented)
+              # Reviewed, but not cleared: findings are still outstanding.
+              status=pending
+              description="ninja6-agent commented; findings outstanding"
+              ;;
+            *)
+              echo "Ignoring review state '$state' (dismissed or unrecognised)."
+              exit 0
+              ;;
+          esac
+          echo "Review $REVIEW_URL is '$state' -> $status"
+          gh api -X POST "repos/$REPO/statuses/$SHA" \
+            -f state="$status" \
+            -f context="ninja6-agent/review" \
+            -f description="$description" \
+            -f target_url="$REVIEW_URL"

@@ -30,6 +30,13 @@ dependencies {
     // from FileConfiguration, and the tests drive that seam with real YAML through SnakeYAML --
     // the same parser Bukkit itself uses. Test scope only: nothing in src/main imports it.
     testImplementation("org.yaml:snakeyaml:2.2")
+
+    // Test scope only, and only so ConfigSectionConformanceTest can run one set of assertions
+    // against BukkitConfigSection as well as MapConfigSection. org.bukkit.configuration is plain
+    // library code in the API jar -- YamlConfiguration.loadFromString needs no running server --
+    // so the adapter that production actually uses is exercised rather than assumed equivalent.
+    // src/main still compiles against paper-api as compileOnly; nothing here changes that.
+    testImplementation("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
 }
 
 tasks {
