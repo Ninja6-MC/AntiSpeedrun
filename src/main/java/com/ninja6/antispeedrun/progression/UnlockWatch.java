@@ -2,6 +2,7 @@ package com.ninja6.antispeedrun.progression;
 
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import org.bukkit.entity.Player;
@@ -84,7 +85,19 @@ public final class UnlockWatch {
     /**
      * The armed task per player, so a second {@link #refresh} does not stack a second task and
      * {@link #disarm} can cancel one. Registered with the same {@link PlayerStateRegistry} as every
-     * other per-player map, so quit cleanup covers it even if a caller forgets to disarm.
+     * other per-player map, so the row cannot outlive the player.
+     *
+     * <p>Registration is <strong>not</strong> a substitute for {@link #disarm}, and this is the one
+     * registered map for which that distinction matters. {@link PlayerStateRegistry#forget} drops
+     * the row; it does not cancel what the row holds, and a {@code ScheduledTask} is a live resource
+     * rather than a value. So any caller reaching {@code forget} — the quit listener via
+     * {@link ProgressionManager#forget}, or a path added later — must disarm first, which is why
+     * {@link #disarm}'s contract says so and why {@code ProgressionListener.onQuit} is ordered the
+     * way it is. Nothing here leaks if that ordering is missed: {@link #tick} re-checks
+     * {@code isOnline} and cancels itself within one period, and the retired callback drops the row
+     * in any case. The registry is not given a general cancel-on-removal hook for one map's sake; if
+     * a second map ever holds a cancellable resource, that hook is the fix rather than a second
+     * comment like this one.
      */
     private final PlayerStateMap<ScheduledTask> armed;
 
@@ -137,10 +150,26 @@ public final class UnlockWatch {
             return;
         }
 
+        // The retired callback has to name the task it is retiring, and Folia wants the callback
+        // before it hands the handle back. The holder closes that circle: the callback removes the
+        // row only while it still holds *this* task, so a retirement that lands after the player has
+        // rejoined and armed a fresh one cannot drop the new handle. Plain field semantics would do
+        // -- the write below happens-before any region thread runs the callback -- but an
+        // AtomicReference says that rather than leaving a reader to reconstruct it.
+        AtomicReference<ScheduledTask> retiring = new AtomicReference<>();
         ScheduledTask task = player.getScheduler().runAtFixedRate(plugin,
                 scheduled -> tick(player, scheduled),
-                () -> armed.remove(id),
+                () -> {
+                    ScheduledTask retired = retiring.get();
+                    if (retired != null) {
+                        armed.remove(id, retired);
+                    }
+                    // Null only if retirement beats the assignment below, in which case nothing has
+                    // been stored under this id yet and there is nothing to remove. The store then
+                    // fails the isOnline check on the next tick, or on the quit that retired it.
+                },
                 INITIAL_DELAY_TICKS, periodTicks);
+        retiring.set(task);
         if (task == null) {
             // Folia returns null when the entity has already been retired -- the player quit
             // between the evaluation above and this call. Nothing to arm and nothing to clean up.

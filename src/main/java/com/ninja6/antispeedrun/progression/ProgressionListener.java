@@ -67,10 +67,12 @@ public final class ProgressionListener implements Listener {
     /**
      * The time-based unlock watch this listener arms.
      *
-     * <p>Exposed so {@code /asr reload} can {@link UnlockWatch#refresh} each online player where it
-     * already re-primes them: a reload can turn an advancement-driven gate into a time-driven one,
-     * and until the watch is refreshed nothing would arm for it until that player's next join or
-     * next advancement.
+     * <p>Exposed for the two paths that establish what a player is waiting on without a join or an
+     * advancement to arm from, both of which run through {@code AntiSpeedrunPlugin}'s
+     * {@code primeOnlinePlayers} and call {@link UnlockWatch#refresh} there: players already online
+     * when the plugin enables, who never fire {@code PlayerJoinEvent} for this listener at all, and
+     * every online player after an {@code /asr reload}, which can turn an advancement-driven gate
+     * into a time-driven one that then has no advancement left to fire on.
      */
     public UnlockWatch watch() {
         return watch;
