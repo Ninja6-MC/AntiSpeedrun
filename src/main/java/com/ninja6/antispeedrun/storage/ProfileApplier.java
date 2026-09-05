@@ -141,6 +141,10 @@ public final class ProfileApplier {
      * <p>This does not reload anything. The caller applies the file by calling
      * {@code reloadConfiguration()} afterwards, on a thread where that is legal.
      *
+     * <p>{@code preset} is closed on <em>every</em> path out of this method, including one where the
+     * backup itself throws. It used to be closed only by the try-with-resources around the write
+     * below it, so an unwritable data folder left the stream open (#74).
+     *
      * @param preset          the preset document; closed by this method
      * @param configFile      the configuration to replace
      * @param backupDirectory where the backup is written; created if absent
@@ -153,6 +157,16 @@ public final class ProfileApplier {
         Objects.requireNonNull(preset, "preset");
         Objects.requireNonNull(configFile, "configFile");
 
+        // The stream is the outermost resource deliberately: backup(...) below can throw, and
+        // before this it did so with the stream still open.
+        try (InputStream in = preset) {
+            return replace(in, configFile, backupDirectory, at, zone);
+        }
+    }
+
+    /** The backup-then-replace body of {@link #apply}, with the preset stream already owned. */
+    private static Optional<Path> replace(InputStream preset, Path configFile, Path backupDirectory,
+                                          Instant at, ZoneId zone) throws IOException {
         Optional<Path> backup = backup(configFile, backupDirectory, at, zone);
 
         Path parent = configFile.toAbsolutePath().getParent();
@@ -160,9 +174,7 @@ public final class ProfileApplier {
             Files.createDirectories(parent);
         }
         Path staged = configFile.resolveSibling(configFile.getFileName() + ".incoming");
-        try (InputStream in = preset) {
-            Files.copy(in, staged, StandardCopyOption.REPLACE_EXISTING);
-        }
+        Files.copy(preset, staged, StandardCopyOption.REPLACE_EXISTING);
         try {
             Files.move(staged, configFile,
                     StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);

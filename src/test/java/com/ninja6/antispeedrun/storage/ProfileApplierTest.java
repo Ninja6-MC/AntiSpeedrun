@@ -8,147 +8,106 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import com.ninja6.antispeedrun.config.PluginConfig.Profile;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@code /asr profile apply} against a real filesystem.
+ * {@link ProfileApplier#apply} on a real temporary directory: the backup is taken before anything
+ * is written, the replacement is all-or-nothing, and the preset stream is closed however the method
+ * exits.
  *
- * <p>{@link ProfileApplier} is plain {@code java.nio}, so the backup, the overwrite and the
- * ordering between them are exercised for real rather than mocked.
+ * <p>Plain {@code java.nio}, no Bukkit — the seam {@link ProfileApplier} exists to keep.
  */
 class ProfileApplierTest {
 
     private static final Instant AT = Instant.parse("2026-09-04T15:30:12Z");
-    private static final ZoneId UTC = ZoneId.of("UTC");
+    private static final ZoneId ZONE = ZoneId.of("UTC");
 
-    private static InputStream preset(String content) {
-        return new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
-    }
+    /** A preset stream that records whether it was closed. */
+    private static final class CloseRecordingStream extends InputStream {
 
-    @Nested
-    @DisplayName("resource naming")
-    class ResourceNaming {
+        private final InputStream delegate;
+        private boolean closed;
 
-        @Test
-        @DisplayName("the filename is derived from the enum constant, so the two cannot drift")
-        void derivedFromEnum() {
-            assertEquals("profiles/casual.yml", ProfileApplier.resourcePath(Profile.CASUAL));
-            assertEquals("profiles/smp_standard.yml", ProfileApplier.resourcePath(Profile.SMP_STANDARD));
-            assertEquals("profiles/hardcore.yml", ProfileApplier.resourcePath(Profile.HARDCORE));
+        CloseRecordingStream(String content) {
+            this.delegate = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
         }
 
-        @Test
-        @DisplayName("CUSTOM is refused: it marks a hand-edited file, it is not a preset")
-        void customIsNotAPreset() {
-            assertThrows(IllegalArgumentException.class, () -> ProfileApplier.resourcePath(Profile.CUSTOM));
-            assertEquals(List.of(Profile.CASUAL, Profile.SMP_STANDARD, Profile.HARDCORE),
-                    ProfileApplier.applicable());
-        }
-    }
-
-    @Nested
-    @DisplayName("backup naming")
-    class BackupNaming {
-
-        @Test
-        @DisplayName("the stamp goes before the extension, so the copy still opens as YAML")
-        void stampBeforeExtension() {
-            assertEquals("config-20260904-153012.yml",
-                    ProfileApplier.backupFileName("config.yml", AT, UTC));
+        @Override
+        public int read() throws IOException {
+            return delegate.read();
         }
 
-        @Test
-        @DisplayName("a name with no extension simply gets the stamp appended")
-        void noExtension() {
-            assertEquals("config-20260904-153012", ProfileApplier.backupFileName("config", AT, UTC));
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            return delegate.read(buffer, offset, length);
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            delegate.close();
         }
     }
 
-    @Nested
-    @DisplayName("apply")
-    class Apply {
+    @Test
+    @DisplayName("a successful apply backs the configuration up and replaces it, closing the preset")
+    void appliesAndCloses(@TempDir Path folder) throws Exception {
+        Path config = folder.resolve("config.yml");
+        Files.writeString(config, "profile: SMP_STANDARD\n");
+        CloseRecordingStream preset = new CloseRecordingStream("profile: HARDCORE\n");
 
-        @Test
-        @DisplayName("the configuration is replaced and the previous one is copied aside")
-        void backsUpThenReplaces(@TempDir Path dataFolder) throws IOException {
-            Path config = dataFolder.resolve("config.yml");
-            Path backups = dataFolder.resolve(ProfileApplier.BACKUP_DIRECTORY);
-            Files.writeString(config, "profile: CUSTOM\n");
+        Optional<Path> backup = ProfileApplier.apply(
+                preset, config, folder.resolve(ProfileApplier.BACKUP_DIRECTORY), AT, ZONE);
 
-            Optional<Path> backup =
-                    ProfileApplier.apply(preset("profile: HARDCORE\n"), config, backups, AT, UTC);
+        assertEquals("profile: HARDCORE\n", Files.readString(config));
+        assertEquals("profile: SMP_STANDARD\n", Files.readString(backup.orElseThrow()));
+        assertTrue(preset.closed, "the preset stream must be closed on the happy path too");
+        assertTrue(Files.notExists(config.resolveSibling("config.yml.incoming")),
+                "the staging file must not survive a successful apply");
+    }
 
-            assertEquals("profile: HARDCORE\n", Files.readString(config));
-            assertEquals("profile: CUSTOM\n", Files.readString(backup.orElseThrow()));
-            assertEquals("config-20260904-153012.yml", backup.orElseThrow().getFileName().toString());
-            assertEquals(backups, backup.orElseThrow().getParent());
-        }
+    @Test
+    @DisplayName("a throwing backup still closes the preset and leaves config.yml untouched")
+    void failingBackupClosesThePreset(@TempDir Path folder) throws Exception {
+        Path config = folder.resolve("config.yml");
+        Files.writeString(config, "profile: SMP_STANDARD\n");
 
-        @Test
-        @DisplayName("two applies in the same second keep both backups")
-        void collidingBackupsAreBothKept(@TempDir Path dataFolder) throws IOException {
-            Path config = dataFolder.resolve("config.yml");
-            Path backups = dataFolder.resolve(ProfileApplier.BACKUP_DIRECTORY);
-            Files.writeString(config, "first\n");
+        // The backup directory is an existing regular file, so createDirectories inside backup(...)
+        // throws before anything has been written. That is the path #74 named: the stream was
+        // opened by the caller, the write below it sat in a try-with-resources, and this exit did
+        // not go through it.
+        Path backupDirectory = folder.resolve(ProfileApplier.BACKUP_DIRECTORY);
+        Files.writeString(backupDirectory, "not a directory");
 
-            Path one = ProfileApplier.apply(preset("second\n"), config, backups, AT, UTC).orElseThrow();
-            Path two = ProfileApplier.apply(preset("third\n"), config, backups, AT, UTC).orElseThrow();
+        CloseRecordingStream preset = new CloseRecordingStream("profile: HARDCORE\n");
 
-            // The whole point of a backup is that experimenting with two presets in a row still
-            // leaves the original recoverable, so the second must not overwrite the first.
-            assertEquals("first\n", Files.readString(one));
-            assertEquals("second\n", Files.readString(two));
-            assertEquals("config-20260904-153012-1.yml", two.getFileName().toString());
-            assertEquals("third\n", Files.readString(config));
-        }
+        assertThrows(IOException.class,
+                () -> ProfileApplier.apply(preset, config, backupDirectory, AT, ZONE));
 
-        @Test
-        @DisplayName("a first run with no config.yml applies cleanly and reports no backup")
-        void noExistingConfiguration(@TempDir Path dataFolder) throws IOException {
-            Path config = dataFolder.resolve("config.yml");
+        assertTrue(preset.closed, "the preset stream must be closed when backup(...) throws");
+        assertEquals("profile: SMP_STANDARD\n", Files.readString(config),
+                "a failed backup must leave the previous configuration exactly as it was");
+    }
 
-            Optional<Path> backup = ProfileApplier.apply(preset("profile: CASUAL\n"), config,
-                    dataFolder.resolve(ProfileApplier.BACKUP_DIRECTORY), AT, UTC);
+    @Test
+    @DisplayName("no config.yml to back up is not an error")
+    void firstRunHasNothingToBackUp(@TempDir Path folder) throws Exception {
+        Path config = folder.resolve("config.yml");
+        CloseRecordingStream preset = new CloseRecordingStream("profile: CASUAL\n");
 
-            assertTrue(backup.isEmpty());
-            assertEquals("profile: CASUAL\n", Files.readString(config));
-        }
+        Optional<Path> backup = ProfileApplier.apply(
+                preset, config, folder.resolve(ProfileApplier.BACKUP_DIRECTORY), AT, ZONE);
 
-        @Test
-        @DisplayName("nothing is left staged behind after a successful apply")
-        void leavesNoTemporaryFile(@TempDir Path dataFolder) throws IOException {
-            Path config = dataFolder.resolve("config.yml");
-            Files.writeString(config, "old\n");
-
-            ProfileApplier.apply(preset("new\n"), config,
-                    dataFolder.resolve(ProfileApplier.BACKUP_DIRECTORY), AT, UTC);
-
-            assertFalse(Files.exists(dataFolder.resolve("config.yml.incoming")));
-        }
-
-        @Test
-        @DisplayName("the backup directory is created on demand")
-        void createsBackupDirectory(@TempDir Path dataFolder) throws IOException {
-            Path config = dataFolder.resolve("config.yml");
-            Path backups = dataFolder.resolve("nested").resolve(ProfileApplier.BACKUP_DIRECTORY);
-            Files.writeString(config, "old\n");
-
-            ProfileApplier.apply(preset("new\n"), config, backups, AT, UTC);
-
-            assertTrue(Files.isDirectory(backups));
-        }
+        assertTrue(backup.isEmpty());
+        assertEquals("profile: CASUAL\n", Files.readString(config));
+        assertTrue(preset.closed);
     }
 }
