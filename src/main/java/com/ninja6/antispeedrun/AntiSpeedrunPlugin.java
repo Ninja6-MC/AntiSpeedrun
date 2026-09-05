@@ -250,11 +250,20 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      *
      * <p><strong>Never call this on a region thread.</strong> It opens {@code config.yml} and parses
      * it, which is blocking I/O; {@code onEnable} is the one exception, since no region is serving
-     * yet. {@code /asr} calls it from the {@code AsyncScheduler} (#72). It is otherwise safe from
-     * any thread: the parse happens outside every lock, and the swap that publishes the result is
-     * synchronous, so a caller that gets {@code true} back has already published the new
-     * configuration rather than merely queued it. That is what lets {@code /asr reload} report an
-     * outcome without hopping anywhere afterwards.
+     * yet. {@code /asr} calls it from the {@code AsyncScheduler} (#72).
+     *
+     * <p>Concurrent callers are serialised rather than tolerated: the whole read-compile-publish
+     * sequence runs under this plugin's monitor, so the parse <em>is</em> inside the lock. That is
+     * deliberate, because the thing being made atomic is the pairing of the snapshot with the gate
+     * table compiled from it, and the parse is the first half of producing that pair. Holding a
+     * lock across file I/O is only safe because nothing that ticks ever takes it: every caller is
+     * either {@code onEnable}, which takes it uncontended, or the {@code AsyncScheduler}, where
+     * blocking is legal. A region thread that called this would already be violating the paragraph
+     * above.
+     *
+     * <p>The swap is still synchronous, so a caller that gets {@code true} back has already
+     * published the new configuration rather than merely queued it. That is what lets
+     * {@code /asr reload} report an outcome without hopping anywhere afterwards.
      *
      * @return {@code true} if the new snapshot and its compiled gates are live, {@code false} if
      *         either was rejected — in which case <em>nothing</em> was applied and the previous
@@ -297,8 +306,20 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * to parse — the mirror image of publishing a snapshot beside a stale table, and wrong for the
      * same reason. It is also why {@code primeOnlinePlayers} is handed {@link #configuration()},
      * the snapshot that is now live, rather than the candidate it was compiled from.
+     *
+     * <p><strong>{@code synchronized} is load-bearing.</strong> Publishing takes two independent
+     * writes — {@code configHolder.reload} publishes the snapshot with its own volatile write, and
+     * the {@code itemGates} assignment below is a second one outside it — so two callers running
+     * this concurrently could come to rest with one reload's snapshot live beside the other
+     * reload's gate table, breaking the invariant {@link #itemGates()} documents. Until #72 that
+     * could not happen, because both post-startup callers hopped to the global region scheduler and
+     * were serialised by having one thread; they now run on the {@code AsyncScheduler}, which is a
+     * pool, so the serialisation has to be stated rather than inherited. Folding the assignment
+     * into the binding so the holder published both under one write would be stronger, but it
+     * cannot be done without changing {@code ConfigSnapshotHolder}'s contract for every other
+     * caller.
      */
-    private ReloadOutcome applyConfiguration() {
+    private synchronized ReloadOutcome applyConfiguration() {
         List<String> gateWarnings = new ArrayList<>();
         AtomicBoolean collided = new AtomicBoolean();
 
