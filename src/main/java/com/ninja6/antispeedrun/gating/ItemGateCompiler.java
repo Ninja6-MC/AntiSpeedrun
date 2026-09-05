@@ -53,16 +53,19 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  * mean the same thing here as it does at the point the requirement is actually evaluated:
  *
  * <ul>
- *   <li><strong>Advancement keys are normalised the way the runtime resolver normalises them</strong>
- *       — trimmed, and given the implicit {@code minecraft:} namespace when they carry none. That is
- *       exactly what {@code NamespacedKey.fromString} does, so {@code story/smelt_iron} and
- *       {@code minecraft:story/smelt_iron} name one advancement to the server and must name one
- *       requirement here. Before, a purely cosmetic difference between two tiers turned a clean
- *       dominance into an incomparable pair, and since the collision became fatal, into a refusal
- *       to start. Case is deliberately <em>not</em> folded: {@code NamespacedKey} rejects an
- *       upper-case key outright, so {@code MINECRAFT:STORY/X} resolves to nothing on the server and
- *       is a genuinely different — unsatisfiable — requirement from the lower-case form, not a
- *       spelling of it. See {@link #normalise}.</li>
+ *   <li><strong>Advancement keys get the implicit {@code minecraft:} namespace, and nothing
+ *       else</strong> — that is the one normalisation {@code NamespacedKey.fromString} performs, so
+ *       {@code story/smelt_iron} and {@code minecraft:story/smelt_iron} name one advancement to the
+ *       server and must name one requirement here. Before, that purely cosmetic difference between
+ *       two tiers turned a clean dominance into an incomparable pair, and since the collision
+ *       became fatal, into a refusal to start. Nothing else is folded — not case, not surrounding
+ *       whitespace — because the resolver folds neither and is handed the configured string
+ *       untouched. A key it rejects is <em>not</em> an unsatisfiable requirement: it resolves to
+ *       {@code UNRESOLVABLE}, which {@code MilestoneEvaluator} waives, so every player satisfies
+ *       it. Canonicalising such a key here would make it equal to the correctly spelled one, hand
+ *       the material to whichever tier was declared first, and then waive that tier's requirement
+ *       at runtime — an item silently ungated. Left distinct, the pair is incomparable and the
+ *       operator is told at boot. See {@link #normalise}.</li>
  *   <li><strong>A {@code NaN} playtime is neutralised to zero, with a warning.</strong> It is
  *       reachable: {@code require-playtime-hours} is read with the plain {@code decimal} reader, and
  *       YAML spells a floating-point NaN {@code .nan}, which SnakeYAML resolves to
@@ -380,24 +383,39 @@ public final class ItemGateCompiler {
     /**
      * Puts one advancement key in the form the server will resolve it in.
      *
-     * <p>Trim, then supply the implicit {@code minecraft:} namespace — the same two steps
-     * {@code NamespacedKey.fromString} takes, which is what {@code BukkitAdvancementLookup} hands
-     * the raw configured string to. Matching that resolver exactly is the whole point: two keys are
-     * one requirement here precisely when they are one advancement there.
+     * <p>Supply the implicit {@code minecraft:} namespace when the key carries none, and change
+     * nothing else. That is the single normalisation {@code NamespacedKey.fromString} performs, so
+     * two keys are one requirement here precisely when they are one advancement there.
      *
-     * <p>Case is left alone deliberately. {@code NamespacedKey} rejects an upper-case key rather
-     * than folding it, so {@code MINECRAFT:STORY/X} resolves to no advancement at all; folding it
-     * here would declare it identical to a requirement players can actually earn.
+     * <p>Nothing else is touched because nothing else is touched on the way to the resolver either:
+     * {@code ConfigReader#strings} does not trim, {@code MilestoneRequirement} passes the list
+     * through, and {@code BukkitAdvancementLookup} hands {@code fromString} the raw configured
+     * string. So two forms the resolver rejects stay distinct here — surrounding whitespace, which
+     * {@code fromString} neither trims nor admits into its character set, and upper case, which it
+     * rejects rather than folds.
+     *
+     * <p>Neither is an <em>unsatisfiable</em> requirement, which is the intuitive reading and the
+     * wrong one. A key the resolver rejects yields {@code AdvancementLookup.State#UNRESOLVABLE},
+     * and {@code MilestoneEvaluator} deliberately waives an unresolvable advancement rather than
+     * blocking on it forever — so every player satisfies it. A tier holding a mistyped key is
+     * therefore <em>weaker</em> at runtime than the same tier spelled correctly.
+     *
+     * <p>That is exactly why canonicalising such a key here would be worse than leaving it alone.
+     * It would make the two tiers {@link #same}, hand the material to whichever was declared first,
+     * and then waive that tier's only requirement at runtime: the item ships ungated with nothing
+     * in the log to say so. Left distinct, neither tier dominates, the collision is fatal, and the
+     * operator is shown the typo at boot. Better still would be for a key the resolver rejects to
+     * contribute nothing to the comparison at all, but that belongs where the list is read, so that
+     * {@code dimension-gates} gets the same treatment.
      */
     private static String normalise(String advancementKey) {
         if (advancementKey == null) {
             return "";
         }
-        String trimmed = advancementKey.trim();
-        if (trimmed.isEmpty() || trimmed.indexOf(':') >= 0) {
-            return trimmed;
+        if (advancementKey.isEmpty() || advancementKey.indexOf(':') >= 0) {
+            return advancementKey;
         }
-        return "minecraft:" + trimmed;
+        return "minecraft:" + advancementKey;
     }
 
     /**

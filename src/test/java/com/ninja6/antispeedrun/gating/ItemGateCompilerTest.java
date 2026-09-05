@@ -458,14 +458,20 @@ class ItemGateCompilerTest {
         }
 
         @Test
-        @DisplayName("surrounding whitespace is not a requirement")
-        void whitespaceIsTrimmed() throws Exception {
+        @DisplayName("surrounding whitespace is not trimmed, because the resolver does not trim it")
+        void whitespaceIsNotTrimmed() {
+            // NamespacedKey.fromString neither trims nor accepts a space, and it is handed the raw
+            // configured string, so a padded key is UNRESOLVABLE and MilestoneEvaluator waives it.
+            // Trimming here would make these two tiers identical, give MACE to "padded" on
+            // declaration order, and then waive its only requirement at runtime -- MACE ungated,
+            // silently. Left distinct, neither dominates and the operator is told at boot.
             PluginConfig.ItemTier padded =
                     requiring("padded", List.of("  minecraft:story/smelt_iron "), 0.0D, "MACE");
             PluginConfig.ItemTier tight =
                     requiring("tight", List.of("story/smelt_iron"), 0.0D, "MACE");
 
-            assertEquals("padded", tierOf(compileAll(List.of(padded, tight)), TestMaterial.MACE));
+            assertThrows(GateCollisionException.class,
+                    () -> compileAll(List.of(padded, tight)));
         }
 
         @Test
@@ -494,8 +500,11 @@ class ItemGateCompilerTest {
         @Test
         @DisplayName("case is not folded, because NamespacedKey rejects rather than folds it")
         void caseIsNotFolded() {
-            // An upper-case key resolves to no advancement on the server, so it is a genuinely
-            // different -- unsatisfiable -- requirement, not another spelling of the same one.
+            // NamespacedKey rejects an upper-case key rather than folding it, so the two spellings
+            // are not one requirement and must not be equated here. What the rejected key is at
+            // runtime is UNRESOLVABLE, which MilestoneEvaluator waives -- so "shouting" is in fact
+            // weaker than "quiet", not unsatisfiable. Refusing to start is still the right answer:
+            // the alternative, calling them the same, ungates MACE behind a waived requirement.
             PluginConfig.ItemTier shouting =
                     requiring("shouting", List.of("MINECRAFT:STORY/A"), 0.0D, "MACE");
             PluginConfig.ItemTier quiet = requiring("quiet", List.of("story/a"), 0.0D, "MACE");
