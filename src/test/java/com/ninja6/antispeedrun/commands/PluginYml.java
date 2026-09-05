@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -68,8 +69,24 @@ final class PluginYml {
     /**
      * The nodes {@code node} grants directly.
      *
-     * <p>Only children mapped to {@code true}: a child mapped to {@code false} is an explicit
-     * denial and grants nothing, so it is not something the parent makes reachable.
+     * <p>Bukkit's {@code Permission.loadPermissions} accepts two shapes under {@code children:}, and
+     * both are handled here because a reader that understood only one would answer "grants nothing"
+     * for the other and quietly weaken every assertion built on it:
+     *
+     * <ul>
+     *   <li>a <strong>boolean</strong>, where {@code true} grants the child and {@code false} is an
+     *       explicit denial that grants nothing, so it is not something the parent makes
+     *       reachable;</li>
+     *   <li>a <strong>map</strong>, which Bukkit reads as an inline definition of that child and
+     *       then grants it exactly as if {@code true} had been written. This is the shape someone
+     *       would reach for to nest {@code antispeedrun.bypass} under {@code antispeedrun.admin}
+     *       while writing its description in place — precisely what
+     *       {@code bypassPermissionIsNotAnAdminNode} exists to stop.</li>
+     * </ul>
+     *
+     * <p>Anything else is a shape this reader does not model, and it fails rather than being
+     * skipped: silently returning nothing for an unrecognised child is how a drift detector stops
+     * detecting drift without anyone noticing.
      */
     static Set<String> childrenOf(String node) {
         Object declaration = section("permissions").get(node);
@@ -81,8 +98,16 @@ final class PluginYml {
         }
         Set<String> granted = new LinkedHashSet<>();
         children.forEach((child, grants) -> {
-            if (Boolean.TRUE.equals(grants)) {
-                granted.add(String.valueOf(child));
+            String name = String.valueOf(child);
+            if (grants instanceof Map<?, ?> || Boolean.TRUE.equals(grants)) {
+                granted.add(name);
+            } else {
+                assertTrue(Boolean.FALSE.equals(grants),
+                        "the child \"" + name + "\" of \"" + node + "\" is declared as "
+                                + (grants == null ? "null" : grants.getClass().getSimpleName())
+                                + ", which this reader does not model. Bukkit accepts a boolean or "
+                                + "an inline map; add the shape here rather than letting it be "
+                                + "skipped.");
             }
         });
         return granted;
@@ -117,13 +142,40 @@ final class PluginYml {
         return String.valueOf(usage);
     }
 
-    /** The {@code description:} declared for a permission node. */
-    static String descriptionOf(String node) {
-        Object declaration = section("permissions").get(node);
-        assertTrue(declaration instanceof Map<?, ?>,
-                "plugin.yml must declare the \"" + node + "\" permission");
-        Object description = ((Map<?, ?>) declaration).get("description");
-        assertNotNull(description, node + " must carry a description");
-        return String.valueOf(description);
+    /**
+     * Every operator-facing string in the file that could name a subcommand, keyed by where it was
+     * read from so a failure says which line to fix.
+     *
+     * <p>Both sections, not just {@code permissions:}. A {@code description:} or {@code usage:}
+     * under {@code commands:} is read by an operator in exactly the same way — {@code /help} prints
+     * it — so it makes the same promise and can go stale the same way.
+     */
+    static Map<String, String> advertisements() {
+        Map<String, String> texts = new LinkedHashMap<>();
+        collect(texts, "commands", "description", "usage");
+        collect(texts, "permissions", "description");
+        // A node with no description is not merely undocumented, it is invisible to the scan
+        // below: a missing key cannot advertise a stale subcommand, so the assertion built on
+        // this map would pass by having nothing to read.
+        for (String node : declaredPermissions()) {
+            assertTrue(texts.containsKey("permissions." + node + ".description"),
+                    node + " must carry a description");
+        }
+        return texts;
     }
+
+    private static void collect(Map<String, String> into, String sectionName, String... keys) {
+        section(sectionName).forEach((name, declaration) -> {
+            if (!(declaration instanceof Map<?, ?> body)) {
+                return;
+            }
+            for (String key : keys) {
+                Object text = body.get(key);
+                if (text != null) {
+                    into.put(sectionName + "." + name + "." + key, String.valueOf(text));
+                }
+            }
+        });
+    }
+
 }

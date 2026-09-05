@@ -118,18 +118,21 @@ class CommandGrammarTest {
         void permissionDescriptionsDoNotAdvertiseAbsentSubcommands() {
             // The descriptions on antispeedrun.progress and antispeedrun.book named /asr progress
             // and /asr book. An operator reads these in a permissions plugin, so they are as much
-            // a promise as the usage line is.
-            Pattern invocation = Pattern.compile("/asr\\s+([a-z]+)");
-            for (String node : PluginYml.declaredPermissions()) {
-                Matcher named = invocation.matcher(PluginYml.descriptionOf(node));
+            // a promise as the usage line is -- and so is a description or usage line under
+            // commands:, which /help prints. The scan therefore covers both sections rather than
+            // permissions alone, and matches case-insensitively: "/asr Reload" is the same promise
+            // as "/asr reload", and Subcommand.parse accepts either.
+            Pattern invocation = Pattern.compile("/asr\\s+([A-Za-z]+)");
+            PluginYml.advertisements().forEach((where, text) -> {
+                Matcher named = invocation.matcher(text);
                 while (named.find()) {
                     String label = named.group(1);
                     assertTrue(Subcommand.parse(label).isPresent(),
-                            node + " advertises \"/asr " + label + "\", which the dispatcher "
+                            where + " advertises \"/asr " + label + "\", which the dispatcher "
                                     + "answers with \"Unknown subcommand\". Accepted: "
                                     + Subcommand.labels());
                 }
-            }
+            });
         }
 
         @Test
