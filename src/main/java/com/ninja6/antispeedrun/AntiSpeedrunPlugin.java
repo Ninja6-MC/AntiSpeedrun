@@ -24,6 +24,7 @@ import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
 import com.ninja6.antispeedrun.progression.ProgressionListener;
 import com.ninja6.antispeedrun.progression.ProgressionManager;
+import com.ninja6.antispeedrun.progression.UnlockWatch;
 import com.ninja6.antispeedrun.storage.BypassStore;
 import com.ninja6.antispeedrun.storage.DimensionUnlockStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
@@ -59,6 +60,17 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     private volatile PlayerStateRegistry playerState;
 
     private volatile ProgressionManager progression;
+
+    /**
+     * Held rather than registered and discarded, because the {@link UnlockWatch} it owns has to be
+     * reachable from {@link #primeOnlinePlayers}: priming records what a player already satisfies,
+     * and the watch is what turns "still outstanding on a duration alone" into an armed task. A
+     * player primed without being armed — one already online at {@code onEnable} after a hot
+     * install, or every online player after an {@code /asr reload} that turns an advancement-driven
+     * gate into a time-driven one — would otherwise wait for an unrelated join or advancement before
+     * anything watched them. Volatile for the same reason as {@link #configHolder}.
+     */
+    private volatile ProgressionListener progressionListener;
 
     /**
      * The compiled item-gate lookup, rebuilt from whichever snapshot is live. Volatile for the same
@@ -115,7 +127,8 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         this.playerState = new PlayerStateRegistry();
         this.progression = new ProgressionManager(
                 getLogger(), new BukkitAdvancementLookup(getLogger()), playerState);
-        getServer().getPluginManager().registerEvents(new ProgressionListener(this, progression), this);
+        this.progressionListener = new ProgressionListener(this, progression);
+        getServer().getPluginManager().registerEvents(progressionListener, this);
 
         // Durable state (#57). Writes go to the AsyncScheduler because file I/O must never sit on a
         // region thread; the read below is deliberately synchronous, since a store that filled in
@@ -167,7 +180,20 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         getLogger().info("AntiSpeedrun disabled.");
     }
 
-    /** The progression service. Gates, commands and the progress card all evaluate through it. */
+    /**
+     * The progression service. Gates, commands and the progress card all evaluate through it.
+     *
+     * <p><strong>Null before {@code onEnable} has assigned it.</strong> The field is
+     * {@code volatile}, so once assigned it is visible to every region thread — but the assignment
+     * happens partway through {@code onEnable}, and this accessor cannot distinguish "not yet
+     * assigned" from "assigned to null". Callers do not need to null-check, because there is no
+     * legal way for one of them to run inside that window: listeners are registered after this
+     * field is set, commands are registered after that, and the scheduler holds nothing until the
+     * plugin is enabled. The window is real but unreachable, and it is documented here rather than
+     * guarded so that a caller who does see null knows it means their caller is running too early —
+     * a listener registered by hand in a constructor, say — and not that progression is optional.
+     * The same applies to {@link #playerState()} and {@link #dimensionUnlocks()}.
+     */
     public ProgressionManager progression() {
         return progression;
     }
@@ -207,7 +233,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         return journeyBook;
     }
 
-    /** The registry every per-player map belongs to. Register here, get quit cleanup for free. */
+    /**
+     * The registry every per-player map belongs to. Register here, get quit cleanup for free.
+     *
+     * <p>Null before {@code onEnable} assigns it, on the same terms as {@link #progression()}.
+     * Registration itself is expected during {@code onEnable} and after this field is set; a map
+     * name must be unique across the plugin, and {@link PlayerStateRegistry#register(String)}
+     * throws rather than merging a duplicate.
+     */
     public PlayerStateRegistry playerState() {
         return playerState;
     }
@@ -333,12 +366,30 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * {@code EntityScheduler} rather than run in a loop on the calling thread. The retired callback
      * is {@code null} because a player who is gone before the task runs needs nothing done; the
      * {@code isOnline} guard covers the same case for a player who leaves in between.
+     *
+     * <p>Arming follows priming in the same task, and must: what a player is still waiting on is
+     * exactly what priming has just established, and {@link UnlockWatch#refresh} evaluates, so it
+     * needs the region thread this task already runs on and the same snapshot priming used. Both
+     * callers need it. At {@code onEnable} these players never fire {@code PlayerJoinEvent} for this
+     * listener, so nothing else would ever arm them for the whole session; after an
+     * {@code /asr reload} a gate that has just become time-driven has no advancement left to fire
+     * on. {@code refresh} is idempotent and disarms as readily as it arms, so a reload that goes the
+     * other way — a time-driven gate becoming advancement-driven — cancels the now-pointless task
+     * here too.
      */
     private void primeOnlinePlayers(PluginConfig config) {
+        ProgressionListener listener = progressionListener;
         for (Player player : getServer().getOnlinePlayers()) {
             player.getScheduler().run(this, task -> {
-                if (player.isOnline()) {
-                    progression.primeUnlocks(player, config);
+                if (!player.isOnline()) {
+                    return;
+                }
+                progression.primeUnlocks(player, config);
+                if (listener != null) {
+                    // Null only on the startup path, where applyConfiguration runs before the
+                    // listener exists -- and that call is itself skipped, because progression is
+                    // null then too. onEnable primes explicitly once both are built.
+                    listener.watch().refresh(player, config);
                 }
             }, null);
         }

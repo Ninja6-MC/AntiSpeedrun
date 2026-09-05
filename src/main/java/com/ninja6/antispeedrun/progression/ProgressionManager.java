@@ -20,6 +20,7 @@ import org.bukkit.entity.Player;
 import com.ninja6.antispeedrun.config.PluginConfig;
 
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 
 /**
  * Answers the one question every gate in this plugin asks: <em>has this player earned it yet?</em>
@@ -37,6 +38,17 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * {@code Player#getStatistic} and {@code Player#getAdvancementProgress}, which are region-owned.
  * Methods taking only a {@link UUID} are safe from anywhere.
  *
+ * <h2>Insertion after quit — finding R-08</h2>
+ *
+ * Quit cleanup is {@link PlayerStateRegistry#forget(UUID)} on {@code PlayerQuitEvent}, and it runs
+ * once. Any per-player entry written <em>after</em> it therefore has nothing left to remove it and
+ * survives to {@code onDisable}. Every method here that writes to a per-player map — {@link
+ * #evaluate}, {@link #primeUnlocks} and {@link #announceNewUnlocks} — consequently checks
+ * {@code Player#isOnline()} first and declines to store rather than trusting its caller. The check
+ * costs a field read on paths that already do a map lookup, and it is what makes {@link UnlockWatch}
+ * safe: a scheduled task is the one kind of caller that can outlive the player it holds, and the
+ * idle-reminder work in #4 will add more of them.
+ *
  * <p>The {@link PluginConfig} snapshot is a parameter, never a field. Callers read
  * {@code plugin.configuration()} once at the top of their handler and pass that same local in, per
  * the contract in {@code com.ninja6.antispeedrun.config}; this class must not re-read it and
@@ -48,12 +60,28 @@ public final class ProgressionManager {
      * Announcement sent the moment a gate's prerequisites complete.
      *
      * <p>Hard-coded rather than configured: {@code config.yml} has no key for it today, and adding
-     * one belongs with the rest of the messages work rather than here. {@code {MILESTONE}} is the
-     * only placeholder.
+     * one belongs with the rest of the messages work rather than here.
+     *
+     * <p>{@link #MILESTONE_PLACEHOLDER} is the only placeholder, and it is resolved <em>by</em>
+     * MiniMessage rather than substituted into the template before parsing. The difference is not
+     * cosmetic: a string replace would let the milestone's display name be parsed as markup, and
+     * while both dimension names are compile-time constants today, {@code announceNewUnlocks} is
+     * meant to grow to item tiers, whose display names come from {@code config.yml}. A tag resolver
+     * makes an operator's text literal text, permanently, rather than leaving that guarantee
+     * resting on where the string happens to come from.
      */
     public static final String UNLOCK_ANNOUNCEMENT =
-            "<green>🔓 <bold>{MILESTONE}</bold> is now open!<reset> <gray>Type <gold>/progress<gray> "
+            "<green>🔓 <bold><milestone></bold> is now open!<reset> <gray>Type <gold>/progress<gray> "
                     + "to see what is next.";
+
+    /** The tag {@link #UNLOCK_ANNOUNCEMENT} carries for the milestone's display name. */
+    public static final String MILESTONE_PLACEHOLDER = "milestone";
+
+    /**
+     * How many distinct players must hit the missing-first-join condition before the log says so
+     * again, in terms that distinguish a server-wide wipe from one odd playerdata file.
+     */
+    static final int MISSING_FIRST_PLAYED_ESCALATION = 10;
 
     private final Logger logger;
     private final AdvancementLookup advancements;
@@ -68,8 +96,22 @@ public final class ProgressionManager {
      */
     private final PlayerStateMap<Set<String>> announced;
 
-    /** Guards the R-15 "no first-join recorded" warning so it is logged once per server run. */
-    private final AtomicBoolean warnedMissingFirstPlayed = new AtomicBoolean();
+    /**
+     * Players already counted against the R-15 "no first-join recorded" warning.
+     *
+     * <p>A single {@code AtomicBoolean} here logged once per server run and named whichever player
+     * happened to be captured first, which is the least useful thing to know: the realistic cause
+     * is a playerdata wipe or a world migration, which affects everyone, and an operator reading
+     * one name cannot tell that from one corrupt file. Counting distinct players separates the two.
+     *
+     * <p>Bounded at {@link #MISSING_FIRST_PLAYED_ESCALATION} entries: once the escalation line has
+     * been logged nothing further is reported, so the set is cleared and never repopulated. It is
+     * therefore not the unbounded per-player collection finding R-08 is about.
+     */
+    private final Set<UUID> missingFirstPlayed = ConcurrentHashMap.newKeySet();
+
+    /** Whether the escalated "this looks server-wide" line has already been logged. */
+    private final AtomicBoolean escalatedMissingFirstPlayed = new AtomicBoolean();
 
     /**
      * Requirement keys already reported as uncapturable. Bounded by the number of distinct keys any
@@ -152,6 +194,13 @@ public final class ProgressionManager {
     private PlayerProgressionSnapshot snapshot(Player player, PluginConfig config,
                                                Iterable<String> mustCover) {
         UUID id = player.getUniqueId();
+        if (!player.isOnline()) {
+            // PlayerQuitEvent has already run, so PlayerStateRegistry.forget has already cleared
+            // this player's row and nothing will clear it again: an entry installed now lives until
+            // onDisable. Answer the caller from a throwaway capture instead of caching it. See the
+            // insertion-point rule in the class javadoc.
+            return waive(player, capture(player, config), mustCover);
+        }
         PlayerProgressionSnapshot held = cache.get(id, () -> capture(player, config));
 
         Set<String> uncovered = held.uncovered(mustCover);
@@ -177,6 +226,17 @@ public final class ProgressionManager {
         // built from a different configuration snapshot than the one passed in. Waive them, exactly
         // as an advancement the server does not define is waived, so the player is not locked out of
         // a gate by a mismatch they cannot see and cannot act on.
+        reportUncovered(player, uncovered);
+        return held.withWaived(uncovered);
+    }
+
+    /** The waive-and-report tail of {@link #snapshot}, shared with the uncached offline path. */
+    private PlayerProgressionSnapshot waive(Player player, PlayerProgressionSnapshot held,
+                                            Iterable<String> mustCover) {
+        Set<String> uncovered = held.uncovered(mustCover);
+        if (uncovered.isEmpty()) {
+            return held;
+        }
         reportUncovered(player, uncovered);
         return held.withWaived(uncovered);
     }
@@ -222,15 +282,47 @@ public final class ProgressionManager {
         long now = clock.get();
         long ageDays = PlayerProgressionSnapshot.accountAgeDays(player.getFirstPlayed(), now);
         boolean ageKnown = ageDays >= 0L;
-        if (!ageKnown && warnedMissingFirstPlayed.compareAndSet(false, true)) {
-            logger.log(Level.WARNING, "getFirstPlayed() returned no usable first-join time for {0}. "
-                    + "require-account-age-days will be treated as satisfied for affected players; "
-                    + "this usually means playerdata was wiped or migrated. See issue #33, finding R-15.",
-                    player.getName());
+        if (!ageKnown) {
+            reportMissingFirstPlayed(player);
         }
 
         return new PlayerProgressionSnapshot(queried, earned, unresolvable, playtimeHours,
                 ageKnown ? ageDays : 0L, ageKnown, now);
+    }
+
+    /**
+     * Logs the R-15 condition at most twice per server run: once naming the first affected player,
+     * and once more if it turns out not to be about one player at all.
+     *
+     * <p>Deduplicated per player rather than per capture, so the cache's one-minute time-to-live
+     * cannot escalate a single affected player into a false server-wide report simply by
+     * re-capturing them ten times over ten minutes.
+     */
+    private void reportMissingFirstPlayed(Player player) {
+        if (escalatedMissingFirstPlayed.get() || !missingFirstPlayed.add(player.getUniqueId())) {
+            return;
+        }
+
+        int distinct = missingFirstPlayed.size();
+        if (distinct == 1) {
+            logger.log(Level.WARNING, "getFirstPlayed() returned no usable first-join time for {0}. "
+                    + "require-account-age-days will be treated as satisfied for affected players; "
+                    + "this usually means playerdata was wiped or migrated. See issue #33, finding R-15.",
+                    player.getName());
+            return;
+        }
+        if (distinct >= MISSING_FIRST_PLAYED_ESCALATION
+                && escalatedMissingFirstPlayed.compareAndSet(false, true)) {
+            logger.log(Level.WARNING, "getFirstPlayed() has now returned no usable first-join time "
+                    + "for {0} different players, so this is not one bad playerdata file: the "
+                    + "server''s playerdata was most likely wiped or migrated wholesale, and "
+                    + "require-account-age-days is being treated as satisfied server-wide. Set it "
+                    + "to 0 deliberately, or restore playerdata. Finding R-15; this is the last "
+                    + "time it will be reported this run.", distinct);
+            // Nothing more will be logged, so the per-player set has no further job. Dropping it
+            // keeps this from becoming the unbounded per-player collection R-08 warns about.
+            missingFirstPlayed.clear();
+        }
     }
 
     // -------------------------------------------------------------------------------------------
@@ -245,6 +337,9 @@ public final class ProgressionManager {
      * weeks ago.
      */
     public void primeUnlocks(Player player, PluginConfig config) {
+        if (!player.isOnline()) {
+            return;
+        }
         announced.put(player.getUniqueId(), eligibleIds(player, config));
     }
 
@@ -253,20 +348,21 @@ public final class ProgressionManager {
      * available.
      *
      * <p>Called from {@code PlayerAdvancementDoneEvent}, after the cache has been invalidated, so
-     * the announcement lands in the same tick the advancement is earned.
-     *
-     * <p><strong>Known limitation, tracked in #68.</strong> This is the only trigger, so a gate
-     * whose last outstanding requirement is {@code require-playtime-hours} or
-     * {@code require-account-age-days} opens in silence — nothing fires at the moment the duration
-     * elapses. Harmless on the shipped configuration, where both durations are {@code 0} on both
-     * gates and every gate is therefore advancement-driven, but that is a fact about the defaults
-     * and not about this mechanism. The region-legal fix is a per-player {@code EntityScheduler}
-     * task armed only while a time-based requirement is outstanding; a global sweeper is not, for
-     * the reason given in {@link ProgressionCache}.
+     * the announcement lands in the same tick the advancement is earned — and from
+     * {@link UnlockWatch}, which covers the gate whose last outstanding requirement is
+     * {@code require-playtime-hours} or {@code require-account-age-days} and so has no event to
+     * fire on. Between the two, every requirement kind announces. There is still no global sweeper:
+     * the watch is a per-player {@code EntityScheduler} task, armed only while that player has such
+     * a requirement outstanding, for the reason given in {@link ProgressionCache}.
      *
      * @return the milestones announced, in configured order; empty when nothing changed
      */
     public List<Milestone> announceNewUnlocks(Player player, PluginConfig config) {
+        if (!player.isOnline()) {
+            // Nobody to tell, and the bookkeeping row below would be installed after quit cleanup
+            // has run -- see the insertion-point rule in the class javadoc.
+            return List.of();
+        }
         UUID id = player.getUniqueId();
         Set<String> previous = announced.getOrDefault(id, Set.of());
 
@@ -300,8 +396,42 @@ public final class ProgressionManager {
     }
 
     private void announce(Player player, Milestone milestone) {
-        player.sendMessage(MiniMessage.miniMessage()
-                .deserialize(UNLOCK_ANNOUNCEMENT.replace("{MILESTONE}", milestone.displayName())));
+        player.sendMessage(MiniMessage.miniMessage().deserialize(UNLOCK_ANNOUNCEMENT,
+                Placeholder.unparsed(MILESTONE_PLACEHOLDER, milestone.displayName())));
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // Time-based unlocks
+    // -------------------------------------------------------------------------------------------
+
+    /**
+     * Whether this player has a gate that will open on the passage of time alone.
+     *
+     * <p>The arming condition for {@link UnlockWatch}, and deliberately narrow: a gate that is also
+     * waiting on an advancement does not qualify, because {@code PlayerAdvancementDoneEvent} will
+     * fire when that advancement lands and re-ask this question then. Only a gate down to its last
+     * outstanding requirement, and that requirement a duration, has nothing left to fire on.
+     *
+     * @param player the player; must be owned by the calling thread's region, since this evaluates
+     * @param config the configuration snapshot the caller is already holding
+     */
+    public boolean awaitingTimeBasedUnlock(Player player, PluginConfig config) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(config, "config");
+        if (!player.isOnline()) {
+            return false;
+        }
+
+        Set<String> alreadyTold = announced.getOrDefault(player.getUniqueId(), Set.of());
+        for (Milestone milestone : Milestone.dimensionGates(config)) {
+            if (alreadyTold.contains(milestone.id())) {
+                continue;
+            }
+            if (evaluate(player, config, milestone).outstandingOnTimeAlone()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // -------------------------------------------------------------------------------------------

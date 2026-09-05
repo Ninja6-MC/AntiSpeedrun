@@ -249,7 +249,16 @@ class MilestoneEvaluatorTest {
             assertTrue(keys.contains("minecraft:story/mine_diamond"));
             assertTrue(keys.contains("minecraft:nether/obtain_blaze_rod"));
             assertTrue(keys.contains("minecraft:nether/find_fortress"));
-            assertTrue(keys.contains("minecraft:story/cure_zombie_villager"));
+        }
+
+        @Test
+        @DisplayName("but not the villager key, which the shipped defaults do not gate on — #68")
+        void theVillagerKeyIsGatheredOnlyWhenItsGateIsOn() {
+            // gate-mending-trade defaults to false. Querying its advancement anyway cost every
+            // capture on every server a key resolution for a feature nobody had switched on, and
+            // handed a server with a typo in that key a warning about a feature it was not using.
+            assertFalse(Milestone.allRequiredAdvancements(PluginConfig.defaults())
+                    .contains("minecraft:story/cure_zombie_villager"));
         }
     }
 
