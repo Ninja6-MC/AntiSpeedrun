@@ -46,12 +46,14 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * this class does almost nothing where it is invoked:
  *
  * <ul>
- *   <li>{@code reload} hops to the <strong>global region scheduler</strong>. It re-reads
- *       {@code config.yml} and re-primes every online player, which is server-wide work and does
- *       not belong on one player's region.</li>
- *   <li>{@code profile apply} does its file work on the <strong>async scheduler</strong> — copying
- *       a backup and writing a configuration is blocking I/O and must never sit on a region — then
- *       hops to the global region scheduler to apply it.</li>
+ *   <li>{@code reload} runs on the <strong>async scheduler</strong>. Re-reading {@code config.yml}
+ *       is a blocking file read and a YAML parse, which no region thread may do (#72). The swap
+ *       that publishes the parsed result is synchronous and serialised inside
+ *       {@code ConfigSnapshotHolder}, so a reply reporting success is reporting on a configuration
+ *       that is already live.</li>
+ *   <li>{@code profile apply} does all of its work on the <strong>async scheduler</strong> —
+ *       copying a backup, writing the configuration and then re-reading it are blocking I/O from
+ *       end to end, and must never sit on a region.</li>
  *   <li>{@code bypass} and {@code inspect} run on the <strong>target player's
  *       {@code EntityScheduler}</strong>. Both touch state owned by that player's region: their
  *       persistent data container, their statistics and their advancement progress.</li>
@@ -151,7 +153,12 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
      * duplicating any part of it here is how the command and the startup path drift.
      */
     private void reload(CommandSender sender) {
-        plugin.getServer().getGlobalRegionScheduler().run(plugin, task -> {
+        // The async scheduler, not the global region scheduler: reloadConfiguration() opens
+        // config.yml and parses it, and a blocking file read on a region thread is the thing this
+        // codebase treats as a rule (#72). The swap it performs is synchronous and serialised, so
+        // by the time it returns the new configuration is either live or was never published --
+        // which is what lets the reply below report on it without a second hop.
+        plugin.getServer().getAsyncScheduler().runNow(plugin, task -> {
             boolean applied = plugin.reloadConfiguration();
             if (!applied) {
                 reply(sender, "<red>config.yml was rejected and has <bold>not</bold> been applied. "
@@ -231,17 +238,19 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
                 .map(path -> " <gray>Backup: <white>" + escape(path.getFileName().toString()))
                 .orElse(" <gray>No previous config.yml to back up.");
 
-        // The file is on disk; applying it is a configuration swap and belongs on the global region.
-        plugin.getServer().getGlobalRegionScheduler().run(plugin, applyTask -> {
-            if (plugin.reloadConfiguration()) {
-                reply(sender, "<green>Applied profile <yellow>" + profile.name() + "<green>."
-                        + backupNote);
-            } else {
-                reply(sender, "<red>The <yellow>" + profile.name() + "<red> preset was written to "
-                        + "config.yml but could not be loaded, so the previous configuration is still "
-                        + "live. See the server log." + backupNote);
-            }
-        });
+        // Applied here, on the thread that just wrote the file, rather than hopping to the global
+        // region to do it. That hop was the odder half of #72: this task is already async, and
+        // reloadConfiguration() re-reads config.yml from disk, so the hop moved a blocking read
+        // and a YAML parse onto a region thread to no end. The swap inside it is synchronous and
+        // serialised, so nothing about the ordering below changes.
+        if (plugin.reloadConfiguration()) {
+            reply(sender, "<green>Applied profile <yellow>" + profile.name() + "<green>."
+                    + backupNote);
+        } else {
+            reply(sender, "<red>The <yellow>" + profile.name() + "<red> preset was written to "
+                    + "config.yml but could not be loaded, so the previous configuration is still "
+                    + "live. See the server log." + backupNote);
+        }
     }
 
     // -----------------------------------------------------------------------------------------

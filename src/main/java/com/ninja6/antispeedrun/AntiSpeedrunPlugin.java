@@ -248,6 +248,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * Re-reads {@code config.yml} and applies it, all or nothing: the snapshot, the item gate table
      * compiled from it, and the progression cache built against it.
      *
+     * <p><strong>Never call this on a region thread.</strong> It opens {@code config.yml} and parses
+     * it, which is blocking I/O; {@code onEnable} is the one exception, since no region is serving
+     * yet. {@code /asr} calls it from the {@code AsyncScheduler} (#72). It is otherwise safe from
+     * any thread: the parse happens outside every lock, and the swap that publishes the result is
+     * synchronous, so a caller that gets {@code true} back has already published the new
+     * configuration rather than merely queued it. That is what lets {@code /asr reload} report an
+     * outcome without hopping anywhere afterwards.
+     *
      * @return {@code true} if the new snapshot and its compiled gates are live, {@code false} if
      *         either was rejected — in which case <em>nothing</em> was applied and the previous
      *         snapshot, table and progression cache all remain live together. Never disables the
@@ -324,7 +332,13 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
             // advancement any online player earns re-announce every gate they cleared weeks ago,
             // once per reload, to everyone. Priming dispatches through each player's
             // EntityScheduler, so it must be given the configuration that is live by then.
-            primeOnlinePlayers(configuration());
+            //
+            // Dispatched to the global region rather than run here: since #72 the caller is the
+            // AsyncScheduler, and walking the online player list is the global region's to do. The
+            // snapshot is captured now, on the thread that published it, so the loop cannot pick
+            // up a later one and prime against a configuration this reload did not apply.
+            PluginConfig applied = configuration();
+            getServer().getGlobalRegionScheduler().run(this, task -> primeOnlinePlayers(applied));
         }
         return ReloadOutcome.APPLIED;
     }
@@ -334,7 +348,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      *
      * <p>Priming reads {@code getStatistic} and {@code getAdvancementProgress}, which on Folia are
      * owned by the player's region — so each player's priming is dispatched to their own
-     * {@code EntityScheduler} rather than run in a loop on the calling thread. The retired callback
+     * {@code EntityScheduler} rather than run in a loop on the calling thread. Walking the online
+     * player list to build that loop belongs to the global region, so call this from there or from
+     * {@code onEnable}, never from the {@code AsyncScheduler}. The retired callback
      * is {@code null} because a player who is gone before the task runs needs nothing done; the
      * {@code isOnline} guard covers the same case for a player who leaves in between.
      */
