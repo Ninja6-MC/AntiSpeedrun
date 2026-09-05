@@ -35,15 +35,23 @@ public interface ConfigSection {
      */
     Set<String> keys();
 
-    /** Whether {@code key} is declared directly on this node. */
+    /**
+     * Whether {@code key} is declared directly on this node <em>with a value</em>.
+     *
+     * <p>A key written with no value at all — a bodiless {@code my-tier:} — counts as absent, and
+     * is absent from {@link #keys()} too. That is forced rather than chosen: Bukkit's
+     * {@code MemorySection.set} removes a key on a null value, so {@link BukkitConfigSection} has
+     * no way to report one, and an implementation that did would make a document parse differently
+     * under test than on a server.
+     */
     default boolean contains(String key) {
         return keys().contains(key);
     }
 
     /**
      * The raw value for the child literally called {@code key}, or {@code null} when the key is
-     * absent or explicitly null. Callers are expected to type-check; {@link ConfigReader} does that
-     * centrally. A child that is itself a mapping reads back as a {@code Map}.
+     * absent or carries no value. Callers are expected to type-check; {@link ConfigReader} does
+     * that centrally. A child that is itself a mapping reads back as a {@code Map}.
      */
     Object get(String key);
 

@@ -38,8 +38,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Exercises the real parsing code end to end.
  *
- * <p>Bukkit's {@code FileConfiguration} is a {@code compileOnly} dependency and is not on the test
- * classpath, so {@link PluginConfig} parses from {@link ConfigSection}. These tests feed it genuine
+ * <p>Bukkit's {@code FileConfiguration} is a {@code compileOnly} dependency, so {@link PluginConfig}
+ * parses from {@link ConfigSection} instead. These tests feed it genuine
  * YAML through SnakeYAML — the same parser Bukkit uses — via {@link MapConfigSection}, so the
  * production parsing path, the fallback policy and the malformed-document path are all really run
  * rather than simulated.
@@ -754,19 +754,41 @@ class PluginConfigTest {
             assertEquals(firstRadius + publications - 1, holder.get().antiCheese().outerEndRadius());
         }
 
+        /**
+         * The property {@code swapLock} actually buys, and the only one that can fail without it.
+         *
+         * <p>An earlier version of this test asserted that every writer's reload returned true and
+         * that the live snapshot was one a writer published. Both hold with the lock deleted: every
+         * writer publishes a constant radius, {@link PluginConfig} is immutable, and a racing pair
+         * of unlocked reference writes still leaves one whole snapshot live. It could not fail.
+         *
+         * <p>What the lock is for is the sentence in {@link ConfigSnapshotHolder}'s javadoc: the
+         * warning lines of one reload never interleave with another's. So each reload here carries
+         * three unknown keys tagged with its writer's marker, and the assertion is that the captured
+         * log never splits a group of three — every maximal run of one marker is a whole number of
+         * reloads. Remove the {@code synchronized} block and, with eight writers logging 40 groups
+         * each, this fails.
+         */
         @Test
-        @DisplayName("concurrent reloads each publish a whole snapshot, and the last one wins")
+        @DisplayName("one reload's warning lines never interleave with another's")
         void concurrentReloadsAreSerialisedAtTheSwap() throws Exception {
             CapturingLogger log = new CapturingLogger();
             ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
 
             int writers = 8;
+            int reloadsEach = 40;
+            int linesPerReload = 3;
             CountDownLatch start = new CountDownLatch(1);
             List<Thread> threads = new ArrayList<>();
             Set<Integer> published = ConcurrentHashMap.newKeySet();
 
             for (int i = 0; i < writers; i++) {
                 final int radius = 3000 + i;
+                final String marker = "w" + radius + "-";
+                // Three unknown top-level keys, so every reload logs exactly three warning lines
+                // that name their writer and nothing else does.
+                final String document = "anti-cheese:\n  outer-end-radius: " + radius + "\n"
+                        + marker + "a: 1\n" + marker + "b: 2\n" + marker + "c: 3\n";
                 Thread writer = new Thread(() -> {
                     try {
                         start.await();
@@ -774,9 +796,8 @@ class PluginConfigTest {
                         Thread.currentThread().interrupt();
                         return;
                     }
-                    for (int n = 0; n < 40; n++) {
-                        if (holder.reload(() -> yaml("anti-cheese:\n  outer-end-radius: "
-                                + radius + "\n"))) {
+                    for (int n = 0; n < reloadsEach; n++) {
+                        if (holder.reload(() -> yaml(document))) {
                             published.add(radius);
                         }
                     }
@@ -795,6 +816,47 @@ class PluginConfigTest {
             PluginConfig live = holder.get();
             assertTrue(published.contains(live.antiCheese().outerEndRadius()),
                     "the live snapshot must be one that a writer actually published");
+
+            // Only the marker lines matter. Each document also draws one un-markered note about
+            // gating nothing, which carries no writer identity and is dropped rather than guessed
+            // at; it is logged inside the same group, so removing it cannot hide an interleaving.
+            List<String> lines = new ArrayList<>();
+            for (LogRecord record : log.at(Level.WARNING)) {
+                if (markerOf(record.getMessage(), writers) != null) {
+                    lines.add(record.getMessage());
+                }
+            }
+            assertEquals(writers * reloadsEach * linesPerReload, lines.size(),
+                    "each reload must contribute exactly " + linesPerReload + " marked lines");
+
+            // Walk the captured log, splitting it into maximal runs of one writer's marker. A run
+            // that is not a whole number of reloads can only mean a second writer logged in the
+            // middle of the first writer's group.
+            int runStart = 0;
+            for (int i = 1; i <= lines.size(); i++) {
+                if (i < lines.size() && markerOf(lines.get(i), writers)
+                        .equals(markerOf(lines.get(runStart), writers))) {
+                    continue;
+                }
+                int run = i - runStart;
+                assertEquals(0, run % linesPerReload,
+                        "a run of " + run + " lines for " + markerOf(lines.get(runStart), writers)
+                                + " at index " + runStart + " splits a reload's warnings: "
+                                + lines.subList(Math.max(0, runStart - 2),
+                                        Math.min(lines.size(), i + 2)));
+                runStart = i;
+            }
+        }
+
+        /** Which writer's document a captured warning line came from, or null if it names none. */
+        private static String markerOf(String line, int writers) {
+            for (int i = 0; i < writers; i++) {
+                String marker = "w" + (3000 + i) + "-";
+                if (line.contains(marker)) {
+                    return marker;
+                }
+            }
+            return null;
         }
     }
 

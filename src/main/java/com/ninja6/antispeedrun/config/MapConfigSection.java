@@ -14,7 +14,8 @@ import java.util.Set;
  * section cannot be changed after it is handed out. Document order is preserved.
  *
  * <p>Keys are literal, as {@link ConfigSection} requires: a key containing {@code '.'} names one
- * child, and is never treated as a path into nested sections.
+ * child, and is never treated as a path into nested sections. A key carrying no value is dropped,
+ * also as {@link ConfigSection} requires; see {@link #of(Map)} for why that is not optional.
  */
 public final class MapConfigSection implements ConfigSection {
 
@@ -30,6 +31,14 @@ public final class MapConfigSection implements ConfigSection {
     /**
      * Wraps {@code raw}. Keys are stringified; a {@code null} map is treated as an empty document,
      * which is what a YAML parser returns for a file that is entirely comments.
+     *
+     * <p>A key whose value is {@code null} — a bodiless {@code my-tier:} in the document — is
+     * dropped, so it is not reported by {@link #keys()} and does not answer {@link #contains}. That
+     * is not a preference: {@code MemorySection.set} removes the key on a null value, so
+     * {@link BukkitConfigSection} cannot represent such a key at all, and the runtime behaviour is
+     * the one both implementations have to agree on. Keeping it here would mean a bodiless tier
+     * parsed as one empty tier under test and as no tier on a server, which is the exact shape of
+     * seam bug this package exists to rule out.
      */
     public static MapConfigSection of(Map<?, ?> raw) {
         if (raw == null || raw.isEmpty()) {
@@ -37,9 +46,11 @@ public final class MapConfigSection implements ConfigSection {
         }
         Map<String, Object> copy = new LinkedHashMap<>(raw.size());
         for (Map.Entry<?, ?> entry : raw.entrySet()) {
-            copy.put(String.valueOf(entry.getKey()), entry.getValue());
+            if (entry.getValue() != null) {
+                copy.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
         }
-        return new MapConfigSection(Collections.unmodifiableMap(copy));
+        return copy.isEmpty() ? EMPTY : new MapConfigSection(Collections.unmodifiableMap(copy));
     }
 
     @Override

@@ -1,15 +1,12 @@
 package com.ninja6.antispeedrun;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.bukkit.Material;
-import org.bukkit.configuration.InvalidConfigurationException;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -17,7 +14,6 @@ import org.bukkit.plugin.java.JavaPlugin;
 import com.ninja6.antispeedrun.commands.AntiSpeedrunCommand;
 import com.ninja6.antispeedrun.config.BukkitConfigSection;
 import com.ninja6.antispeedrun.config.ConfigLoadException;
-import com.ninja6.antispeedrun.config.ConfigSection;
 import com.ninja6.antispeedrun.config.ConfigSnapshotHolder;
 import com.ninja6.antispeedrun.config.ConfigSource;
 import com.ninja6.antispeedrun.config.PluginConfig;
@@ -349,23 +345,22 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     }
 
     /**
-     * Reads {@code config.yml} with {@link YamlConfiguration#load(File)} rather than
-     * {@code reloadConfig()}, because the latter swallows a syntax error and hands back an empty
-     * configuration — which would silently reset every key to its default. This surfaces the
-     * failure as a {@link ConfigLoadException} so the previous snapshot can be kept instead.
+     * Reads {@code config.yml} through {@link BukkitConfigSection#load(File)} rather than
+     * {@code reloadConfig()} or a bare {@code YamlConfiguration}, for two reasons that both matter
+     * on a live server:
+     *
+     * <ul>
+     *   <li>{@code reloadConfig()} swallows a syntax error and hands back an empty configuration,
+     *       which would silently reset every key to its default. {@code load} surfaces the failure
+     *       as a {@link ConfigLoadException} so the previous snapshot can be kept instead.</li>
+     *   <li>Bukkit's loader splits a dotted key into a path on the way in, so an operator-chosen
+     *       tier id such as {@code my.tier} would be restructured into a section {@code my} holding
+     *       {@code tier}. {@code load} disables the path separator before parsing, so this reads a
+     *       document exactly as the test suite does.</li>
+     * </ul>
      */
     private ConfigSource fileSource() {
         final File file = new File(getDataFolder(), "config.yml");
-        return () -> {
-            YamlConfiguration yaml = new YamlConfiguration();
-            try {
-                yaml.load(file);
-            } catch (IOException | InvalidConfigurationException failure) {
-                throw new ConfigLoadException(
-                        file.getPath() + " could not be parsed: " + failure.getMessage(), failure);
-            }
-            ConfigSection root = new BukkitConfigSection(yaml);
-            return root;
-        };
+        return () -> BukkitConfigSection.load(file);
     }
 }

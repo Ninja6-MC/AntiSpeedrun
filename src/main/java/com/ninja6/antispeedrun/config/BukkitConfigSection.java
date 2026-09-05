@@ -20,6 +20,15 @@ import org.bukkit.configuration.file.YamlConfiguration;
  * the wrapped section's direct children, so nothing that needs testing lives behind the
  * {@code compileOnly} dependency.
  *
+ * <p><strong>How far the snapshot goes.</strong> One level, and no further. The map taken at
+ * construction is the caller's own, copied and unmodifiable, but its <em>values</em> are the live
+ * Bukkit children, so {@link #get(String)} and {@link #section(String)} read the wrapped tree one
+ * level down at call time. That satisfies the effective immutability {@link ConfigSection} asks for
+ * only because nothing in this package retains a {@code YamlConfiguration} past parsing and nothing
+ * mutates one: {@link #load(File)} parses into a configuration no one else holds a reference to. A
+ * caller that wrapped a section some other thread was still writing to would not get a stable view,
+ * and this class does not try to give it one.
+ *
  * <p><strong>Keys are literal.</strong> Bukkit's own accessors treat a key as a <em>path</em> and
  * split it on {@code '.'}, so {@code get("my.tier")} would look for a child section {@code my} and
  * read {@code tier} out of it. {@link ConfigSection} does not work that way: a key names one child

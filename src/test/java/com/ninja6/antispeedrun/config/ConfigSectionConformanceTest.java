@@ -63,8 +63,10 @@ class ConfigSectionConformanceTest {
     }
 
     /**
-     * The production path, end to end: write the document to a file and read it back exactly as
-     * {@code AntiSpeedrunPlugin} does, so the loader is exercised and not just the accessors.
+     * The production path, end to end: write the document to a file and read it back through
+     * {@link BukkitConfigSection#load(File)}, which is the one call {@code AntiSpeedrunPlugin}'s
+     * {@code fileSource()} makes. The loader is therefore exercised here and not just the
+     * accessors — which matters, because the dotted-key defect lived in the loader.
      */
     private static ConfigSection viaBukkit(String document) throws Exception {
         Path file = Files.createTempFile("antispeedrun-conformance", ".yml");
@@ -164,6 +166,41 @@ class ConfigSectionConformanceTest {
         assertEquals(1.5D, root.get("d"));
         assertEquals(Boolean.TRUE, root.get("b"));
         assertIterableEquals(List.of("one", "two"), (List<?>) root.get("l"));
+    }
+
+    /**
+     * The second way the two implementations diverged. Bukkit's {@code MemorySection.set} removes a
+     * key whose value is null, so {@link BukkitConfigSection} cannot report a bodiless
+     * {@code my-tier:} at all; {@link MapConfigSection} used to report it with a null value, which
+     * made such a document parse as one empty {@code gated-items} tier under test and as no tier on
+     * a server. Runtime behaviour wins — the map implementation now drops the key too — and this
+     * case pins it, in both directions, so neither side can drift back.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("implementations")
+    @DisplayName("a key written with no value counts as absent, not as a key holding null")
+    void keyWithNoValueIsAbsent(String name, Implementation impl) throws Exception {
+        ConfigSection root = impl.root("before: 1\nbodiless:\nafter: 2\n");
+
+        assertIterableEquals(List.of("before", "after"), root.keys());
+        assertFalse(root.contains("bodiless"));
+        assertNull(root.get("bodiless"));
+        assertNull(root.section("bodiless"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("implementations")
+    @DisplayName("a bodiless tier id yields no tier, and the same warnings, either way")
+    void bodilessTierIdYieldsNoTier(String name, Implementation impl) throws Exception {
+        PluginConfig config = PluginConfig.from(impl.root("""
+                item-progression:
+                  gated-items:
+                    my-tier:
+                """));
+
+        assertTrue(config.itemProgression().gatedItems().isEmpty(),
+                "a tier with no body must not become a phantom empty tier: "
+                        + config.itemProgression().gatedItems());
     }
 
     @ParameterizedTest(name = "{0}")
