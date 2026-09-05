@@ -1,5 +1,6 @@
 package com.ninja6.antispeedrun.commands;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -41,25 +42,56 @@ class CommandGrammarTest {
     class Table {
 
         @Test
-        @DisplayName("every subcommand is gated on the node plugin.yml declares for it")
+        @DisplayName("every subcommand is gated on a node plugin.yml actually declares")
         void permissionsMatchPluginYml() {
-            // These strings are the contract with plugin.yml's antispeedrun.admin children. A
-            // subcommand whose node is misspelt is not merely unusable -- with hasPermission on an
-            // undeclared node it can read as denied for everyone or, worse, be checked against a
-            // node nothing grants.
-            assertEquals("antispeedrun.admin.reload", Subcommand.RELOAD.permission());
-            assertEquals("antispeedrun.admin.profile", Subcommand.PROFILE.permission());
-            assertEquals("antispeedrun.admin.unlock", Subcommand.UNLOCK.permission());
-            assertEquals("antispeedrun.admin.bypass", Subcommand.BYPASS.permission());
-            assertEquals("antispeedrun.admin.inspect", Subcommand.INSPECT.permission());
+            // Read out of plugin.yml, not copied from it. This assertion used to compare one
+            // hardcoded list against another and never opened the file, so renaming a node in
+            // plugin.yml left it green while the command enforced a node that no longer existed
+            // (#76). With hasPermission on an undeclared node, that reads as denied for everyone
+            // or, worse, is checked against a node nothing grants.
+            Set<String> declared = PluginYml.declaredPermissions();
+            for (Subcommand subcommand : Subcommand.values()) {
+                assertTrue(declared.contains(subcommand.permission()),
+                        subcommand + " is gated on \"" + subcommand.permission() + "\", which "
+                                + "plugin.yml does not declare. Declared nodes: " + declared);
+            }
         }
 
         @Test
-        @DisplayName("no subcommand is gated on the standing bypass permission")
+        @DisplayName("every antispeedrun.admin child is enforced by exactly one subcommand")
+        void everyAdminNodeIsEnforced() {
+            // The other direction of the same drift: a node added to the admin tree that no
+            // branch checks is a permission an operator can grant to no effect, and one removed
+            // from it while the dispatcher still checks it is a branch nobody can reach.
+            Set<String> enforced = new LinkedHashSet<>();
+            for (Subcommand subcommand : Subcommand.values()) {
+                assertTrue(enforced.add(subcommand.permission()),
+                        subcommand + " shares its node with another subcommand");
+            }
+            assertEquals(PluginYml.childrenOf("antispeedrun.admin"), enforced,
+                    "the children of antispeedrun.admin and the nodes /asr enforces must be the "
+                            + "same set");
+        }
+
+        @Test
+        @DisplayName("antispeedrun.bypass is not reachable as a child of antispeedrun.admin")
         void bypassPermissionIsNotAnAdminNode() {
-            // antispeedrun.bypass is deliberately outside the antispeedrun.admin tree, because
-            // antispeedrun.admin defaults to op and nesting it would exempt every operator from
-            // every gate. Granting a bypass and holding one are different rights.
+            // The comment in plugin.yml explains why this matters: antispeedrun.admin defaults to
+            // op, so nesting the standing exemption under it would silently exempt every operator
+            // from every gate -- including staff playing survival, and including anyone trying to
+            // verify that the gates work at all. Checked transitively, because a node three levels
+            // down grants just as much as one directly beneath.
+            Set<String> reachable = PluginYml.reachableFrom("antispeedrun.admin");
+            assertFalse(reachable.contains("antispeedrun.bypass"),
+                    "antispeedrun.bypass must not be reachable from antispeedrun.admin; it was "
+                            + "reachable through " + reachable);
+            for (String node : reachable) {
+                assertFalse(node.startsWith("antispeedrun.bypass."),
+                        node + " must not be reachable from antispeedrun.admin either");
+            }
+
+            // And the dispatcher itself never gates a branch on the exemption: granting a bypass
+            // (antispeedrun.admin.bypass) is a different right from holding one.
             for (Subcommand subcommand : Subcommand.values()) {
                 assertTrue(subcommand.permission().startsWith("antispeedrun.admin."),
                         subcommand + " must be gated on an antispeedrun.admin.* node");
