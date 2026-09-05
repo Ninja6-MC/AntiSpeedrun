@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -167,6 +168,32 @@ class ProfileApplierTest {
         // configuration exactly as it was.
         assertEquals("original\n", Files.readString(config));
         assertTrue(stagingFiles(folder).isEmpty(), "a refused apply must stage nothing");
+    }
+
+    @Test
+    @DisplayName("an apply sweeps away staging files a crashed apply left behind")
+    void staleStagingFilesAreSweptUp(@TempDir Path folder) throws Exception {
+        Path config = folder.resolve("config.yml");
+        Files.writeString(config, "old\n");
+        // What a JVM killed between the copy and the move leaves: the finally in apply() never
+        // ran, and the name is unique per apply, so nothing would ever reclaim these.
+        Files.writeString(folder.resolve("config.yml." + UUID.randomUUID() + ".incoming"), "half\n");
+        Files.writeString(folder.resolve("config.yml." + UUID.randomUUID() + ".incoming"), "half\n");
+        // Not litter, and must survive: neither is a staging file for this configuration.
+        Path unrelated = folder.resolve("other.yml." + UUID.randomUUID() + ".incoming");
+        Path backup = folder.resolve("config.yml.bak");
+        Files.writeString(unrelated, "someone else's\n");
+        Files.writeString(backup, "keep me\n");
+
+        ProfileApplier.apply(new CloseRecordingStream("new\n"), config,
+                folder.resolve(ProfileApplier.BACKUP_DIRECTORY), AT, ZONE);
+
+        assertEquals("new\n", Files.readString(config));
+        assertTrue(stagingFiles(folder).stream().noneMatch(path ->
+                        path.getFileName().toString().startsWith("config.yml.")),
+                "an apply must leave no config.yml staging file behind, its own or an older one");
+        assertTrue(Files.exists(unrelated), "the sweep must not reach another file's staging name");
+        assertEquals("keep me\n", Files.readString(backup));
     }
 
     @Test

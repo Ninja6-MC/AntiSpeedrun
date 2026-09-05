@@ -14,6 +14,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import com.ninja6.antispeedrun.config.PluginConfig.Profile;
 
@@ -153,6 +154,10 @@ public final class ProfileApplier {
      * <p>This does not reload anything. The caller applies the file by calling
      * {@code reloadConfiguration()} afterwards, on a thread where that is legal.
      *
+     * <p>Each apply also sweeps away staging files an earlier one left behind. The staging name is
+     * unique per apply, so a JVM killed between the copy and the move leaves a file nothing will
+     * ever reclaim; without this the data folder accumulates one per crash.
+     *
      * <p>{@code preset} is closed on <em>every</em> path out of this method, including one where the
      * backup itself throws. It used to be closed only by the try-with-resources around the write
      * below it, so an unwritable data folder left the stream open (#74).
@@ -194,6 +199,15 @@ public final class ProfileApplier {
         }
         Files.createDirectories(parent);
 
+        // Per-apply staging names are only litter-free while the JVM survives the apply: the
+        // finally below covers a thrown failure, but a kill between the copy and the move leaves a
+        // staging file nothing owns, and every subsequent kill leaves another -- where the old
+        // single fixed name was self-overwriting. Sweeping here, rather than at startup, clears
+        // what a crash left behind without making the plugin's enable path do filesystem work it
+        // otherwise would not. Safe under APPLY_LOCK: no other apply in this JVM holds a staging
+        // file while we look.
+        sweepStaleStaging(parent, configFile.getFileName().toString());
+
         // A name of this apply's own, rather than the one shared "config.yml.incoming": that
         // single path was the second half of #75, since two applies staging through it could
         // interleave into a config.yml that was neither preset. The staging file is a sibling of
@@ -227,5 +241,35 @@ public final class ProfileApplier {
             }
         }
         return backup;
+    }
+
+    /**
+     * Deletes staging files an earlier apply left behind, matching {@code <configFileName>.*.incoming}
+     * in {@code directory}.
+     *
+     * <p>Best effort throughout, and deliberately so: this is tidying, not part of applying a
+     * preset. A directory that cannot be listed, or a file that cannot be deleted, must not turn a
+     * working {@code /asr profile apply} into a failure — the operator would be told the preset was
+     * not applied because some unrelated leftover could not be removed.
+     *
+     * <p>Only ever called with {@link #APPLY_LOCK} held, which is what makes it safe to delete on
+     * sight: no other apply in this JVM can have a staging file in flight.
+     */
+    private static void sweepStaleStaging(Path directory, String configFileName) {
+        String prefix = configFileName + ".";
+        try (Stream<Path> entries = Files.list(directory)) {
+            entries.filter(path -> {
+                String name = path.getFileName().toString();
+                return name.startsWith(prefix) && name.endsWith(".incoming");
+            }).forEach(stale -> {
+                try {
+                    Files.deleteIfExists(stale);
+                } catch (IOException ignored) {
+                    // Left for the next apply to try again.
+                }
+            });
+        } catch (IOException ignored) {
+            // The apply itself will fail on its own terms if the directory is truly unusable.
+        }
     }
 }
