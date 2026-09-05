@@ -9,6 +9,8 @@ import java.util.ArrayList;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -463,6 +465,27 @@ class PluginConfigTest {
         void nonMappingRoot() {
             assertThrows(ConfigLoadException.class, () -> yaml("- just\n- a list\n"));
         }
+
+        @Test
+        @DisplayName("warning order is deterministic, which is all PluginConfig#warnings promises")
+        void warningOrderIsDeterministic() throws Exception {
+            String document = """
+                    stray-root-key: 1
+                    profile: NOT_A_PROFILE
+                    anti-cheese:
+                      stray-anti-cheese-key: 1
+                      outer-end-radius: -5
+                    dimension-gates:
+                      nether:
+                        enabled: "yes please"
+                    """;
+
+            List<String> first = PluginConfig.from(yaml(document)).warnings();
+            List<String> again = PluginConfig.from(yaml(document)).warnings();
+
+            assertFalse(first.isEmpty());
+            assertEquals(first, again, "the same document must always warn in the same order");
+        }
     }
 
     @Nested
@@ -627,21 +650,43 @@ class PluginConfigTest {
             assertTrue(log.at(Level.SEVERE).isEmpty(), "a warning is not an error");
         }
 
+        /**
+         * The publication contract, asserted so that breaking it fails.
+         *
+         * <p>Three separate claims, only the first of which the earlier version of this test made:
+         *
+         * <ol>
+         *   <li><strong>Wholeness.</strong> Every snapshot a reader observes is internally
+         *       consistent. Each document ties {@code outer-end-radius} — which identifies the
+         *       publication — to the profile and the damage cap beside it, so a reader that
+         *       observed a mixture of two snapshots would see fields that disagree. This one is in
+         *       fact unfalsifiable while {@link PluginConfig} stays a deeply immutable record
+         *       graph, and that is the point of keeping it: it is the regression guard for the day
+         *       someone adds a mutable field.</li>
+         *   <li><strong>The swap is actually visible.</strong> Readers observe more than one
+         *       publication over the run. A holder that never republished, or one whose new
+         *       reference never reached a reader, fails here — the old test passed against
+         *       both.</li>
+         *   <li><strong>No reader goes backwards.</strong> Publications are strictly increasing, so
+         *       a reader that observed publication <em>n</em> and afterwards observed something
+         *       earlier — a stale read of the reference — fails here.</li>
+         * </ol>
+         */
         @Test
-        @DisplayName("a concurrent reader never observes a half-applied configuration")
-        void readerNeverSeesAMixedSnapshot() throws Exception {
+        @DisplayName("readers see the swap happen, whole and never in reverse")
+        void readersObserveThePublicationContract() throws Exception {
             CapturingLogger log = new CapturingLogger();
             ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
 
-            String casual = "profile: CASUAL\nanti-cheese:\n  max-single-hit-boss-damage: 40.0\n"
-                    + "  outer-end-radius: 100\n";
-            String hardcore = "profile: HARDCORE\nanti-cheese:\n  max-single-hit-boss-damage: 4.0\n"
-                    + "  outer-end-radius: 900\n";
+            // Comfortably above the shipped default of 500, so "not yet reloaded" is recognisable.
+            final int firstRadius = 2000;
+            final int publications = 300;
 
             int readers = 6;
             CountDownLatch start = new CountDownLatch(1);
             AtomicBoolean stop = new AtomicBoolean(false);
-            AtomicReference<String> mixed = new AtomicReference<>();
+            List<String> failures = new CopyOnWriteArrayList<>();
+            Set<Integer> observed = ConcurrentHashMap.newKeySet();
             List<Thread> threads = new ArrayList<>();
 
             for (int i = 0; i < readers; i++) {
@@ -652,21 +697,36 @@ class PluginConfigTest {
                         Thread.currentThread().interrupt();
                         return;
                     }
+                    int previous = 0;
                     while (!stop.get()) {
                         // Exactly what a handler does: one read, then decide from that local.
                         PluginConfig snapshot = holder.get();
-                        boolean consistent = switch (snapshot.profile()) {
-                            case CASUAL -> snapshot.antiCheese().maxSingleHitBossDamage() == 40.0D
-                                    && snapshot.antiCheese().outerEndRadius() == 100;
-                            case HARDCORE -> snapshot.antiCheese().maxSingleHitBossDamage() == 4.0D
-                                    && snapshot.antiCheese().outerEndRadius() == 900;
-                            default -> snapshot.equals(PluginConfig.defaults());
-                        };
-                        if (!consistent) {
-                            mixed.compareAndSet(null, "observed " + snapshot.profile() + " with "
+                        int radius = snapshot.antiCheese().outerEndRadius();
+
+                        if (radius < firstRadius) {
+                            if (previous != 0) {
+                                failures.add("reverted to the startup snapshot after observing "
+                                        + previous);
+                                return;
+                            }
+                            continue; // nothing published yet; still on the startup defaults
+                        }
+                        boolean casual = radius % 2 == 0;
+                        double expectedDamage = casual ? 40.0D : 4.0D;
+                        PluginConfig.Profile expectedProfile = casual
+                                ? PluginConfig.Profile.CASUAL : PluginConfig.Profile.HARDCORE;
+                        if (snapshot.profile() != expectedProfile
+                                || snapshot.antiCheese().maxSingleHitBossDamage() != expectedDamage) {
+                            failures.add("half-applied snapshot: " + snapshot.profile() + " with "
                                     + snapshot.antiCheese());
                             return;
                         }
+                        if (radius < previous) {
+                            failures.add("observed publication " + radius + " after " + previous);
+                            return;
+                        }
+                        previous = radius;
+                        observed.add(radius);
                     }
                 });
                 threads.add(reader);
@@ -674,8 +734,12 @@ class PluginConfigTest {
             }
 
             start.countDown();
-            for (int i = 0; i < 300; i++) {
-                String document = (i % 2 == 0) ? casual : hardcore;
+            for (int i = 0; i < publications; i++) {
+                final int radius = firstRadius + i;
+                final String document = (radius % 2 == 0 ? "profile: CASUAL\n" : "profile: HARDCORE\n")
+                        + "anti-cheese:\n"
+                        + "  max-single-hit-boss-damage: " + (radius % 2 == 0 ? "40.0" : "4.0") + "\n"
+                        + "  outer-end-radius: " + radius + "\n";
                 assertTrue(holder.reload(() -> yaml(document)));
             }
             stop.set(true);
@@ -683,7 +747,54 @@ class PluginConfigTest {
                 reader.join(TimeUnit.SECONDS.toMillis(10));
             }
 
-            assertNull(mixed.get(), "a reader saw a half-applied configuration");
+            assertTrue(failures.isEmpty(), String.join("; ", failures));
+            assertTrue(observed.size() > 1,
+                    "no reader ever saw the reference change, so nothing here proved the "
+                            + "publication contract; observed publications: " + observed);
+            assertEquals(firstRadius + publications - 1, holder.get().antiCheese().outerEndRadius());
+        }
+
+        @Test
+        @DisplayName("concurrent reloads each publish a whole snapshot, and the last one wins")
+        void concurrentReloadsAreSerialisedAtTheSwap() throws Exception {
+            CapturingLogger log = new CapturingLogger();
+            ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+
+            int writers = 8;
+            CountDownLatch start = new CountDownLatch(1);
+            List<Thread> threads = new ArrayList<>();
+            Set<Integer> published = ConcurrentHashMap.newKeySet();
+
+            for (int i = 0; i < writers; i++) {
+                final int radius = 3000 + i;
+                Thread writer = new Thread(() -> {
+                    try {
+                        start.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    for (int n = 0; n < 40; n++) {
+                        if (holder.reload(() -> yaml("anti-cheese:\n  outer-end-radius: "
+                                + radius + "\n"))) {
+                            published.add(radius);
+                        }
+                    }
+                });
+                threads.add(writer);
+                writer.start();
+            }
+
+            start.countDown();
+            for (Thread writer : threads) {
+                writer.join(TimeUnit.SECONDS.toMillis(30));
+            }
+
+            assertEquals(writers, published.size(), "every writer's reload must have succeeded");
+            // Whatever committed last is live and whole -- not a blend of two writers' documents.
+            PluginConfig live = holder.get();
+            assertTrue(published.contains(live.antiCheese().outerEndRadius()),
+                    "the live snapshot must be one that a writer actually published");
         }
     }
 

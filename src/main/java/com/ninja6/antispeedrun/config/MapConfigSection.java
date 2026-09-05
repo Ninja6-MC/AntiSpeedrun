@@ -12,6 +12,9 @@ import java.util.Set;
  *
  * <p>The backing map is defensively copied and wrapped unmodifiable on construction, so the
  * section cannot be changed after it is handed out. Document order is preserved.
+ *
+ * <p>Keys are literal, as {@link ConfigSection} requires: a key containing {@code '.'} names one
+ * child, and is never treated as a path into nested sections.
  */
 public final class MapConfigSection implements ConfigSection {
 
