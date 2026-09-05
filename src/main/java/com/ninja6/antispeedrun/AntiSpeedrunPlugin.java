@@ -277,6 +277,23 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * Re-reads {@code config.yml} and applies it, all or nothing: the snapshot, the item gate table
      * compiled from it, and the progression cache built against it.
      *
+     * <p><strong>Never call this on a region thread.</strong> It opens {@code config.yml} and parses
+     * it, which is blocking I/O; {@code onEnable} is the one exception, since no region is serving
+     * yet. {@code /asr} calls it from the {@code AsyncScheduler} (#72).
+     *
+     * <p>Concurrent callers are serialised rather than tolerated: the whole read-compile-publish
+     * sequence runs under this plugin's monitor, so the parse <em>is</em> inside the lock. That is
+     * deliberate, because the thing being made atomic is the pairing of the snapshot with the gate
+     * table compiled from it, and the parse is the first half of producing that pair. Holding a
+     * lock across file I/O is only safe because nothing that ticks ever takes it: every caller is
+     * either {@code onEnable}, which takes it uncontended, or the {@code AsyncScheduler}, where
+     * blocking is legal. A region thread that called this would already be violating the paragraph
+     * above.
+     *
+     * <p>The swap is still synchronous, so a caller that gets {@code true} back has already
+     * published the new configuration rather than merely queued it. That is what lets
+     * {@code /asr reload} report an outcome without hopping anywhere afterwards.
+     *
      * @return {@code true} if the new snapshot and its compiled gates are live, {@code false} if
      *         either was rejected — in which case <em>nothing</em> was applied and the previous
      *         snapshot, table and progression cache all remain live together. Never disables the
@@ -318,8 +335,20 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * to parse — the mirror image of publishing a snapshot beside a stale table, and wrong for the
      * same reason. It is also why {@code primeOnlinePlayers} is handed {@link #configuration()},
      * the snapshot that is now live, rather than the candidate it was compiled from.
+     *
+     * <p><strong>{@code synchronized} is load-bearing.</strong> Publishing takes two independent
+     * writes — {@code configHolder.reload} publishes the snapshot with its own volatile write, and
+     * the {@code itemGates} assignment below is a second one outside it — so two callers running
+     * this concurrently could come to rest with one reload's snapshot live beside the other
+     * reload's gate table, breaking the invariant {@link #itemGates()} documents. Until #72 that
+     * could not happen, because both post-startup callers hopped to the global region scheduler and
+     * were serialised by having one thread; they now run on the {@code AsyncScheduler}, which is a
+     * pool, so the serialisation has to be stated rather than inherited. Folding the assignment
+     * into the binding so the holder published both under one write would be stronger, but it
+     * cannot be done without changing {@code ConfigSnapshotHolder}'s contract for every other
+     * caller.
      */
-    private ReloadOutcome applyConfiguration() {
+    private synchronized ReloadOutcome applyConfiguration() {
         List<String> gateWarnings = new ArrayList<>();
         AtomicBoolean collided = new AtomicBoolean();
 
@@ -353,7 +382,13 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
             // advancement any online player earns re-announce every gate they cleared weeks ago,
             // once per reload, to everyone. Priming dispatches through each player's
             // EntityScheduler, so it must be given the configuration that is live by then.
-            primeOnlinePlayers(configuration());
+            //
+            // Dispatched to the global region rather than run here: since #72 the caller is the
+            // AsyncScheduler, and walking the online player list is the global region's to do. The
+            // snapshot is captured now, on the thread that published it, so the loop cannot pick
+            // up a later one and prime against a configuration this reload did not apply.
+            PluginConfig applied = configuration();
+            getServer().getGlobalRegionScheduler().run(this, task -> primeOnlinePlayers(applied));
         }
         return ReloadOutcome.APPLIED;
     }
@@ -363,7 +398,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      *
      * <p>Priming reads {@code getStatistic} and {@code getAdvancementProgress}, which on Folia are
      * owned by the player's region — so each player's priming is dispatched to their own
-     * {@code EntityScheduler} rather than run in a loop on the calling thread. The retired callback
+     * {@code EntityScheduler} rather than run in a loop on the calling thread. Walking the online
+     * player list to build that loop belongs to the global region, so call this from there or from
+     * {@code onEnable}, never from the {@code AsyncScheduler}. The retired callback
      * is {@code null} because a player who is gone before the task runs needs nothing done; the
      * {@code isOnline} guard covers the same case for a player who leaves in between.
      *

@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Stream;
 
 import com.ninja6.antispeedrun.config.PluginConfig.Profile;
 
@@ -36,7 +38,11 @@ import com.ninja6.antispeedrun.config.PluginConfig.Profile;
  * <h2>Threading</h2>
  *
  * Every method here touches the filesystem. None may run on a Folia region thread; the command
- * dispatches them onto the {@code AsyncScheduler} and only hops back to reload.
+ * dispatches them onto the {@code AsyncScheduler}.
+ *
+ * <p>{@link #apply} is serialised against itself, so two operators applying different presets at
+ * the same moment cannot interleave into a {@code config.yml} that is neither of them (#75). That
+ * lock is only ever contended on the {@code AsyncScheduler}, where blocking is legal.
  */
 public final class ProfileApplier {
 
@@ -50,6 +56,13 @@ public final class ProfileApplier {
 
     /** How many suffixed names to try when two backups land in the same second. */
     private static final int MAX_COLLISION_ATTEMPTS = 100;
+
+    /**
+     * Serialises {@link #apply}. Static because the thing being guarded is {@code config.yml}
+     * itself, of which the server has exactly one; a per-instance lock would guard nothing, as this
+     * class is never instantiated. Taken only on the {@code AsyncScheduler}.
+     */
+    private static final Object APPLY_LOCK = new Object();
 
     private ProfileApplier() {
     }
@@ -141,6 +154,14 @@ public final class ProfileApplier {
      * <p>This does not reload anything. The caller applies the file by calling
      * {@code reloadConfiguration()} afterwards, on a thread where that is legal.
      *
+     * <p>Each apply also sweeps away staging files an earlier one left behind. The staging name is
+     * unique per apply, so a JVM killed between the copy and the move leaves a file nothing will
+     * ever reclaim; without this the data folder accumulates one per crash.
+     *
+     * <p>{@code preset} is closed on <em>every</em> path out of this method, including one where the
+     * backup itself throws. It used to be closed only by the try-with-resources around the write
+     * below it, so an unwritable data folder left the stream open (#74).
+     *
      * @param preset          the preset document; closed by this method
      * @param configFile      the configuration to replace
      * @param backupDirectory where the backup is written; created if absent
@@ -153,22 +174,102 @@ public final class ProfileApplier {
         Objects.requireNonNull(preset, "preset");
         Objects.requireNonNull(configFile, "configFile");
 
+        // The stream is the outermost resource deliberately: backup(...) below can throw, and
+        // before this it did so with the stream still open.
+        try (InputStream in = preset) {
+            // Serialised so that backup-then-replace is one unit. Two operators applying different
+            // presets in the same instant must leave one whole preset on disk with a backup that
+            // corresponds to it, not a config.yml assembled from both (#75). The lock is only ever
+            // taken on the AsyncScheduler -- apply() is never called from a region thread -- so
+            // blocking here blocks nothing that ticks.
+            synchronized (APPLY_LOCK) {
+                return replace(in, configFile, backupDirectory, at, zone);
+            }
+        }
+    }
+
+    /** The backup-then-replace body of {@link #apply}, with the preset stream already owned. */
+    private static Optional<Path> replace(InputStream preset, Path configFile, Path backupDirectory,
+                                          Instant at, ZoneId zone) throws IOException {
         Optional<Path> backup = backup(configFile, backupDirectory, at, zone);
 
         Path parent = configFile.toAbsolutePath().getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
+        if (parent == null) {
+            throw new IOException(configFile + " has no parent directory to stage a write in");
         }
-        Path staged = configFile.resolveSibling(configFile.getFileName() + ".incoming");
-        try (InputStream in = preset) {
-            Files.copy(in, staged, StandardCopyOption.REPLACE_EXISTING);
-        }
+        Files.createDirectories(parent);
+
+        // Per-apply staging names are only litter-free while the JVM survives the apply: the
+        // finally below covers a thrown failure, but a kill between the copy and the move leaves a
+        // staging file nothing owns, and every subsequent kill leaves another -- where the old
+        // single fixed name was self-overwriting. Sweeping here, rather than at startup, clears
+        // what a crash left behind without making the plugin's enable path do filesystem work it
+        // otherwise would not. Safe under APPLY_LOCK: no other apply in this JVM holds a staging
+        // file while we look.
+        sweepStaleStaging(parent, configFile.getFileName().toString());
+
+        // A name of this apply's own, rather than the one shared "config.yml.incoming": that
+        // single path was the second half of #75, since two applies staging through it could
+        // interleave into a config.yml that was neither preset. The staging file is a sibling of
+        // the configuration so the move below stays within one filesystem and can be atomic.
+        //
+        // Named rather than Files.createTempFile, which pre-creates the file owner-only on POSIX:
+        // the staging file becomes config.yml, so it would hand the operator a configuration they
+        // can no longer read as anyone but the server user.
+        Path staged = configFile.resolveSibling(
+                configFile.getFileName() + "." + UUID.randomUUID() + ".incoming");
+        boolean moved = false;
         try {
-            Files.move(staged, configFile,
-                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException unsupported) {
-            Files.move(staged, configFile, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(preset, staged, StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.move(staged, configFile,
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(staged, configFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            moved = true;
+        } finally {
+            if (!moved) {
+                // A half-written staging file is litter in the data folder and nothing else; the
+                // failure that got us here is what the caller is told about, so a failure to tidy
+                // up must not replace it.
+                try {
+                    Files.deleteIfExists(staged);
+                } catch (IOException ignored) {
+                    // Nothing useful to do, and the real exception is already propagating.
+                }
+            }
         }
         return backup;
+    }
+
+    /**
+     * Deletes staging files an earlier apply left behind, matching {@code <configFileName>.*.incoming}
+     * in {@code directory}.
+     *
+     * <p>Best effort throughout, and deliberately so: this is tidying, not part of applying a
+     * preset. A directory that cannot be listed, or a file that cannot be deleted, must not turn a
+     * working {@code /asr profile apply} into a failure — the operator would be told the preset was
+     * not applied because some unrelated leftover could not be removed.
+     *
+     * <p>Only ever called with {@link #APPLY_LOCK} held, which is what makes it safe to delete on
+     * sight: no other apply in this JVM can have a staging file in flight.
+     */
+    private static void sweepStaleStaging(Path directory, String configFileName) {
+        String prefix = configFileName + ".";
+        try (Stream<Path> entries = Files.list(directory)) {
+            entries.filter(path -> {
+                String name = path.getFileName().toString();
+                return name.startsWith(prefix) && name.endsWith(".incoming");
+            }).forEach(stale -> {
+                try {
+                    Files.deleteIfExists(stale);
+                } catch (IOException ignored) {
+                    // Left for the next apply to try again.
+                }
+            });
+        } catch (IOException ignored) {
+            // The apply itself will fail on its own terms if the directory is truly unusable.
+        }
     }
 }

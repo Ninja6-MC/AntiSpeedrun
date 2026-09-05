@@ -1,8 +1,11 @@
 package com.ninja6.antispeedrun.commands;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -41,30 +44,95 @@ class CommandGrammarTest {
     class Table {
 
         @Test
-        @DisplayName("every subcommand is gated on the node plugin.yml declares for it")
+        @DisplayName("every subcommand is gated on a node plugin.yml actually declares")
         void permissionsMatchPluginYml() {
-            // These strings are the contract with plugin.yml's antispeedrun.admin children. A
-            // subcommand whose node is misspelt is not merely unusable -- with hasPermission on an
-            // undeclared node it can read as denied for everyone or, worse, be checked against a
-            // node nothing grants.
-            assertEquals("antispeedrun.admin.reload", Subcommand.RELOAD.permission());
-            assertEquals("antispeedrun.admin.profile", Subcommand.PROFILE.permission());
-            assertEquals("antispeedrun.admin.unlock", Subcommand.UNLOCK.permission());
-            assertEquals("antispeedrun.admin.bypass", Subcommand.BYPASS.permission());
-            assertEquals("antispeedrun.admin.inspect", Subcommand.INSPECT.permission());
+            // Read out of plugin.yml, not copied from it. This assertion used to compare one
+            // hardcoded list against another and never opened the file, so renaming a node in
+            // plugin.yml left it green while the command enforced a node that no longer existed
+            // (#76). With hasPermission on an undeclared node, that reads as denied for everyone
+            // or, worse, is checked against a node nothing grants.
+            Set<String> declared = PluginYml.declaredPermissions();
+            for (Subcommand subcommand : Subcommand.values()) {
+                assertTrue(declared.contains(subcommand.permission()),
+                        subcommand + " is gated on \"" + subcommand.permission() + "\", which "
+                                + "plugin.yml does not declare. Declared nodes: " + declared);
+            }
         }
 
         @Test
-        @DisplayName("no subcommand is gated on the standing bypass permission")
+        @DisplayName("every antispeedrun.admin child is enforced by exactly one subcommand")
+        void everyAdminNodeIsEnforced() {
+            // The other direction of the same drift: a node added to the admin tree that no
+            // branch checks is a permission an operator can grant to no effect, and one removed
+            // from it while the dispatcher still checks it is a branch nobody can reach.
+            Set<String> enforced = new LinkedHashSet<>();
+            for (Subcommand subcommand : Subcommand.values()) {
+                assertTrue(enforced.add(subcommand.permission()),
+                        subcommand + " shares its node with another subcommand");
+            }
+            assertEquals(PluginYml.childrenOf("antispeedrun.admin"), enforced,
+                    "the children of antispeedrun.admin and the nodes /asr enforces must be the "
+                            + "same set");
+        }
+
+        @Test
+        @DisplayName("antispeedrun.bypass is not reachable as a child of antispeedrun.admin")
         void bypassPermissionIsNotAnAdminNode() {
-            // antispeedrun.bypass is deliberately outside the antispeedrun.admin tree, because
-            // antispeedrun.admin defaults to op and nesting it would exempt every operator from
-            // every gate. Granting a bypass and holding one are different rights.
+            // The comment in plugin.yml explains why this matters: antispeedrun.admin defaults to
+            // op, so nesting the standing exemption under it would silently exempt every operator
+            // from every gate -- including staff playing survival, and including anyone trying to
+            // verify that the gates work at all. Checked transitively, because a node three levels
+            // down grants just as much as one directly beneath.
+            Set<String> reachable = PluginYml.reachableFrom("antispeedrun.admin");
+            assertFalse(reachable.contains("antispeedrun.bypass"),
+                    "antispeedrun.bypass must not be reachable from antispeedrun.admin; it was "
+                            + "reachable through " + reachable);
+            for (String node : reachable) {
+                assertFalse(node.startsWith("antispeedrun.bypass."),
+                        node + " must not be reachable from antispeedrun.admin either");
+            }
+
+            // And the dispatcher itself never gates a branch on the exemption: granting a bypass
+            // (antispeedrun.admin.bypass) is a different right from holding one.
             for (Subcommand subcommand : Subcommand.values()) {
                 assertTrue(subcommand.permission().startsWith("antispeedrun.admin."),
                         subcommand + " must be gated on an antispeedrun.admin.* node");
                 assertFalse(subcommand.permission().equals("antispeedrun.bypass"));
             }
+        }
+
+        @Test
+        @DisplayName("the plugin.yml usage line lists exactly the subcommands that are accepted")
+        void usageLineMatchesTheDispatcher() {
+            // #73: the line advertised "progress" and "book", which belong to tasks #3 and #5 and
+            // are not implemented, so an operator following it was told the subcommand does not
+            // exist and handed the same list again. Asserted against Subcommand rather than
+            // against a literal, so adding a subcommand without advertising it -- or advertising
+            // one before it exists -- fails here.
+            assertEquals("/asr <" + String.join("|", Subcommand.labels()) + ">",
+                    PluginYml.usageOf("antispeedrun"));
+        }
+
+        @Test
+        @DisplayName("nothing advertises an /asr subcommand the dispatcher does not accept")
+        void permissionDescriptionsDoNotAdvertiseAbsentSubcommands() {
+            // The descriptions on antispeedrun.progress and antispeedrun.book named /asr progress
+            // and /asr book. An operator reads these in a permissions plugin, so they are as much
+            // a promise as the usage line is -- and so is a description or usage line under
+            // commands:, which /help prints. The scan therefore covers both sections rather than
+            // permissions alone, and matches case-insensitively: "/asr Reload" is the same promise
+            // as "/asr reload", and Subcommand.parse accepts either.
+            Pattern invocation = Pattern.compile("/asr\\s+([A-Za-z]+)");
+            PluginYml.advertisements().forEach((where, text) -> {
+                Matcher named = invocation.matcher(text);
+                while (named.find()) {
+                    String label = named.group(1);
+                    assertTrue(Subcommand.parse(label).isPresent(),
+                            where + " advertises \"/asr " + label + "\", which the dispatcher "
+                                    + "answers with \"Unknown subcommand\". Accepted: "
+                                    + Subcommand.labels());
+                }
+            });
         }
 
         @Test

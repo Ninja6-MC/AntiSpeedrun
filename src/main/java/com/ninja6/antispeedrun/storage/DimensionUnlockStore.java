@@ -3,6 +3,7 @@ package com.ninja6.antispeedrun.storage;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.Executor;
+import java.util.function.UnaryOperator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -51,12 +52,24 @@ import java.util.logging.Logger;
  * the order the executor runs them in, and no write can resurrect a state that has since been
  * superseded. {@link #writeLock} serialises the writes themselves so two tasks cannot interleave
  * inside {@link StateFile#save}.
+ *
+ * <p>The mutation is serialised separately, by {@link #stateLock}: deriving the new state from the
+ * live one and publishing it is one indivisible step, so an {@code /asr unlock} and an
+ * {@code /asr unlock ... lock} issued in the same instant cannot lose one of the two updates.
  */
 public final class DimensionUnlockStore {
 
     private final Logger logger;
     private final StateFile file;
     private final Executor ioExecutor;
+
+    /**
+     * Serialises the read-derive-write in {@link #swap}. Held across an {@code EnumMap} copy and
+     * nothing else — never across file I/O, so a region thread may take it. Distinct from
+     * {@link #writeLock}, which serialises the writes themselves on the I/O executor.
+     */
+    private final Object stateLock = new Object();
+
     private final Object writeLock = new Object();
 
     /** Volatile for the reason given in the class javadoc: written here, read from every region. */
@@ -143,7 +156,8 @@ public final class DimensionUnlockStore {
      *         case nothing is written
      */
     public boolean unlock(DimensionUnlock dimension, long atMillis) {
-        return swap(state.unlocked(Objects.requireNonNull(dimension, "dimension"), atMillis));
+        Objects.requireNonNull(dimension, "dimension");
+        return swap(current -> current.unlocked(dimension, atMillis));
     }
 
     /**
@@ -152,14 +166,32 @@ public final class DimensionUnlockStore {
      * @return {@code true} if this changed anything; {@code false} if it was not open
      */
     public boolean lock(DimensionUnlock dimension) {
-        return swap(state.locked(Objects.requireNonNull(dimension, "dimension")));
+        Objects.requireNonNull(dimension, "dimension");
+        return swap(current -> current.locked(dimension));
     }
 
-    private boolean swap(UnlockState candidate) {
-        if (candidate == state) {
-            return false;
+    /**
+     * Derives a new state from the live one and publishes it, as one indivisible step.
+     *
+     * <p>{@link #stateLock} is what makes {@code /asr unlock nether} and {@code /asr lock end}
+     * running at the same instant safe. Both used to read {@link #state}, derive from that read and
+     * write the result back; two of them interleaving lost whichever update was derived from the
+     * older snapshot, and the command still reported success (#75). The write lock further down
+     * guards the file, not this derivation, so it could not help.
+     *
+     * <p>Nothing but an {@code EnumMap} copy happens inside the lock — no file I/O, so this stays
+     * legal to call from a region thread — and {@link #persist()} is deliberately outside it, since
+     * it only queues a task onto the I/O executor.
+     */
+    private boolean swap(UnaryOperator<UnlockState> derivation) {
+        synchronized (stateLock) {
+            UnlockState current = state;
+            UnlockState candidate = derivation.apply(current);
+            if (candidate == current) {
+                return false;
+            }
+            this.state = candidate;
         }
-        this.state = candidate;
         persist();
         return true;
     }
