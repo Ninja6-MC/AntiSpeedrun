@@ -4,6 +4,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -96,6 +98,37 @@ class CommandGrammarTest {
                 assertTrue(subcommand.permission().startsWith("antispeedrun.admin."),
                         subcommand + " must be gated on an antispeedrun.admin.* node");
                 assertFalse(subcommand.permission().equals("antispeedrun.bypass"));
+            }
+        }
+
+        @Test
+        @DisplayName("the plugin.yml usage line lists exactly the subcommands that are accepted")
+        void usageLineMatchesTheDispatcher() {
+            // #73: the line advertised "progress" and "book", which belong to tasks #3 and #5 and
+            // are not implemented, so an operator following it was told the subcommand does not
+            // exist and handed the same list again. Asserted against Subcommand rather than
+            // against a literal, so adding a subcommand without advertising it -- or advertising
+            // one before it exists -- fails here.
+            assertEquals("/asr <" + String.join("|", Subcommand.labels()) + ">",
+                    PluginYml.usageOf("antispeedrun"));
+        }
+
+        @Test
+        @DisplayName("nothing advertises an /asr subcommand the dispatcher does not accept")
+        void permissionDescriptionsDoNotAdvertiseAbsentSubcommands() {
+            // The descriptions on antispeedrun.progress and antispeedrun.book named /asr progress
+            // and /asr book. An operator reads these in a permissions plugin, so they are as much
+            // a promise as the usage line is.
+            Pattern invocation = Pattern.compile("/asr\\s+([a-z]+)");
+            for (String node : PluginYml.declaredPermissions()) {
+                Matcher named = invocation.matcher(PluginYml.descriptionOf(node));
+                while (named.find()) {
+                    String label = named.group(1);
+                    assertTrue(Subcommand.parse(label).isPresent(),
+                            node + " advertises \"/asr " + label + "\", which the dispatcher "
+                                    + "answers with \"Unknown subcommand\". Accepted: "
+                                    + Subcommand.labels());
+                }
             }
         }
 

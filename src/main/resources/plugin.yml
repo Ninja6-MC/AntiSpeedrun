@@ -18,7 +18,11 @@ softdepend: [floodgate]
 commands:
   antispeedrun:
     description: Master AntiSpeedrun administration command
-    usage: /asr <progress|book|reload|profile|unlock|bypass|inspect>
+    # This line must list exactly what Subcommand declares -- CommandGrammarTest asserts it.
+    # "progress" and "book" were advertised here before either existed, so the dispatcher
+    # answered "Unknown subcommand" and then printed this same list back. They return as
+    # delegates to /progress and /journeybook when tasks #3 and #5 land.
+    usage: /asr <reload|profile|unlock|bypass|inspect>
     aliases: [asr]
   progress:
     description: View your personal survival progression milestones
@@ -31,11 +35,14 @@ commands:
     permission: antispeedrun.book
 
 permissions:
+  # Both describe the standalone commands only. /asr progress and /asr book are not
+  # subcommands the dispatcher accepts, and naming them here told operators otherwise;
+  # these descriptions widen again when tasks #3 and #5 add the delegates.
   antispeedrun.progress:
-    description: Allows viewing personal progression status via /progress or /asr progress
+    description: Allows viewing personal progression status via /progress
     default: true
   antispeedrun.book:
-    description: Allows obtaining the Journey Guide Book via /asr book
+    description: Allows obtaining the Journey Guide Book via /journeybook
     default: true
 
   antispeedrun.admin:
