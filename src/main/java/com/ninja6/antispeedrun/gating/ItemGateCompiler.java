@@ -47,6 +47,73 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  * running pairwise fold — see {@link #resolve}. Which tier wins, and whether the configuration is
  * rejected at all, are both independent of the order the tiers are written in.</p>
  *
+ * <h2>Requirement identity</h2>
+ *
+ * Steps 2 to 4 all rest on deciding whether two requirement sets are the same, so identity has to
+ * mean the same thing here as it does at the point the requirement is actually evaluated:
+ *
+ * <ul>
+ *   <li><strong>Advancement keys get the implicit {@code minecraft:} namespace, and nothing
+ *       else</strong> — that is the one normalisation {@code NamespacedKey.fromString} performs, so
+ *       {@code story/smelt_iron} and {@code minecraft:story/smelt_iron} name one advancement to the
+ *       server and must name one requirement here. Before, that purely cosmetic difference between
+ *       two tiers turned a clean dominance into an incomparable pair, and since the collision
+ *       became fatal, into a refusal to start. Nothing else is folded — not case, not surrounding
+ *       whitespace — because the resolver folds neither and is handed the configured string
+ *       untouched. A key it rejects is <em>not</em> an unsatisfiable requirement: it resolves to
+ *       {@code UNRESOLVABLE}, which {@code MilestoneEvaluator} waives, so every player satisfies
+ *       it. Canonicalising such a key here would make it equal to the correctly spelled one, hand
+ *       the material to whichever tier was declared first, and then waive that tier's requirement
+ *       at runtime — an item silently ungated. Left distinct, the pair is incomparable and the
+ *       operator is told at boot. See {@link #normalise}.</li>
+ *   <li><strong>A {@code NaN} playtime is neutralised to zero, with a warning.</strong> It is
+ *       reachable: {@code require-playtime-hours} is read with the plain {@code decimal} reader, and
+ *       YAML spells a floating-point NaN {@code .nan}, which SnakeYAML resolves to
+ *       {@link Double#NaN}. Left alone it makes {@code same} false and dominance false in
+ *       <em>both</em> directions, so a tier would collide with an identical copy of itself and the
+ *       error would name two requirement sets that print the same. Infinities need no special case:
+ *       they order normally against every other value.</li>
+ * </ul>
+ *
+ * <h2>Why a rule the plugin cannot interpret warns, while an ambiguous one is fatal</h2>
+ *
+ * An interior wildcard ({@code IRON_*_ORE}), and a material name no server knows, are dropped with a
+ * warning naming the line. A tier collision stops the plugin. All three end with items ungated, so
+ * the asymmetry is worth stating rather than leaving to be rediscovered.
+ *
+ * <p>The distinction is not how many items end up ungated, it is <em>whether the operator can tell
+ * which, and why, from the log</em>:
+ *
+ * <ul>
+ *   <li>A dropped rule has a correct running state. Exactly one named configuration line has no
+ *       effect, the log says which line and why, and everything else gates as written. That is the
+ *       contract the rest of this plugin's configuration already keeps — {@code ConfigReader} falls
+ *       back with a warning for a wrong-typed boolean, an out-of-range integer, an unknown enum
+ *       constant and a non-string list element, and {@code onEnable} deliberately degrades a
+ *       config.yml that will not parse at all to the shipped defaults rather than refusing to
+ *       start. Making two gating typos fatal would make this one section the only place where a
+ *       typo takes the server down.</li>
+ *   <li>A collision has no correct running state. Either the plugin picks a tier that document
+ *       order alone chose — audit finding R-11, the thing the check exists to prevent — or it
+ *       leaves the material ungated while the file plainly says it should be gated twice. Nor can
+ *       the log stand in for the fix: the message can name the two tiers, but not which of the
+ *       materials they both claim were misassigned.</li>
+ *   <li>The blast radii differ, and in the direction that settles it. A malformed pattern is a
+ *       fixed property of the file: wrong on every server, forever, until it is edited. An unknown
+ *       material name is a property of the <em>server</em> — the same file is valid on one
+ *       Minecraft version and not on the next. Making it fatal would mean a version bump that
+ *       renames or removes one constant turns "these items are no longer gated, and here is the
+ *       name that vanished" into "the server does not start", precisely at the moment the operator
+ *       has least warning. And in {@code exclude-materials} an unrecognised name removes nothing,
+ *       so the tier gates <em>more</em> than intended, not less: the safe direction.</li>
+ * </ul>
+ *
+ * <p>What that argument owes in return is that the log has to be worth trusting, so a dropped rule
+ * says what it costs rather than only what was wrong with it, and a final line counts the rules
+ * that are not in effect — see {@link #reportDroppedRules}. The alternative to revisit, if
+ * operators still miss it, is a configurable {@code on-invalid-rule: warn|fail} rather than a
+ * blanket promotion.
+ *
  * <h2>Cost</h2>
  *
  * Every string operation in the whole gating feature happens here, once per configuration snapshot:
@@ -58,6 +125,13 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  * in rather than this class calling it. {@link MaterialGates} holds that cache.
  */
 public final class ItemGateCompiler {
+
+    /**
+     * Joins two tier ids into the key that dedupes the identical-requirements warning. A tier id is
+     * a YAML mapping key and may contain a space, so a space would conflate two different pairs and
+     * silently swallow one of the two warnings; nothing YAML can put in a key collides with this.
+     */
+    private static final char TIE_KEY_SEPARATOR = 0;
 
     private ItemGateCompiler() {
     }
@@ -89,13 +163,23 @@ public final class ItemGateCompiler {
             known.add(value.name());
         }
 
+        // Rules the plugin could not interpret and therefore did not apply. Counted rather than
+        // thrown, for the reasons in the class documentation, and reported once at the end so the
+        // cost of the individual warnings above is not left to be added up by hand.
+        int[] droppedRules = new int[1];
+
         List<CompiledTier> compiled = new ArrayList<>(tiers.size());
         for (PluginConfig.ItemTier tier : tiers) {
-            compiled.add(CompiledTier.of(tier, known, warnings));
+            compiled.add(CompiledTier.of(tier, known, warnings, droppedRules));
         }
 
         EnumMap<M, PluginConfig.ItemTier> byMaterial = new EnumMap<>(universe);
         EnumSet<M> gated = EnumSet.noneOf(universe);
+
+        // One entry per pair of tiers already reported as having identical requirements. The
+        // warning describes the pair, not the material, so a broad overlap used to emit the same
+        // line once per material -- hundreds of Logger#warning calls saying one thing.
+        Set<String> reportedTies = new HashSet<>();
 
         List<PluginConfig.ItemTier> claimants = new ArrayList<>(4);
         for (M value : values) {
@@ -109,8 +193,9 @@ public final class ItemGateCompiler {
             if (claimants.isEmpty()) {
                 continue;
             }
-            PluginConfig.ItemTier winner =
-                    claimants.size() == 1 ? claimants.get(0) : resolve(name, claimants, warnings);
+            PluginConfig.ItemTier winner = claimants.size() == 1
+                    ? claimants.get(0)
+                    : resolve(name, claimants, warnings, reportedTies);
             byMaterial.put(value, winner);
             gated.add(value);
         }
@@ -118,8 +203,29 @@ public final class ItemGateCompiler {
         for (CompiledTier tier : compiled) {
             tier.reportUnusedPatterns(warnings);
         }
+        reportDroppedRules(droppedRules[0], warnings);
 
         return new ItemGateTable<>(gated, byMaterial);
+    }
+
+    /**
+     * Closes the warning list with what the dropped rules add up to, when there were any.
+     *
+     * <p>The individual warnings each name one line; this one names the consequence, because the
+     * decision to keep them recoverable is only defensible if an operator scanning the log can see
+     * that part of the gating configuration is not running. See the class documentation.
+     */
+    private static void reportDroppedRules(int dropped, List<String> warnings) {
+        if (dropped == 0) {
+            return;
+        }
+        warnings.add("item-progression.gated-items: " + dropped + " gating rule"
+                + (dropped == 1 ? " was" : "s were")
+                + " dropped and " + (dropped == 1 ? "is" : "are") + " NOT in effect, so the items "
+                + (dropped == 1 ? "it names are" : "they name are")
+                + " ungated. Every other rule was applied as written. Fix the lines named above "
+                + "and reload; the plugin does not stop for these, because a dropped rule is one "
+                + "named line with no effect, where a tier collision has no correct answer at all.");
     }
 
     /**
@@ -137,16 +243,19 @@ public final class ItemGateCompiler {
      * order-independent by construction. It is quadratic in the number of tiers claiming one
      * material, which is one or two in practice and runs once per material at load time.
      *
+     * @param reportedTies tier-id pairs already warned about, so the identical-requirements warning
+     *                     describes each pair once rather than once per material they both claim
      * @return the tier that owns the material
      * @throws GateCollisionException when no claimant dominates or equals all the others
      */
     private static PluginConfig.ItemTier resolve(String materialName,
                                                  List<PluginConfig.ItemTier> claimants,
-                                                 List<String> warnings) throws GateCollisionException {
+                                                 List<String> warnings,
+                                                 Set<String> reportedTies) throws GateCollisionException {
         int size = claimants.size();
         List<Set<String>> advancements = new ArrayList<>(size);
         for (PluginConfig.ItemTier claimant : claimants) {
-            advancements.add(new LinkedHashSet<>(claimant.requireAdvancements()));
+            advancements.add(normalise(claimant.requireAdvancements()));
         }
 
         // A maximum dominates or equals every other claimant. Maxima can only be tied with one
@@ -175,12 +284,19 @@ public final class ItemGateCompiler {
 
         int winner = maxima.get(0);
         if (maxima.size() > 1) {
-            warnings.add("item-progression.gated-items: " + materialName + " is gated by both \""
-                    + claimants.get(winner).id() + "\" and \""
-                    + claimants.get(maxima.get(1)).id()
-                    + "\", which have identical requirements; \"" + claimants.get(winner).id()
-                    + "\" owns it because it is declared first. Remove the duplicate, or exclude "
-                    + materialName + " from one of them.");
+            String owner = claimants.get(winner).id();
+            String other = claimants.get(maxima.get(1)).id();
+            // Keyed on the pair, not the material: the problem is a duplicated tier, and it is the
+            // same problem for every material the two of them both claim. A broad overlapping
+            // pattern otherwise emits this line hundreds of times.
+            if (reportedTies.add(owner + TIE_KEY_SEPARATOR + other)) {
+                warnings.add("item-progression.gated-items: \"" + owner + "\" and \"" + other
+                        + "\" have identical requirements and both claim the same materials"
+                        + " (first seen on " + materialName + "); \"" + owner
+                        + "\" owns it because it is declared first, and the same applies to every"
+                        + " other material they share. Remove the duplicate tier, or exclude the"
+                        + " overlapping materials from one of them.");
+            }
         }
         return claimants.get(winner);
     }
@@ -208,7 +324,7 @@ public final class ItemGateCompiler {
     private static boolean same(PluginConfig.ItemTier a, Set<String> advancementsOfA,
                                 PluginConfig.ItemTier b, Set<String> advancementsOfB) {
         return advancementsOfA.equals(advancementsOfB)
-                && a.requirePlaytimeHours() == b.requirePlaytimeHours()
+                && playtimeOf(a) == playtimeOf(b)
                 && a.requireAccountAgeDays() == b.requireAccountAgeDays();
     }
 
@@ -218,15 +334,88 @@ public final class ItemGateCompiler {
         if (!advancementsOfA.containsAll(advancementsOfB)) {
             return false;
         }
-        if (a.requirePlaytimeHours() < b.requirePlaytimeHours()) {
+        double playtimeOfA = playtimeOf(a);
+        double playtimeOfB = playtimeOf(b);
+        if (playtimeOfA < playtimeOfB) {
             return false;
         }
         if (a.requireAccountAgeDays() < b.requireAccountAgeDays()) {
             return false;
         }
         return advancementsOfA.size() > advancementsOfB.size()
-                || a.requirePlaytimeHours() > b.requirePlaytimeHours()
+                || playtimeOfA > playtimeOfB
                 || a.requireAccountAgeDays() > b.requireAccountAgeDays();
+    }
+
+    /**
+     * The tier's playtime requirement as an orderable number.
+     *
+     * <p>Only {@code NaN} needs the treatment, and it collapses to zero — "no playtime required",
+     * which is what {@code require-playtime-hours} defaults to and the only reading of a non-number
+     * that cannot lock players out of a tier. Every comparison in {@link #same} and
+     * {@link #dominates} is otherwise a plain {@code double} comparison, and {@code NaN} is false
+     * against everything including itself: a tier would fail to equal a byte-identical copy of
+     * itself and fail to dominate it in either direction, producing a {@link GateCollisionException}
+     * whose message prints two requirement sets that read the same. Infinities are left alone; they
+     * order normally, and {@code require-playtime-hours: .inf} is an unreachable tier the operator
+     * asked for rather than a broken comparison. {@link CompiledTier#of} warns about both.
+     */
+    private static double playtimeOf(PluginConfig.ItemTier tier) {
+        double hours = tier.requirePlaytimeHours();
+        return Double.isNaN(hours) ? 0.0D : hours;
+    }
+
+    /**
+     * Normalises a tier's advancement keys for comparison, preserving configured order.
+     *
+     * <p>Duplicates within one tier collapse, which is correct: requiring one advancement twice is
+     * requiring it once, and leaving them distinct would make the set-size test in
+     * {@link #dominates} count a repetition as extra strictness.
+     */
+    private static Set<String> normalise(List<String> advancements) {
+        Set<String> normalised = new LinkedHashSet<>(advancements.size() * 2);
+        for (String key : advancements) {
+            normalised.add(normalise(key));
+        }
+        return normalised;
+    }
+
+    /**
+     * Puts one advancement key in the form the server will resolve it in.
+     *
+     * <p>Supply the implicit {@code minecraft:} namespace when the key carries none, and change
+     * nothing else. That is the single normalisation {@code NamespacedKey.fromString} performs, so
+     * two keys are one requirement here precisely when they are one advancement there.
+     *
+     * <p>Nothing else is touched because nothing else is touched on the way to the resolver either:
+     * {@code ConfigReader#strings} does not trim, {@code MilestoneRequirement} passes the list
+     * through, and {@code BukkitAdvancementLookup} hands {@code fromString} the raw configured
+     * string. So two forms the resolver rejects stay distinct here — surrounding whitespace, which
+     * {@code fromString} neither trims nor admits into its character set, and upper case, which it
+     * rejects rather than folds.
+     *
+     * <p>Neither is an <em>unsatisfiable</em> requirement, which is the intuitive reading and the
+     * wrong one. A key the resolver rejects yields {@code AdvancementLookup.State#UNRESOLVABLE},
+     * and {@code MilestoneEvaluator} deliberately waives an unresolvable advancement rather than
+     * blocking on it forever — so every player satisfies it. A tier holding a mistyped key is
+     * therefore <em>weaker</em> at runtime than the same tier spelled correctly.
+     *
+     * <p>That is exactly why canonicalising such a key here would be worse than leaving it alone.
+     * It would make the two tiers {@link #same}, hand the material to whichever was declared first,
+     * and then waive that tier's only requirement at runtime: the item ships ungated with nothing
+     * in the log to say so. Left distinct, neither tier dominates, the collision is fatal, and the
+     * operator is shown the typo at boot. Better still would be for a key the resolver rejects to
+     * contribute nothing to the comparison at all, but that belongs where the list is read, so that
+     * {@code dimension-gates} gets the same treatment.
+     */
+    private static String normalise(String advancementKey) {
+        if (advancementKey == null) {
+            return "";
+        }
+        if (advancementKey.isEmpty() || advancementKey.indexOf(':') >= 0) {
+            return advancementKey;
+        }
+        return "minecraft:" + advancementKey;
     }
 
     /**
@@ -250,16 +439,33 @@ public final class ItemGateCompiler {
             this.patternMatchedSomething = new boolean[patterns.size()];
         }
 
-        static CompiledTier of(PluginConfig.ItemTier tier, Set<String> known, List<String> warnings) {
+        static CompiledTier of(PluginConfig.ItemTier tier, Set<String> known, List<String> warnings,
+                               int[] droppedRules) {
             String path = "item-progression.gated-items." + tier.id();
+
+            double hours = tier.requirePlaytimeHours();
+            if (Double.isNaN(hours)) {
+                // Reachable from a hand-edited file: YAML spells NaN ".nan", the plain decimal
+                // reader accepts any Number, and NaN then compares false against everything --
+                // including an identical tier -- which reads as an unexplainable collision.
+                warnings.add(path + ".require-playtime-hours: \"" + hours
+                        + "\" is not a number, so this tier requires no playtime. Set a value in "
+                        + "hours, or remove the line.");
+            } else if (Double.isInfinite(hours)) {
+                warnings.add(path + ".require-playtime-hours: " + hours
+                        + " can never be reached, so no player will ever hold this tier's items. "
+                        + "It was applied as written.");
+            }
 
             List<MaterialPattern> patterns = new ArrayList<>(tier.matchPatterns().size());
             for (String raw : tier.matchPatterns()) {
                 MaterialPattern parsed = MaterialPattern.parse(raw);
                 if (parsed == null) {
+                    droppedRules[0]++;
                     warnings.add(path + ".match-patterns: \"" + raw + "\" is not a usable pattern. "
                             + "A wildcard is only meaningful at the start (*_IRON_ORE), the end "
-                            + "(IRON_*) or both (*_DIAMOND_*); this entry was ignored.");
+                            + "(IRON_*) or both (*_DIAMOND_*); this entry was ignored, so nothing "
+                            + "it would have gated is gated by this tier.");
                     continue;
                 }
                 if (parsed.mode() == MaterialPattern.Mode.ALL) {
@@ -270,9 +476,14 @@ public final class ItemGateCompiler {
                 patterns.add(parsed);
             }
 
-            Set<String> items = names(tier.items(), known, path + ".items", warnings);
-            Set<String> excluded =
-                    names(tier.excludeMaterials(), known, path + ".exclude-materials", warnings);
+            Set<String> items = names(tier.items(), known, path + ".items",
+                    "this tier does not gate it", warnings, droppedRules);
+            // An unrecognised exclusion removes nothing, so the tier gates more than intended
+            // rather than less. Still worth naming, but it is not a dropped gating rule: the
+            // failure direction is the safe one.
+            Set<String> excluded = names(tier.excludeMaterials(), known, path + ".exclude-materials",
+                    "this tier's exclusion has no effect and it may gate more than intended",
+                    warnings, null);
 
             for (String name : items) {
                 if (excluded.contains(name)) {
@@ -292,9 +503,15 @@ public final class ItemGateCompiler {
          * file — defensive exclusions that keep working if the patterns around them widen later.
          * A name that resolves to nothing at all is a different thing, usually a typo or a
          * material from a different game version, and it is worth saying so.
+         *
+         * @param consequence what the operator loses by the entry being dropped, appended to the
+         *                    warning; it differs between {@code items} and {@code exclude-materials}
+         * @param droppedRules counter of rules that reduce gating, or {@code null} for a list whose
+         *                     dropped entries can only over-gate
          */
         private static Set<String> names(List<String> raw, Set<String> known, String path,
-                                         List<String> warnings) {
+                                         String consequence, List<String> warnings,
+                                         int[] droppedRules) {
             Set<String> resolved = new LinkedHashSet<>(raw.size() * 2);
             for (String entry : raw) {
                 String name = entry.trim().toUpperCase(Locale.ROOT);
@@ -302,9 +519,12 @@ public final class ItemGateCompiler {
                     continue;
                 }
                 if (!known.contains(name)) {
+                    if (droppedRules != null) {
+                        droppedRules[0]++;
+                    }
                     warnings.add(path + ": \"" + entry + "\" is not a material this server knows "
-                            + "about and was ignored. Check the spelling, or the Minecraft version "
-                            + "it was added in.");
+                            + "about and was ignored, so " + consequence + ". Check the spelling, "
+                            + "or the Minecraft version it was added in.");
                     continue;
                 }
                 resolved.add(name);

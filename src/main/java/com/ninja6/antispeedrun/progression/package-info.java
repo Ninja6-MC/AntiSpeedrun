@@ -34,11 +34,21 @@
  *       is a {@code ConcurrentHashMap}; a captured snapshot and an
  *       {@link com.ninja6.antispeedrun.progression.EligibilityResult} are immutable records and
  *       may be handed to any thread.</li>
- *   <li><strong>Nothing in this package schedules a repeating task.</strong> Cache staleness is
- *       resolved lazily on read against a time-to-live, because the only work a background
- *       sweeper could legally do is eviction — it cannot re-read a player's statistics from off
- *       that player's region thread. See
- *       {@link com.ninja6.antispeedrun.progression.ProgressionCache} for the full argument.</li>
+ *   <li><strong>Nothing in this package schedules a <em>global</em> repeating task.</strong> Cache
+ *       staleness is resolved lazily on read against a time-to-live, because a background sweeper
+ *       cannot re-read a player's statistics from off that player's region thread. See
+ *       {@link com.ninja6.antispeedrun.progression.ProgressionCache} for the full argument. The one
+ *       repeating task the package does create is
+ *       {@link com.ninja6.antispeedrun.progression.UnlockWatch}, and it is per-player, on that
+ *       player's own {@code EntityScheduler}, armed only while that player is waiting on a duration
+ *       and nothing else — which is the same argument reaching the opposite conclusion, not an
+ *       exception to it.</li>
+ *   <li><strong>No per-player map accepts an insertion for a player who has quit.</strong> Quit
+ *       cleanup runs once, on {@code PlayerQuitEvent}; an entry written after it has nothing left
+ *       to remove it. Every insertion point in
+ *       {@link com.ninja6.antispeedrun.progression.ProgressionManager} therefore checks
+ *       {@code Player#isOnline()} first, which is what makes a scheduled task — the one caller that
+ *       can outlive its player — safe to write.</li>
  * </ol>
  *
  * <h2>Cache invalidation</h2>

@@ -434,6 +434,209 @@ class ItemGateCompilerTest {
     }
 
     @Nested
+    @DisplayName("requirement identity")
+    class Identity {
+
+        private PluginConfig.ItemTier requiring(String id, List<String> advancements,
+                                                double playtime, String item) {
+            return new PluginConfig.ItemTier(id, List.of(), List.of(), List.of(item),
+                    advancements, playtime, 0, "");
+        }
+
+        @Test
+        @DisplayName("an unnamespaced advancement key is the same requirement as a namespaced one")
+        void namespaceIsDefaulted() throws Exception {
+            // Two spellings of one advancement. Before normalisation these were two distinct
+            // requirements, so neither tier dominated and neither equalled the other -- a purely
+            // cosmetic difference in config.yml became a refusal to start.
+            PluginConfig.ItemTier bare = requiring("bare", List.of("story/smelt_iron"), 0.0D, "MACE");
+            PluginConfig.ItemTier full =
+                    requiring("full", List.of("minecraft:story/smelt_iron"), 0.0D, "MACE");
+
+            assertEquals("bare", tierOf(compileAll(List.of(bare, full)), TestMaterial.MACE));
+            assertTrue(warned("identical requirements"));
+        }
+
+        @Test
+        @DisplayName("surrounding whitespace is not trimmed, because the resolver does not trim it")
+        void whitespaceIsNotTrimmed() {
+            // NamespacedKey.fromString neither trims nor accepts a space, and it is handed the raw
+            // configured string, so a padded key is UNRESOLVABLE and MilestoneEvaluator waives it.
+            // Trimming here would make these two tiers identical, give MACE to "padded" on
+            // declaration order, and then waive its only requirement at runtime -- MACE ungated,
+            // silently. Left distinct, neither dominates and the operator is told at boot.
+            PluginConfig.ItemTier padded =
+                    requiring("padded", List.of("  minecraft:story/smelt_iron "), 0.0D, "MACE");
+            PluginConfig.ItemTier tight =
+                    requiring("tight", List.of("story/smelt_iron"), 0.0D, "MACE");
+
+            assertThrows(GateCollisionException.class,
+                    () -> compileAll(List.of(padded, tight)));
+        }
+
+        @Test
+        @DisplayName("normalisation makes a cosmetic difference dominate rather than collide")
+        void normalisationRestoresDominance() throws Exception {
+            PluginConfig.ItemTier loose = requiring("loose", List.of("story/a"), 0.0D, "MACE");
+            PluginConfig.ItemTier strict =
+                    requiring("strict", List.of("minecraft:story/a", "story/b"), 0.0D, "MACE");
+
+            assertEquals("strict", tierOf(compileAll(List.of(loose, strict)), TestMaterial.MACE));
+            assertEquals(List.of(), warnings, "a clean dominance warns about nothing");
+        }
+
+        @Test
+        @DisplayName("a repeated key is not extra strictness")
+        void duplicateKeysCollapse() throws Exception {
+            PluginConfig.ItemTier repeated = requiring("repeated",
+                    List.of("story/a", "minecraft:story/a"), 0.0D, "MACE");
+            PluginConfig.ItemTier once = requiring("once", List.of("story/a"), 0.0D, "MACE");
+
+            assertEquals("repeated", tierOf(compileAll(List.of(repeated, once)), TestMaterial.MACE));
+            assertTrue(warned("identical requirements"),
+                    "requiring one advancement twice is requiring it once, not dominating");
+        }
+
+        @Test
+        @DisplayName("case is not folded, because NamespacedKey rejects rather than folds it")
+        void caseIsNotFolded() {
+            // NamespacedKey rejects an upper-case key rather than folding it, so the two spellings
+            // are not one requirement and must not be equated here. What the rejected key is at
+            // runtime is UNRESOLVABLE, which MilestoneEvaluator waives -- so "shouting" is in fact
+            // weaker than "quiet", not unsatisfiable. Refusing to start is still the right answer:
+            // the alternative, calling them the same, ungates MACE behind a waived requirement.
+            PluginConfig.ItemTier shouting =
+                    requiring("shouting", List.of("MINECRAFT:STORY/A"), 0.0D, "MACE");
+            PluginConfig.ItemTier quiet = requiring("quiet", List.of("story/a"), 0.0D, "MACE");
+
+            assertThrows(GateCollisionException.class,
+                    () -> compileAll(List.of(shouting, quiet)));
+        }
+
+        @Test
+        @DisplayName("YAML really can produce a NaN playtime, so the guard is not hypothetical")
+        void nanIsReachableFromTheFile() throws Exception {
+            // require-playtime-hours is read with the plain decimal reader, which accepts any
+            // Number; YAML 1.1 spells NaN ".nan" and SnakeYAML -- the parser Bukkit itself uses --
+            // resolves it to Double.NaN. Nothing between the file and the compiler rejects it.
+            PluginConfig config = yaml("""
+                    item-progression:
+                      gated-items:
+                        broken-tier:
+                          items:
+                            - "MACE"
+                          require-playtime-hours: .nan
+                    """);
+
+            assertTrue(Double.isNaN(config.itemProgression().gatedItems().get(0)
+                    .requirePlaytimeHours()), "NaN must be reachable for the guard to be needed");
+        }
+
+        @Test
+        @DisplayName("a NaN playtime does not make a tier collide with its own twin")
+        void nanDoesNotCollide() throws Exception {
+            // NaN compares false against everything, itself included: without the guard "same" is
+            // false and dominance is false in both directions, so these two collide and the error
+            // names two requirement sets that print identically.
+            PluginConfig.ItemTier a = requiring("a", List.of("story/a"), Double.NaN, "MACE");
+            PluginConfig.ItemTier b = requiring("b", List.of("story/a"), Double.NaN, "MACE");
+
+            assertEquals("a", tierOf(compileAll(List.of(a, b)), TestMaterial.MACE));
+            assertTrue(warned("require-playtime-hours"), "the operator must be told the value is bad");
+            assertTrue(warned("is not a number, so this tier requires no playtime"));
+        }
+
+        @Test
+        @DisplayName("a NaN playtime is treated as no requirement, not as an unreachable one")
+        void nanCollapsesToZero() throws Exception {
+            PluginConfig.ItemTier broken = requiring("broken", List.of("story/a"), Double.NaN, "MACE");
+            PluginConfig.ItemTier real = requiring("real", List.of("story/a"), 5.0D, "MACE");
+
+            assertEquals("real", tierOf(compileAll(List.of(broken, real)), TestMaterial.MACE),
+                    "5 hours must beat a NaN read as zero");
+        }
+
+        @Test
+        @DisplayName("an infinite playtime orders normally and is flagged as unreachable")
+        void infinityIsOrderedNotNeutralised() throws Exception {
+            PluginConfig.ItemTier forever =
+                    requiring("forever", List.of("story/a"), Double.POSITIVE_INFINITY, "MACE");
+            PluginConfig.ItemTier real = requiring("real", List.of("story/a"), 5.0D, "MACE");
+
+            assertEquals("forever", tierOf(compileAll(List.of(forever, real)), TestMaterial.MACE));
+            assertTrue(warned("can never be reached"));
+        }
+    }
+
+    @Nested
+    @DisplayName("warning volume")
+    class Volume {
+
+        @Test
+        @DisplayName("identical requirements are reported once per tier pair, not once per material")
+        void identicalRequirementsWarnOnce() throws Exception {
+            // Two tiers claiming every IRON_* material. One warning, not one per material.
+            PluginConfig.ItemTier first = new PluginConfig.ItemTier("first", List.of("IRON_*"),
+                    List.of(), List.of(), List.of("story/a"), 0.0D, 0, "");
+            PluginConfig.ItemTier second = new PluginConfig.ItemTier("second", List.of("IRON_*"),
+                    List.of(), List.of(), List.of("story/a"), 0.0D, 0, "");
+
+            ItemGateTable<TestMaterial> gates = compileAll(List.of(first, second));
+
+            assertTrue(gates.size() > 1, "the overlap must span several materials to be a fair test");
+            assertEquals(1, warnings.stream().filter(w -> w.contains("identical requirements")).count(),
+                    "one line per duplicated tier pair: " + warnings);
+            assertTrue(warned("\"first\" owns it because it is declared first"));
+            assertTrue(warned("the same applies to every other material they share"));
+        }
+    }
+
+    @Nested
+    @DisplayName("dropped rules")
+    class Dropped {
+
+        @Test
+        @DisplayName("a dropped rule says what it costs and is counted at the end")
+        void droppedRulesAreSummarised() throws Exception {
+            compileTier(tier("t", List.of("IRON_*_ORE"), List.of("COPPER_MACE"), List.of()));
+
+            assertTrue(warned("nothing it would have gated is gated by this tier"));
+            assertTrue(warned("this tier does not gate it"));
+            assertTrue(warned("2 gating rules were dropped and are NOT in effect"),
+                    "the pattern and the unknown item name are both dropped rules: " + warnings);
+        }
+
+        @Test
+        @DisplayName("the count is singular for one rule and absent for none")
+        void countIsAccurate() throws Exception {
+            compileTier(tier("t", List.of(), List.of("COPPER_MACE", "IRON_INGOT"), List.of()));
+            assertTrue(warned("1 gating rule was dropped and is NOT in effect"), warnings.toString());
+
+            warnings.clear();
+            compileTier(tier("clean", List.of("IRON_*"), List.of(), List.of()));
+            assertFalse(warned("NOT in effect"), "nothing was dropped: " + warnings);
+        }
+
+        @Test
+        @DisplayName("an unknown exclusion name is named but is not a dropped gating rule")
+        void unknownExclusionDoesNotCount() throws Exception {
+            // It removes nothing, so the tier gates more than intended rather than less. The
+            // failure direction is the safe one, and the summary line counts only the unsafe one.
+            compileTier(tier("t", List.of("IRON_*"), List.of(), List.of("NOT_A_THING")));
+
+            assertTrue(warned("this tier's exclusion has no effect"));
+            assertFalse(warned("NOT in effect"), warnings.toString());
+        }
+
+        @Test
+        @DisplayName("the shipped config.yml drops nothing")
+        void shippedConfigDropsNothing() throws Exception {
+            compile(shipped());
+            assertFalse(warned("NOT in effect"), warnings.toString());
+        }
+    }
+
+    @Nested
     @DisplayName("the compiled table")
     class Table {
 
