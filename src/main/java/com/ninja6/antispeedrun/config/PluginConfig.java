@@ -33,8 +33,18 @@ import java.util.Optional;
  * @param bossScaling          section 6, multi-dragon boss combat scaling
  * @param antiCheese           section 7, anti-cheese engine
  * @param villagerProgression  section 8, villager progression
- * @param warnings             every recoverable problem found while parsing, in document order;
- *                             empty for a clean load. Callers log these; they are not errors.
+ * @param warnings             every recoverable problem found while parsing; empty for a clean
+ *                             load. Callers log these; they are not errors.
+ *                             <p>The order is <strong>parse order, not document order</strong>,
+ *                             and is deliberately left unspecified: within a section the
+ *                             unknown-key sweep runs before the per-key reads, and sections are
+ *                             visited in the order the parser calls them rather than the order
+ *                             they appear in the file. It is, however, <em>deterministic</em> —
+ *                             the same document always produces the same list in the same order —
+ *                             because every backing section preserves document order for its own
+ *                             keys. Nothing may depend on the order beyond that; neither backing
+ *                             model carries line numbers, so a truthful document order is not
+ *                             recoverable here.
  */
 public record PluginConfig(
         Profile profile,

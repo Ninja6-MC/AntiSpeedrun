@@ -29,6 +29,29 @@ import java.util.logging.Logger;
  *       so it can tell the operator. The plugin is not disabled.</li>
  * </ul>
  *
+ * <h2>Where the work happens</h2>
+ *
+ * <p>Reload is split deliberately, and callers must respect the split:
+ *
+ * <ul>
+ *   <li><strong>Parsing is off-thread and outside the lock.</strong> Reading {@code config.yml} is
+ *       file I/O and must not run on a Folia region thread or the main thread; the caller is
+ *       expected to invoke {@link #reload(ConfigSource, SnapshotBinding)} from the
+ *       {@code AsyncScheduler}. {@link ConfigSource#load()} and {@link PluginConfig#from} are both
+ *       called with no lock held, so a slow disk never blocks a second reload or any reader.</li>
+ *   <li><strong>The swap is synchronous and serialised.</strong> Publishing the candidate and
+ *       logging its warnings happen together under a private lock, held across nothing else. Two
+ *       concurrent reloads therefore commit one after the other rather than interleaving: the
+ *       later commit wins, and the warning lines of one reload never interleave with the other's.
+ *       The lock is uncontended in practice — reload is single-writer by convention, one
+ *       {@code /asr reload} at a time — and readers never take it at all.</li>
+ * </ul>
+ *
+ * <p>A consequence worth stating: because the parse is outside the lock, two reloads that overlap
+ * commit in the order they <em>finish parsing</em>, not the order they were requested. Every
+ * published snapshot is still whole and self-consistent, which is the guarantee this class exists
+ * to provide; ordering between simultaneous operator-triggered reloads is not one.
+ *
  * <p>Deliberately free of any Bukkit type — it takes a {@code java.util.logging.Logger}, which is
  * exactly what {@code JavaPlugin#getLogger()} returns — so the reload and swap behaviour is unit
  * tested directly rather than inferred.
@@ -36,6 +59,14 @@ import java.util.logging.Logger;
 public final class ConfigSnapshotHolder {
 
     private final Logger logger;
+
+    /**
+     * Serialises the publish half of a reload, and nothing else. Held only across the snapshot
+     * write and the logging of that snapshot's warnings — never across parsing, file I/O or a
+     * caller's binding — so a reload can never block a reader and a slow parse can never hold off
+     * another reload's commit.
+     */
+    private final Object swapLock = new Object();
 
     /**
      * The live snapshot. Volatile is the entire synchronisation mechanism here: reads are lock-free
@@ -97,6 +128,11 @@ public final class ConfigSnapshotHolder {
      * <p>This is the all-or-nothing form of {@link #reload(ConfigSource)}: parse, derive, then one
      * volatile write. A failure in either half changes nothing at all.
      *
+     * <p>Call this off the region and main threads — from the {@code AsyncScheduler} — because
+     * {@code source.load()} reads a file. The parse and the binding run with no lock held; only the
+     * publish is serialised, against any other thread calling either {@code reload} overload. It is
+     * safe to call concurrently even though it is single-writer by convention.
+     *
      * @return the derived value if the new snapshot is now live; empty if the reload was rejected,
      *         in which case the previous snapshot — and whatever the caller derived from it —
      *         remains live and the plugin is not disabled
@@ -130,8 +166,12 @@ public final class ConfigSnapshotHolder {
             return Optional.empty();
         }
 
-        this.snapshot = candidate;
-        logWarnings(candidate.warnings());
+        // The commit. Everything above ran unlocked; this is the only serialised part, and it does
+        // no I/O and no parsing -- one reference write plus the warning lines that belong to it.
+        synchronized (swapLock) {
+            this.snapshot = candidate;
+            logWarnings(candidate.warnings());
+        }
         return Optional.of(derived);
     }
 

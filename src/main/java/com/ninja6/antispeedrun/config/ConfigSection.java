@@ -12,6 +12,20 @@ import java.util.Set;
  *
  * <p>Implementations must be effectively immutable: nothing in this package retains a section
  * after parsing, but a section may be read from more than one thread while a snapshot is built.
+ *
+ * <h2>Keys are literal, never paths</h2>
+ *
+ * A key names exactly one child of this node. It is <strong>never</strong> split on {@code '.'} or
+ * on any other separator, so {@code get("my.tier")} reads the child literally called
+ * {@code my.tier} and returns {@code null} when the document instead nests {@code tier} inside a
+ * section {@code my}. This is the canonical semantics for every implementation, because the keys
+ * this parser reads include operator-chosen strings — a tier id under {@code gated-items} may
+ * legitimately contain a dot — and path-splitting would silently turn one such tier into a
+ * mis-parsed nested section plus an {@code unknown key} warning.
+ *
+ * <p>Bukkit's own accessors do split on {@code '.'}; {@link BukkitConfigSection} deliberately does
+ * not use them. {@code ConfigSectionConformanceTest} runs one set of assertions against every
+ * implementation so a future divergence fails the build rather than surfacing on a live server.
  */
 public interface ConfigSection {
 
@@ -21,20 +35,29 @@ public interface ConfigSection {
      */
     Set<String> keys();
 
-    /** Whether {@code key} is declared directly on this node. */
+    /**
+     * Whether {@code key} is declared directly on this node <em>with a value</em>.
+     *
+     * <p>A key written with no value at all — a bodiless {@code my-tier:} — counts as absent, and
+     * is absent from {@link #keys()} too. That is forced rather than chosen: Bukkit's
+     * {@code MemorySection.set} removes a key on a null value, so {@link BukkitConfigSection} has
+     * no way to report one, and an implementation that did would make a document parse differently
+     * under test than on a server.
+     */
     default boolean contains(String key) {
         return keys().contains(key);
     }
 
     /**
-     * The raw value for {@code key}, or {@code null} when the key is absent or explicitly null.
-     * Callers are expected to type-check; {@link ConfigReader} does that centrally.
+     * The raw value for the child literally called {@code key}, or {@code null} when the key is
+     * absent or carries no value. Callers are expected to type-check; {@link ConfigReader} does
+     * that centrally. A child that is itself a mapping reads back as a {@code Map}.
      */
     Object get(String key);
 
     /**
-     * The child mapping at {@code key}, or {@code null} when the key is absent or holds something
-     * that is not a mapping.
+     * The child mapping literally called {@code key}, or {@code null} when the key is absent or
+     * holds something that is not a mapping.
      */
     ConfigSection section(String key);
 }
