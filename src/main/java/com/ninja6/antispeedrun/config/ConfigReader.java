@@ -23,8 +23,9 @@ import java.util.Set;
  *
  * <p>{@link #advancementKey} and {@link #advancementKeys} do not fall back. A key that is still not
  * resolvable after {@link AdvancementKeys#canonical normalisation} throws {@link ConfigLoadException},
- * and so does a requirement list that is written with entries but has none left after the blank ones
- * are dropped. Either rejects the whole document and nothing is published. <strong>This is
+ * and so does a requirement list that is written with entries but has none left once the ones naming
+ * no advancement are dropped — whether they were blank, or written with no value at all. Either
+ * rejects the whole document and nothing is published. <strong>This is
  * deliberate and it is the fail-closed choice</strong>, decided on #83 against the alternative of
  * dropping the requirement with a warning.
  *
@@ -57,9 +58,10 @@ import java.util.Set;
  * key names no advancement rather than misspelling one — an operator clearing
  * {@code villager-progression.required-advancement} is saying "gate the trade, require no
  * advancement" — so it reads as absent. Note the exemption is about what survives, not about the
- * blank itself: a blank entry inside a <em>list</em> is dropped with a warning while a usable entry
- * remains beside it, and is fatal when none does, because a list that empties itself leaves exactly
- * the armed-but-permissive gate this policy exists to prevent. And a well-formed key that names no
+ * blank itself: an entry naming no advancement inside a <em>list</em> is dropped with a warning while
+ * a usable entry remains beside it, and is fatal when none does, because a list that empties itself
+ * leaves exactly the armed-but-permissive gate this policy exists to prevent. And a well-formed key
+ * that names no
  * advancement <em>on this server</em> stays a runtime warning: that is a property of the server's
  * version and datapacks, not of the file, and making a datapack change refuse to start is the
  * failure mode #79 rejected.
@@ -158,17 +160,69 @@ final class ConfigReader {
     }
 
     /**
+     * A list read: the entries that survived, and how many the operator actually wrote.
+     *
+     * <p>The second number exists because measuring a filtered list against itself cannot see what
+     * the filter removed, and that mistake has now been made twice in this class. {@link #strings}
+     * drops every element that is not a scalar, so a caller holding only its return value cannot
+     * tell {@code require-advancements: []} — which says "require nothing" and means it — from a
+     * list of items that all fell out on the way, which says "require these" and delivers nothing.
+     * For a requirement list those are opposite meanings: the first is a configuration, the second
+     * is a gate that reports itself armed and admits every player.
+     *
+     * <p>So the distinction is a named predicate on the value, {@link #emptiedItself()}, rather than
+     * a size comparison each caller writes for itself. A caller that reaches for {@link #values()}
+     * alone still gets correct data; only a caller that needs to know whether entries went missing
+     * has to think about it, and for that caller the answer is already computed.
+     *
+     * @param values   what survived, in document order; never null
+     * @param declared how many entries the document itself listed. Equal to {@code values.size()}
+     *                 when the key was absent or wrong-typed and the default was substituted, so a
+     *                 fallback never reads as a list that lost entries
+     */
+    record StringList(List<String> values, int declared) {
+
+        StringList {
+            values = List.copyOf(values);
+        }
+
+        /** How many written entries did not survive the read. */
+        int dropped() {
+            return declared - values.size();
+        }
+
+        /**
+         * Whether the document wrote entries here and none of them survived — the state that means
+         * something different from, and more dangerous than, an empty list written on purpose.
+         */
+        boolean emptiedItself() {
+            return values.isEmpty() && declared > 0;
+        }
+    }
+
+    /**
      * Reads a list of strings. Absent or wrong-typed reads fall back to {@code def}; individual
      * non-scalar elements are dropped with a warning rather than failing the whole list.
+     *
+     * <p>Callers that care whether entries were dropped must use {@link #stringList} instead: this
+     * overload returns the survivors alone, and their count is not the count the operator wrote.
      */
     List<String> strings(String key, List<String> def) {
+        return stringList(key, def).values();
+    }
+
+    /**
+     * Reads a list of strings, keeping the number of entries the document declared alongside the
+     * ones that survived. See {@link StringList} for why the two are worth carrying together.
+     */
+    StringList stringList(String key, List<String> def) {
         Object raw = section.get(key);
         if (raw == null) {
-            return List.copyOf(def);
+            return fallback(def);
         }
         if (!(raw instanceof List<?> list)) {
             warn(key, "a list of strings", raw);
-            return List.copyOf(def);
+            return fallback(def);
         }
         List<String> parsed = new ArrayList<>(list.size());
         for (Object element : list) {
@@ -181,7 +235,15 @@ final class ConfigReader {
                         + describe(element) + ")");
             }
         }
-        return List.copyOf(parsed);
+        return new StringList(parsed, list.size());
+    }
+
+    /**
+     * A substituted default, which by construction lost nothing: the document declared no usable
+     * list here at all, so there is no operator-written entry for anything to have dropped.
+     */
+    private static StringList fallback(List<String> def) {
+        return new StringList(def, def.size());
     }
 
     /**
@@ -192,13 +254,23 @@ final class ConfigReader {
      * A non-blank entry the server's key parser rejects is fatal; see this class's documentation for
      * why that is not a warning.
      *
-     * <p>A blank entry is dropped with a warning <strong>only while a usable entry survives beside
-     * it</strong>. That proviso is the whole of it: a blank list item expresses nothing, so dropping
-     * it changes no requirement as long as the list still requires something. A list that
-     * <em>empties itself</em> — every configured entry blank — is the outcome the fail-closed policy
-     * exists to prevent, reached by a different route: the gate stays {@code enabled: true} with no
-     * requirement at all, which is a gate that reports itself armed and admits everyone. It takes
-     * the same {@link ConfigLoadException} arm as an unparseable key.
+     * <p>An unusable entry is dropped with a warning <strong>only while a usable entry survives
+     * beside it</strong>. That proviso is the whole of it: an entry that names no advancement
+     * expresses nothing, so dropping it changes no requirement as long as the list still requires
+     * something. A list that <em>empties itself</em> — written with entries, none of which survived
+     * — is the outcome the fail-closed policy exists to prevent, reached by a different route: the
+     * gate stays {@code enabled: true} with no requirement at all, which is a gate that reports
+     * itself armed and admits everyone. It takes the same {@link ConfigLoadException} arm as an
+     * unparseable key.
+     *
+     * <p>"Unusable" is deliberately wider than "blank", and the count is taken from what the
+     * document declared rather than from what {@link #strings} handed back — see
+     * {@link StringList}. A list item written with no value at all ({@code - } on its own, which is
+     * what deleting a value or commenting one out leaves behind) is a null YAML entry: it never
+     * reaches the loop below, because {@code strings} drops every non-scalar element before
+     * returning. Measuring the shrink against the surviving list therefore could not see it, and a
+     * gate whose only entry was a bare dash came out armed and requiring nothing. So could
+     * {@code - {a: b}} and {@code - [x]}. All of them are now the same case.
      *
      * <p>An <em>absent</em> key and an explicitly empty list are a different thing and stay
      * non-fatal. Writing {@code require-advancements: []}, or leaving the key out, says "require no
@@ -206,12 +278,12 @@ final class ConfigReader {
      * left is a configuration the operator got wrong.
      *
      * @throws ConfigLoadException naming the entry, if any entry is not a resolvable key, or if
-     *                             every entry of a non-empty list was blank
+     *                             every entry of a non-empty list turned out to be unusable
      */
     List<String> advancementKeys(String key, List<String> def) throws ConfigLoadException {
-        List<String> configured = strings(key, def);
-        List<String> canonical = new ArrayList<>(configured.size());
-        for (String entry : configured) {
+        StringList configured = stringList(key, def);
+        List<String> canonical = new ArrayList<>(configured.values().size());
+        for (String entry : configured.values()) {
             String normalised = AdvancementKeys.canonical(entry);
             if (normalised.isEmpty()) {
                 continue;
@@ -219,33 +291,36 @@ final class ConfigReader {
             requireResolvable(key, entry, normalised);
             canonical.add(normalised);
         }
-        if (canonical.size() < configured.size()) {
-            requireSomethingLeft(key, configured, canonical);
+        StringList surviving = new StringList(canonical, configured.declared());
+        if (surviving.dropped() > 0) {
+            requireSomethingLeft(key, surviving);
         }
-        return List.copyOf(canonical);
+        return surviving.values();
     }
 
     /**
-     * Decides what a dropped blank entry costs: a warning when the list still requires something,
-     * and a rejected document when it no longer does.
+     * Decides what a dropped entry costs: a warning when the list still requires something, and a
+     * rejected document when it no longer does.
      */
-    private void requireSomethingLeft(String key, List<String> configured, List<String> canonical)
-            throws ConfigLoadException {
-        int dropped = configured.size() - canonical.size();
-        if (!canonical.isEmpty()) {
-            warnings.add(qualify(key) + ": dropped " + dropped + " blank entr"
-                    + (dropped == 1 ? "y" : "ies") + ", which require nothing. The "
-                    + canonical.size() + " remaining " + (canonical.size() == 1 ? "entry is" : "entries are")
+    private void requireSomethingLeft(String key, StringList surviving) throws ConfigLoadException {
+        int dropped = surviving.dropped();
+        int kept = surviving.values().size();
+        if (!surviving.emptiedItself()) {
+            warnings.add(qualify(key) + ": dropped " + dropped + " entr"
+                    + (dropped == 1 ? "y that names" : "ies that name") + " no advancement. The "
+                    + kept + " remaining " + (kept == 1 ? "entry is" : "entries are")
                     + " still required, so nothing was disarmed. Remove the empty list "
                     + (dropped == 1 ? "item" : "items") + ", or name an advancement.");
             return;
         }
-        throw new ConfigLoadException(qualify(key) + ": every entry is blank, so this list requires "
+        throw new ConfigLoadException(qualify(key) + ": all " + dropped + " entr"
+                + (dropped == 1 ? "y names" : "ies name") + " no advancement, so this list requires "
                 + "nothing at all while still being written as a requirement. config.yml has NOT "
                 + "been applied. A gate left with no requirement admits every player while "
                 + "reporting itself enabled, which is the failure this list is read strictly to "
-                + "prevent. Name an advancement, or write the empty list \"[]\" if no advancement "
-                + "is meant to be required.");
+                + "prevent. An entry can end up naming nothing by being blank, or by being written "
+                + "with no value at all (a bare \"-\"). Name an advancement, or write the empty "
+                + "list \"[]\" if no advancement is meant to be required.");
     }
 
     /**

@@ -595,7 +595,8 @@ class PluginConfigTest {
             assertEquals(List.of("minecraft:story/smelt_iron"),
                     config.dimensionGates().nether().requireAdvancements());
             assertTrue(mentions(config.warnings(),
-                    "dimension-gates.nether.require-advancements: dropped 1 blank entry"));
+                    "dimension-gates.nether.require-advancements: dropped 1 entry that names no "
+                            + "advancement"));
             assertTrue(mentions(config.warnings(), "nothing was disarmed"));
         }
 
@@ -618,7 +619,95 @@ class PluginConfigTest {
             assertTrue(failure.getMessage()
                             .contains("dimension-gates.the_end.require-advancements"),
                     failure.getMessage());
-            assertTrue(failure.getMessage().contains("every entry is blank"), failure.getMessage());
+            assertTrue(failure.getMessage().contains("names no advancement"), failure.getMessage());
+        }
+
+        @Test
+        @DisplayName("a list whose only entry has no value at all is fatal on a dimension gate")
+        void aNullListEntryIsFatalOnADimensionGate() {
+            // A bare "-" is a null YAML entry, which is what deleting a value or commenting one out
+            // leaves behind. ConfigReader#strings drops every non-scalar element before returning,
+            // so measuring the shrink against its output could not see this one: the list arrived
+            // already empty, no shrink was detected, and the gate came out enabled and requiring
+            // nothing. The count now comes from what the document declared.
+            ConfigLoadException failure = assertThrows(ConfigLoadException.class,
+                    () -> PluginConfig.from(yaml("""
+                            dimension-gates:
+                              nether:
+                                enabled: true
+                                require-advancements:
+                                  -
+                            """)));
+
+            assertTrue(failure.getMessage()
+                            .contains("dimension-gates.nether.require-advancements"),
+                    failure.getMessage());
+            assertTrue(failure.getMessage().contains("no advancement"), failure.getMessage());
+        }
+
+        @Test
+        @DisplayName("a list whose only entry has no value at all is fatal on an item tier too")
+        void aNullListEntryIsFatalOnAnItemTier() {
+            assertThrows(ConfigLoadException.class, () -> PluginConfig.from(yaml("""
+                    item-progression:
+                      gated-items:
+                        iron-tier:
+                          items:
+                            - "IRON_INGOT"
+                          require-advancements:
+                            -
+                    """)));
+        }
+
+        @Test
+        @DisplayName("a non-scalar entry counts as unusable on the same rule as a bare dash")
+        void aNonScalarListEntryIsFatalToo() {
+            // The other two spellings strings() filters out before advancementKeys can see them.
+            assertThrows(ConfigLoadException.class, () -> PluginConfig.from(yaml("""
+                    dimension-gates:
+                      the_end:
+                        require-advancements:
+                          - {a: b}
+                    """)));
+            assertThrows(ConfigLoadException.class, () -> PluginConfig.from(yaml("""
+                    dimension-gates:
+                      the_end:
+                        require-advancements:
+                          - [x]
+                    """)));
+        }
+
+        @Test
+        @DisplayName("a usable entry beside a valueless one keeps the gate armed, with a warning")
+        void aNullEntryBesideAUsableOneOnlyWarns() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    dimension-gates:
+                      nether:
+                        require-advancements:
+                          - "story/smelt_iron"
+                          -
+                    """));
+
+            assertEquals(List.of("minecraft:story/smelt_iron"),
+                    config.dimensionGates().nether().requireAdvancements());
+            assertTrue(mentions(config.warnings(), "nothing was disarmed"));
+        }
+
+        @Test
+        @DisplayName("a cleared villager key falls back to the shipped default, so it cannot disarm")
+        void aValuelessSingleKeyFallsBackToTheDefault() throws Exception {
+            // The scalar reader's equivalent of the case above. A key written with no value reads
+            // as absent, and absent means the shipped default -- a real advancement -- so the gate
+            // ends up armed rather than permissive. Recorded because it is the question the list
+            // form got wrong twice.
+            PluginConfig config = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                      required-advancement:
+                    """));
+
+            assertEquals("minecraft:story/cure_zombie_villager",
+                    config.villagerProgression().requiredAdvancement());
         }
 
         @Test
