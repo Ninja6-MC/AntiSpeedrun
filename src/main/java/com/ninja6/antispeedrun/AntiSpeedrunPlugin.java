@@ -88,6 +88,17 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     /** Whether a player has already received the journey book, held in their container. */
     private volatile JourneyBookStore journeyBook;
 
+    /**
+     * Serialises {@link #applyConfiguration()}. A private monitor rather than {@code synchronized}
+     * on the method, because that would take the plugin instance's own monitor — and a
+     * {@link JavaPlugin} is reachable from any other plugin on the server through
+     * {@code Bukkit.getPluginManager().getPlugin(...)}, so a third party could hold it across an
+     * arbitrary operation or take it in an order that deadlocks against a lock this plugin holds.
+     * Nothing outside this class can touch this object. {@code ConfigSnapshotHolder}'s
+     * {@code swapLock} and {@code ProfileApplier}'s {@code APPLY_LOCK} are the same shape.
+     */
+    private final Object configLock = new Object();
+
     @Override
     public void onEnable() {
         saveDefaultConfig();
@@ -282,7 +293,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * yet. {@code /asr} calls it from the {@code AsyncScheduler} (#72).
      *
      * <p>Concurrent callers are serialised rather than tolerated: the whole read-compile-publish
-     * sequence runs under this plugin's monitor, so the parse <em>is</em> inside the lock. That is
+     * sequence runs under {@link #configLock}, so the parse <em>is</em> inside the lock. That is
      * deliberate, because the thing being made atomic is the pairing of the snapshot with the gate
      * table compiled from it, and the parse is the first half of producing that pair. Holding a
      * lock across file I/O is only safe because nothing that ticks ever takes it: every caller is
@@ -336,7 +347,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * same reason. It is also why {@code primeOnlinePlayers} is handed {@link #configuration()},
      * the snapshot that is now live, rather than the candidate it was compiled from.
      *
-     * <p><strong>{@code synchronized} is load-bearing.</strong> Publishing takes two independent
+     * <p><strong>{@link #configLock} is load-bearing.</strong> Publishing takes two independent
      * writes — {@code configHolder.reload} publishes the snapshot with its own volatile write, and
      * the {@code itemGates} assignment below is a second one outside it — so two callers running
      * this concurrently could come to rest with one reload's snapshot live beside the other
@@ -348,49 +359,52 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * cannot be done without changing {@code ConfigSnapshotHolder}'s contract for every other
      * caller.
      */
-    private synchronized ReloadOutcome applyConfiguration() {
-        List<String> gateWarnings = new ArrayList<>();
-        AtomicBoolean collided = new AtomicBoolean();
+    private ReloadOutcome applyConfiguration() {
+        synchronized (configLock) {
+            List<String> gateWarnings = new ArrayList<>();
+            AtomicBoolean collided = new AtomicBoolean();
 
-        Optional<ItemGateTable<Material>> compiled = configHolder.reload(fileSource(), candidate -> {
-            try {
-                return MaterialGates.compile(candidate.itemProgression(), gateWarnings);
-            } catch (GateCollisionException collision) {
-                collided.set(true);
-                throw collision;
+            Optional<ItemGateTable<Material>> compiled =
+                    configHolder.reload(fileSource(), candidate -> {
+                        try {
+                            return MaterialGates.compile(candidate.itemProgression(), gateWarnings);
+                        } catch (GateCollisionException collision) {
+                            collided.set(true);
+                            throw collision;
+                        }
+                    });
+
+            if (compiled.isEmpty()) {
+                return collided.get() ? ReloadOutcome.GATES_REJECTED : ReloadOutcome.CONFIG_REJECTED;
             }
-        });
 
-        if (compiled.isEmpty()) {
-            return collided.get() ? ReloadOutcome.GATES_REJECTED : ReloadOutcome.CONFIG_REJECTED;
+            this.itemGates = compiled.get();
+            configHolder.logWarnings(gateWarnings);
+            getLogger().info("Item gates compiled: " + compiled.get().size() + " materials across "
+                    + configHolder.get().itemProgression().gatedItems().size() + " tiers.");
+
+            if (progression != null) {
+                // Null during onEnable, which calls this before the manager exists and primes
+                // online players itself afterwards.
+                //
+                // A new configuration can require advancements no live snapshot ever queried, so
+                // every capture is stale. Dropping them is cache state, not configuration state, so
+                // the swap alone does not fix it.
+                progression.onConfigurationReloaded();
+                // Re-prime rather than reset: an emptied "already told" set would make the next
+                // advancement any online player earns re-announce every gate they cleared weeks
+                // ago, once per reload, to everyone. Priming dispatches through each player's
+                // EntityScheduler, so it must be given the configuration that is live by then.
+                //
+                // Dispatched to the global region rather than run here: since #72 the caller is the
+                // AsyncScheduler, and walking the online player list is the global region's to do.
+                // The snapshot is captured now, on the thread that published it, so the loop cannot
+                // pick up a later one and prime against a configuration this reload did not apply.
+                PluginConfig applied = configuration();
+                getServer().getGlobalRegionScheduler().run(this, task -> primeOnlinePlayers(applied));
+            }
+            return ReloadOutcome.APPLIED;
         }
-
-        this.itemGates = compiled.get();
-        configHolder.logWarnings(gateWarnings);
-        getLogger().info("Item gates compiled: " + compiled.get().size() + " materials across "
-                + configHolder.get().itemProgression().gatedItems().size() + " tiers.");
-
-        if (progression != null) {
-            // Null during onEnable, which calls this before the manager exists and primes online
-            // players itself afterwards.
-            //
-            // A new configuration can require advancements no live snapshot ever queried, so every
-            // capture is stale. Dropping them is cache state, not configuration state, so the swap
-            // alone does not fix it.
-            progression.onConfigurationReloaded();
-            // Re-prime rather than reset: an emptied "already told" set would make the next
-            // advancement any online player earns re-announce every gate they cleared weeks ago,
-            // once per reload, to everyone. Priming dispatches through each player's
-            // EntityScheduler, so it must be given the configuration that is live by then.
-            //
-            // Dispatched to the global region rather than run here: since #72 the caller is the
-            // AsyncScheduler, and walking the online player list is the global region's to do. The
-            // snapshot is captured now, on the thread that published it, so the loop cannot pick
-            // up a later one and prime against a configuration this reload did not apply.
-            PluginConfig applied = configuration();
-            getServer().getGlobalRegionScheduler().run(this, task -> primeOnlinePlayers(applied));
-        }
-        return ReloadOutcome.APPLIED;
     }
 
     /**
