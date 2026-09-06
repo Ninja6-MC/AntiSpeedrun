@@ -18,12 +18,17 @@ import java.util.Optional;
  * to the shipped default recorded in each accessor's javadoc below; a key of the wrong type falls
  * back to the same default and records a {@link #warnings() warning}; an unknown key is ignored
  * with a warning. A document that cannot be parsed at all is a {@link ConfigLoadException}, and so —
- * the one value-level exception, decided on #83 — is an advancement key the server could not
+ * the one value-level exception, decided on #83 — is an advancement requirement the server could not
  * resolve: an unresolvable requirement is waived at runtime rather than enforced, so falling back
  * for it would publish a gate that reports itself armed and lets everyone through. See
- * {@link ConfigReader} for that policy in full. A rejected document never disables the plugin; the
- * previous snapshot stays live and, at startup, the shipped defaults do — see
- * {@link ConfigSnapshotHolder}.
+ * {@link ConfigReader} for that policy in full.
+ *
+ * <p>A rejected document never disables the plugin, and what it costs depends on when it is
+ * rejected. On a reload the previous snapshot stays live and nothing changes — see
+ * {@link ConfigSnapshotHolder}. At startup there is no previous snapshot, so {@link #defaults()}
+ * stays live instead, and those defaults <strong>declare no item tiers</strong>: every dimension
+ * gate runs on its shipped keys while item gating is off entirely, which is what the
+ * {@code gated-items} warning below exists to say out loud. Both are logged; neither is silent.
  *
  * <p>Values here are modelled exactly as {@code config.yml} states them. Match patterns are kept
  * as raw strings: compiling them into material sets is Task 4.2.1's job, not this type's.

@@ -7,11 +7,22 @@ profile: SMP_STANDARD
 # Advancement keys, wherever they appear below, are read as "namespace:path" and the
 # "minecraft:" namespace is supplied when you leave it off, so "story/smelt_iron" and
 # "minecraft:story/smelt_iron" are the same requirement. Surrounding spaces are ignored.
+#
 # A key that is not a valid namespaced key -- an upper-case letter, an inner space, a
-# stray character -- is an ERROR, not a warning: config.yml is rejected and the previous
-# configuration stays live. That is deliberate. An unresolvable advancement is waived at
-# runtime rather than enforced, so a gate naming one would report itself armed and let
-# every player through.
+# stray character -- is an ERROR, not a warning, and so is a require-advancements list
+# whose entries are all blank. That is deliberate. An unresolvable advancement is waived
+# at runtime rather than enforced, so a gate naming one would report itself armed and let
+# every player through. To require no advancement, write an empty list: [].
+#
+# What a rejected file costs depends on WHEN it is rejected, so check the log:
+#
+#   /asr reload  - nothing changes. The configuration already running stays live, item
+#                  gates included. Fix the file and reload again.
+#   server start - there is no previous configuration to keep, so the plugin falls back
+#                  to its built-in defaults and says so at SEVERE. Those defaults keep the
+#                  dimension gates below, but they declare NO gated item tiers, so item
+#                  gating is OFF until config.yml loads. The plugin logs that too. Do not
+#                  leave a server running in this state.
 
 # 1. Dimension Progression Gates
 dimension-gates:
