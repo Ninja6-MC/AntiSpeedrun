@@ -37,9 +37,9 @@ import java.util.Set;
  * gating is off until the file is fixed. That is an amplification of one typo and it is not what
  * this policy wants; turning that arm into a refusal to start is a separate change against
  * {@code AntiSpeedrunPlugin}, and it collides with audit finding R-11's deliberate decision that a
- * malformed {@code config.yml} must not stop the server. Until it is settled, the honest statement
- * is the one above rather than "the previous configuration stays live", which is true only of a
- * reload.
+ * malformed {@code config.yml} must not stop the server. That collision is #91, which carries the
+ * options and is the maintainer's call. Until it is settled, the honest statement is the one above
+ * rather than "the previous configuration stays live", which is true only of a reload.
  *
  * <p>The reasoning, so it is not re-argued: an unresolvable advancement is not a strict requirement,
  * it is <em>no</em> requirement. {@code BukkitAdvancementLookup} returns {@code UNRESOLVABLE} for a

@@ -29,6 +29,7 @@ import java.util.Optional;
  * stays live instead, and those defaults <strong>declare no item tiers</strong>: every dimension
  * gate runs on its shipped keys while item gating is off entirely, which is what the
  * {@code gated-items} warning below exists to say out loud. Both are logged; neither is silent.
+ * Whether that startup arm should instead refuse to start is #91.
  *
  * <p>Values here are modelled exactly as {@code config.yml} states them. Match patterns are kept
  * as raw strings: compiling them into material sets is Task 4.2.1's job, not this type's.

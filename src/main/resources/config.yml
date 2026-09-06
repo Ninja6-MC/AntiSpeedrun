@@ -22,7 +22,9 @@ profile: SMP_STANDARD
 #                  to its built-in defaults and says so at SEVERE. Those defaults keep the
 #                  dimension gates below, but they declare NO gated item tiers, so item
 #                  gating is OFF until config.yml loads. The plugin logs that too. Do not
-#                  leave a server running in this state.
+#                  leave a server running in this state. Whether a rejected file should
+#                  instead stop the server at startup is being decided in issue #91:
+#                  https://github.com/Ninja6-MC/AntiSpeedrun/issues/91
 
 # 1. Dimension Progression Gates
 dimension-gates:
