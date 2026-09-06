@@ -93,14 +93,15 @@ public record Milestone(String id, String displayName, MilestoneRequirement requ
      *       a {@code NamespacedKey} resolution and a {@code Bukkit.getAdvancement} for it, and made
      *       a server whose key was wrong log an unresolvable-key warning about a feature it had
      *       switched off. Empty.</li>
-     *   <li><strong>The gate is on but the key is blank.</strong> {@code ConfigReader.string}
-     *       returns {@code ""} without complaint, so an operator who empties the key reaches here,
-     *       and {@code NamespacedKey.fromString("")} returns {@code null} — which
-     *       {@link BukkitAdvancementLookup} would report as a malformed key. That warning would be
-     *       right about the syntax and wrong about the intent: a key cleared to nothing reads as
-     *       "gate the trade, but do not require an advancement for it", not as a typo. It is
-     *       therefore empty here too, and the gate imposes no advancement requirement — the same
-     *       fail-open direction every other unevaluable requirement in this package takes.</li>
+     *   <li><strong>The gate is on but the key is blank.</strong> {@code ConfigReader} refuses the
+     *       document for a key the server cannot resolve, but deliberately exempts a blank one and
+     *       hands back {@code ""}: a key cleared to nothing reads as "gate the trade, but do not
+     *       require an advancement for it", not as a typo, and rejecting config.yml for it would be
+     *       right about the syntax and wrong about the intent. So an operator who empties the key
+     *       reaches here, and the gate imposes no advancement requirement. Any non-blank key that
+     *       arrives is already canonical and already known to resolve, so
+     *       {@link BukkitAdvancementLookup} can no longer be handed a malformed one from this
+     *       path.</li>
      * </ul>
      *
      * @return the configured key, or empty when no advancement is required of the trade gate

@@ -17,9 +17,13 @@ import com.ninja6.antispeedrun.config.PluginConfig.ItemTier;
  * <p>Immutable, like everything reachable from a configuration snapshot; safe to publish to any
  * thread.
  *
- * @param advancements   namespaced advancement keys, <em>all</em> of which must be earned. Raw
- *                       strings exactly as configured; resolution and its failure modes are
- *                       {@link AdvancementLookup}'s problem
+ * @param advancements   namespaced advancement keys, <em>all</em> of which must be earned. Canonical
+ *                       — {@code ConfigReader} trims them, supplies the implicit {@code minecraft:}
+ *                       namespace and rejects the whole document for any key the server's parser
+ *                       would not accept — so these are the same strings the gate compiler compared
+ *                       and the same ones {@link AdvancementLookup} is handed. Whether the key names
+ *                       an advancement that exists <em>on this server</em> is still the lookup's
+ *                       problem, and still fails open
  * @param playtimeHours  hours of {@code Statistic.PLAY_ONE_MINUTE} required; {@code 0.0} or less
  *                       means no playtime requirement
  * @param accountAgeDays days since first join to <em>this server</em> required; {@code 0} or less

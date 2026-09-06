@@ -489,6 +489,134 @@ class PluginConfigTest {
     }
 
     @Nested
+    @DisplayName("advancement keys")
+    class AdvancementKeyReads {
+
+        private PluginConfig withNetherKeys(String... entries) throws ConfigLoadException {
+            StringBuilder document = new StringBuilder("""
+                    dimension-gates:
+                      nether:
+                        require-advancements:
+                    """);
+            for (String entry : entries) {
+                document.append("      - \"").append(entry).append("\"\n");
+            }
+            return PluginConfig.from(yaml(document.toString()));
+        }
+
+        @Test
+        @DisplayName("are trimmed and given the implicit minecraft namespace, in every section")
+        void areNormalisedEverywhere() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    dimension-gates:
+                      nether:
+                        require-advancements:
+                          - "  story/smelt_iron  "
+                      the_end:
+                        require-advancements:
+                          - "story/mine_diamond"
+                    item-progression:
+                      gated-items:
+                        iron-tier:
+                          items:
+                            - "IRON_INGOT"
+                          require-advancements:
+                            - " minecraft:story/mine_stone "
+                    villager-progression:
+                      gate-mending-trade: true
+                      required-advancement: " story/cure_zombie_villager "
+                    """));
+
+            assertEquals(List.of("minecraft:story/smelt_iron"),
+                    config.dimensionGates().nether().requireAdvancements());
+            assertEquals(List.of("minecraft:story/mine_diamond"),
+                    config.dimensionGates().theEnd().requireAdvancements());
+            assertEquals(List.of("minecraft:story/mine_stone"),
+                    config.itemProgression().gatedItems().get(0).requireAdvancements());
+            assertEquals("minecraft:story/cure_zombie_villager",
+                    config.villagerProgression().requiredAdvancement());
+        }
+
+        @Test
+        @DisplayName("that the server cannot resolve reject the document rather than being waived")
+        void anUnresolvableKeyIsFatal() {
+            // The whole point of #83. An unresolvable key is UNRESOLVABLE at runtime, which
+            // MilestoneEvaluator waives -- so falling back here would publish a gate that reports
+            // itself armed and admits every player.
+            ConfigLoadException failure = assertThrows(ConfigLoadException.class,
+                    () -> withNetherKeys("story/smelt iron"));
+
+            assertTrue(failure.getMessage()
+                            .contains("dimension-gates.nether.require-advancements"),
+                    failure.getMessage());
+            assertTrue(failure.getMessage().contains("story/smelt iron"), failure.getMessage());
+        }
+
+        @Test
+        @DisplayName("are refused for upper case, which NamespacedKey rejects rather than folds")
+        void upperCaseIsFatal() {
+            assertThrows(ConfigLoadException.class, () -> withNetherKeys("Story/Smelt_Iron"));
+        }
+
+        @Test
+        @DisplayName("are refused under item tiers and the villager gate on the same rule")
+        void everySectionIsCoveredByTheSameRule() {
+            assertThrows(ConfigLoadException.class, () -> PluginConfig.from(yaml("""
+                    item-progression:
+                      gated-items:
+                        iron-tier:
+                          require-advancements:
+                            - "story/mine stone"
+                    """)));
+            assertThrows(ConfigLoadException.class, () -> PluginConfig.from(yaml("""
+                    villager-progression:
+                      required-advancement: "not a key"
+                    """)));
+        }
+
+        @Test
+        @DisplayName("a blank entry in a list requires nothing, so it is dropped with a warning")
+        void aBlankListEntryIsDropped() throws Exception {
+            PluginConfig config = withNetherKeys("story/smelt_iron", "   ");
+
+            assertEquals(List.of("minecraft:story/smelt_iron"),
+                    config.dimensionGates().nether().requireAdvancements());
+            assertTrue(mentions(config.warnings(),
+                    "dimension-gates.nether.require-advancements: dropped a blank entry"));
+        }
+
+        @Test
+        @DisplayName("a cleared villager key still means no advancement, not a malformed one")
+        void aClearedSingleKeyIsNotFatal() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                      required-advancement: "   "
+                    """));
+
+            assertEquals("", config.villagerProgression().requiredAdvancement());
+            assertFalse(mentions(config.warnings(), "villager-progression"),
+                    "clearing the key is how the requirement is switched off; it is not a problem");
+        }
+
+        @Test
+        @DisplayName("a NaN decimal falls back to the default rather than being published")
+        void nanFallsBack() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    anti-cheese:
+                      max-single-hit-boss-damage: .nan
+                    boss-scaling:
+                      skull-drop-chance: .nan
+                    """));
+
+            assertEquals(12.0D, config.antiCheese().maxSingleHitBossDamage());
+            assertEquals(0.05D, config.bossScaling().skullDropChance());
+            assertTrue(mentions(config.warnings(),
+                    "anti-cheese.max-single-hit-boss-damage: \"NaN\" is not a number"));
+        }
+    }
+
+    @Nested
     @DisplayName("the snapshot itself")
     class Snapshot {
 

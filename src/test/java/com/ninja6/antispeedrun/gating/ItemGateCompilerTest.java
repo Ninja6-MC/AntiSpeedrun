@@ -458,20 +458,39 @@ class ItemGateCompilerTest {
         }
 
         @Test
-        @DisplayName("surrounding whitespace is not trimmed, because the resolver does not trim it")
-        void whitespaceIsNotTrimmed() {
-            // NamespacedKey.fromString neither trims nor accepts a space, and it is handed the raw
-            // configured string, so a padded key is UNRESOLVABLE and MilestoneEvaluator waives it.
-            // Trimming here would make these two tiers identical, give MACE to "padded" on
-            // declaration order, and then waive its only requirement at runtime -- MACE ungated,
-            // silently. Left distinct, neither dominates and the operator is told at boot.
+        @DisplayName("surrounding whitespace is trimmed, because the read site trims it too")
+        void whitespaceIsTrimmed() throws Exception {
+            // #79 trimmed here and nowhere else, and was reverted: the resolver still saw the
+            // padded key, waived it, and MACE shipped ungated behind a requirement that read as
+            // satisfied. Since #83 the reader trims before the key is ever stored, so the string
+            // compared here is the string BukkitAdvancementLookup is handed, and these two tiers
+            // really are one requirement.
             PluginConfig.ItemTier padded =
                     requiring("padded", List.of("  minecraft:story/smelt_iron "), 0.0D, "MACE");
             PluginConfig.ItemTier tight =
                     requiring("tight", List.of("story/smelt_iron"), 0.0D, "MACE");
 
-            assertThrows(GateCollisionException.class,
-                    () -> compileAll(List.of(padded, tight)));
+            assertEquals("padded", tierOf(compileAll(List.of(padded, tight)), TestMaterial.MACE));
+            assertTrue(warned("identical requirements"));
+        }
+
+        @Test
+        @DisplayName("a padded key never reaches the compiler from a file: the reader rejects nothing "
+                + "and normalises it")
+        void aPaddedKeyIsNormalisedBeforeItArrives() throws Exception {
+            PluginConfig config = yaml("""
+                    item-progression:
+                      gated-items:
+                        padded-tier:
+                          items:
+                            - "MACE"
+                          require-advancements:
+                            - "  story/smelt_iron "
+                    """);
+
+            assertEquals(List.of("minecraft:story/smelt_iron"),
+                    config.itemProgression().gatedItems().get(0).requireAdvancements(),
+                    "the compiler and the resolver must be handed one string, not two spellings");
         }
 
         @Test
@@ -501,10 +520,10 @@ class ItemGateCompilerTest {
         @DisplayName("case is not folded, because NamespacedKey rejects rather than folds it")
         void caseIsNotFolded() {
             // NamespacedKey rejects an upper-case key rather than folding it, so the two spellings
-            // are not one requirement and must not be equated here. What the rejected key is at
-            // runtime is UNRESOLVABLE, which MilestoneEvaluator waives -- so "shouting" is in fact
-            // weaker than "quiet", not unsatisfiable. Refusing to start is still the right answer:
-            // the alternative, calling them the same, ungates MACE behind a waived requirement.
+            // are not one requirement and must not be equated here. From a file the reader refuses
+            // the document before this point (see theReaderRejectsAnUpperCaseKey); a tier built in
+            // code still reaches here, and equating the pair would ungate MACE behind a key the
+            // server resolves to UNRESOLVABLE and MilestoneEvaluator then waives.
             PluginConfig.ItemTier shouting =
                     requiring("shouting", List.of("MINECRAFT:STORY/A"), 0.0D, "MACE");
             PluginConfig.ItemTier quiet = requiring("quiet", List.of("story/a"), 0.0D, "MACE");
@@ -514,11 +533,27 @@ class ItemGateCompilerTest {
         }
 
         @Test
-        @DisplayName("YAML really can produce a NaN playtime, so the guard is not hypothetical")
+        @DisplayName("an upper-case key is refused when the file is read, not left to the compiler")
+        void theReaderRejectsAnUpperCaseKey() {
+            assertThrows(ConfigLoadException.class, () -> yaml("""
+                    item-progression:
+                      gated-items:
+                        shouting-tier:
+                          items:
+                            - "MACE"
+                          require-advancements:
+                            - "MINECRAFT:STORY/A"
+                    """));
+        }
+
+        @Test
+        @DisplayName("YAML really can produce a NaN playtime, and the reader neutralises it")
         void nanIsReachableFromTheFile() throws Exception {
             // require-playtime-hours is read with the plain decimal reader, which accepts any
             // Number; YAML 1.1 spells NaN ".nan" and SnakeYAML -- the parser Bukkit itself uses --
-            // resolves it to Double.NaN. Nothing between the file and the compiler rejects it.
+            // resolves it to Double.NaN. #83 moved the neutralisation into ConfigReader#decimal, so
+            // it now covers every decimal in the file rather than item tiers alone; the compiler's
+            // own guard below still stands for a tier built in code.
             PluginConfig config = yaml("""
                     item-progression:
                       gated-items:
@@ -528,8 +563,11 @@ class ItemGateCompilerTest {
                           require-playtime-hours: .nan
                     """);
 
-            assertTrue(Double.isNaN(config.itemProgression().gatedItems().get(0)
-                    .requirePlaytimeHours()), "NaN must be reachable for the guard to be needed");
+            assertEquals(0.0D, config.itemProgression().gatedItems().get(0).requirePlaytimeHours(),
+                    "the reader falls back to the default rather than publishing NaN");
+            assertTrue(config.warnings().stream().anyMatch(w -> w.contains(
+                            "item-progression.gated-items.broken-tier.require-playtime-hours")),
+                    "the operator must be told the value was not a number");
         }
 
         @Test
