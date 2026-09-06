@@ -19,7 +19,9 @@ profile: SMP_STANDARD
 #   /asr reload  - nothing changes. The configuration already running stays live, item
 #                  gates included. Fix the file and reload again.
 #   server start - there is no previous configuration to keep, so the plugin falls back
-#                  to its built-in defaults and says so at SEVERE. Those defaults keep the
+#                  to its built-in defaults. The reason the file was rejected is logged at
+#                  SEVERE and the fallback notice just after it at WARNING; you need both
+#                  lines to read what happened. Those defaults keep the
 #                  dimension gates below, but they declare NO gated item tiers, so item
 #                  gating is OFF until config.yml loads. The plugin logs that too. Do not
 #                  leave a server running in this state. Whether a rejected file should
