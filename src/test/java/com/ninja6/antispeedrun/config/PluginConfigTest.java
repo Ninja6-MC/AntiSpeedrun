@@ -575,14 +575,79 @@ class PluginConfigTest {
         }
 
         @Test
-        @DisplayName("a blank entry in a list requires nothing, so it is dropped with a warning")
+        @DisplayName("an empty namespace is folded to minecraft, because the parser folds it")
+        void anEmptyNamespaceIsFolded() throws Exception {
+            // NamespacedKey.fromString(":story/mine_diamond") returns minecraft:story/mine_diamond,
+            // so leaving this spelling alone left the compiler and the resolver disagreeing on the
+            // one axis this normalisation exists to close. canonical() asks the parser rather than
+            // folding namespaces by hand, so every spelling the parser accepts collapses.
+            PluginConfig config = withNetherKeys(":story/mine_diamond");
+
+            assertEquals(List.of("minecraft:story/mine_diamond"),
+                    config.dimensionGates().nether().requireAdvancements());
+        }
+
+        @Test
+        @DisplayName("a blank entry beside a usable one is dropped with a warning")
         void aBlankListEntryIsDropped() throws Exception {
             PluginConfig config = withNetherKeys("story/smelt_iron", "   ");
 
             assertEquals(List.of("minecraft:story/smelt_iron"),
                     config.dimensionGates().nether().requireAdvancements());
             assertTrue(mentions(config.warnings(),
-                    "dimension-gates.nether.require-advancements: dropped a blank entry"));
+                    "dimension-gates.nether.require-advancements: dropped 1 blank entry"));
+            assertTrue(mentions(config.warnings(), "nothing was disarmed"));
+        }
+
+        @Test
+        @DisplayName("a list that empties itself is fatal, because it leaves the gate armed and open")
+        void aListOfOnlyBlanksIsFatal() {
+            // The route round the fail-closed rule: the gate stays enabled: true with no
+            // requirement at all, so the End admits every player while reporting itself gated.
+            // Dropping each blank "because the entries beside it still apply" is only sound while
+            // there are entries beside it.
+            ConfigLoadException failure = assertThrows(ConfigLoadException.class,
+                    () -> PluginConfig.from(yaml("""
+                            dimension-gates:
+                              the_end:
+                                enabled: true
+                                require-advancements:
+                                  - "   "
+                            """)));
+
+            assertTrue(failure.getMessage()
+                            .contains("dimension-gates.the_end.require-advancements"),
+                    failure.getMessage());
+            assertTrue(failure.getMessage().contains("every entry is blank"), failure.getMessage());
+        }
+
+        @Test
+        @DisplayName("an explicitly empty list means no requirement and stays non-fatal")
+        void anExplicitlyEmptyListIsNotFatal() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    dimension-gates:
+                      the_end:
+                        enabled: true
+                        require-advancements: []
+                    """));
+
+            assertEquals(List.of(), config.dimensionGates().theEnd().requireAdvancements(),
+                    "writing [] says 'require no advancement' unambiguously; only a list that was "
+                            + "written with entries and has none left is a mistake");
+            assertFalse(mentions(config.warnings(), "require-advancements"));
+        }
+
+        @Test
+        @DisplayName("an absent list falls back to the shipped default rather than failing")
+        void anAbsentListIsNotFatal() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    dimension-gates:
+                      nether:
+                        enabled: true
+                    """));
+
+            assertEquals(List.of("minecraft:story/smelt_iron"),
+                    config.dimensionGates().nether().requireAdvancements());
         }
 
         @Test

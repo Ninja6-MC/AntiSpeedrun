@@ -18,22 +18,27 @@ import org.bukkit.NamespacedKey;
  * namespace while nothing on the path to the resolver folded anything, so the two sides compared
  * different strings.
  *
- * <p>{@link #isResolvable(String)} therefore delegates to {@code NamespacedKey.fromString} itself
- * rather than restating its grammar. A copy of that pattern would be one more thing to drift.
+ * <p>Both methods here therefore delegate to {@code NamespacedKey.fromString} itself rather than
+ * restating its grammar or its folding rules. A copy of either would be one more thing to drift,
+ * and a hand-written copy already drifted once: a first cut of {@link #canonical(String)} supplied
+ * the {@code minecraft:} namespace only when the key held no {@code ':'} at all, which left
+ * {@code ":story/mine_diamond"} untouched — while the parser reads an empty namespace as
+ * {@code minecraft} and resolves it to {@code minecraft:story/mine_diamond}. Compiler and resolver
+ * disagreed again, on exactly the axis this class exists to close.
  *
  * <h2>What canonicalisation does, and does not, do</h2>
  *
- * <p>{@link #canonical(String)} trims and supplies the implicit {@code minecraft:} namespace. It
- * does <strong>not</strong> fold case, because {@code NamespacedKey} rejects an upper-case key
- * rather than lower-casing it: folding here would invent an agreement the server does not have.
- * A key that survives canonicalisation and still fails {@link #isResolvable(String)} is a typo, and
- * {@link ConfigReader} rejects the document for it — see that class for the fail-closed policy and
- * why it is not a warning.
+ * <p>{@link #canonical(String)} trims and then hands the key to the parser, taking back the parser's
+ * own rendering of it — so it supplies the implicit {@code minecraft:} namespace, in every spelling
+ * the parser accepts, and nothing else. It does <strong>not</strong> fold case, because
+ * {@code NamespacedKey} rejects an upper-case key rather than lower-casing it: folding here would
+ * invent an agreement the server does not have.
+ *
+ * <p>A key the parser refuses comes back trimmed but otherwise unchanged, so it stays visibly
+ * distinct from every key that does parse. That is a typo, and {@link ConfigReader} rejects the
+ * document for it — see that class for the fail-closed policy and why it is not a warning.
  */
 public final class AdvancementKeys {
-
-    /** The namespace {@code NamespacedKey.fromString} supplies for a key that carries none. */
-    private static final String IMPLICIT_NAMESPACE = "minecraft:";
 
     private AdvancementKeys() {
     }
@@ -51,17 +56,20 @@ public final class AdvancementKeys {
      *
      * @param key a configured key, possibly {@code null}
      * @return the canonical form; {@code ""} for {@code null} or a blank key, which every caller
-     *         reads as "no advancement named" rather than as a malformed one
+     *         reads as "no advancement named" rather than as a malformed one; the trimmed input
+     *         unchanged for a key the parser refuses, which {@link #isResolvable(String)} then
+     *         reports as unusable
      */
     public static String canonical(String key) {
         if (key == null) {
             return "";
         }
         String trimmed = key.trim();
-        if (trimmed.isEmpty() || trimmed.indexOf(':') >= 0) {
-            return trimmed;
+        if (trimmed.isEmpty()) {
+            return "";
         }
-        return IMPLICIT_NAMESPACE + trimmed;
+        NamespacedKey parsed = NamespacedKey.fromString(trimmed);
+        return parsed == null ? trimmed : parsed.toString();
     }
 
     /**

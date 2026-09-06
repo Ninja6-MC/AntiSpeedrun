@@ -23,9 +23,23 @@ import java.util.Set;
  *
  * <p>{@link #advancementKey} and {@link #advancementKeys} do not fall back. A key that is still not
  * resolvable after {@link AdvancementKeys#canonical normalisation} throws {@link ConfigLoadException},
- * which rejects the whole document: nothing is published, and on a reload the previously loaded
- * configuration stays live. <strong>This is deliberate and it is the fail-closed choice</strong>,
- * decided on #83 against the alternative of dropping the requirement with a warning.
+ * and so does a requirement list that is written with entries but has none left after the blank ones
+ * are dropped. Either rejects the whole document and nothing is published. <strong>This is
+ * deliberate and it is the fail-closed choice</strong>, decided on #83 against the alternative of
+ * dropping the requirement with a warning.
+ *
+ * <p><strong>What "rejected" costs differs between a reload and a boot, and the difference matters.
+ * </strong> On {@code /asr reload} the previously loaded configuration and everything derived from
+ * it stay live, so nothing is disarmed and the rule is closed end to end. At {@code onEnable} there
+ * is no previous configuration: {@code AntiSpeedrunPlugin} starts on {@link PluginConfig#defaults()}
+ * and its {@code CONFIG_REJECTED} arm leaves it there, logging loudly. Those defaults keep the
+ * dimension gates armed on their shipped keys, but they declare <em>no item tiers</em>, so item
+ * gating is off until the file is fixed. That is an amplification of one typo and it is not what
+ * this policy wants; turning that arm into a refusal to start is a separate change against
+ * {@code AntiSpeedrunPlugin}, and it collides with audit finding R-11's deliberate decision that a
+ * malformed {@code config.yml} must not stop the server. Until it is settled, the honest statement
+ * is the one above rather than "the previous configuration stays live", which is true only of a
+ * reload.
  *
  * <p>The reasoning, so it is not re-argued: an unresolvable advancement is not a strict requirement,
  * it is <em>no</em> requirement. {@code BukkitAdvancementLookup} returns {@code UNRESOLVABLE} for a
@@ -39,12 +53,16 @@ import java.util.Set;
  * a tier collision: a warning is right when exactly one named line has no effect, an error is right
  * when there is no correct running state at all.
  *
- * <p>Two things are <em>not</em> covered by that rule, on purpose. A <strong>blank</strong> key
- * names no advancement rather than misspelling one — an operator clearing
+ * <p>Two things are <em>not</em> covered by that rule, on purpose. A <strong>blank single</strong>
+ * key names no advancement rather than misspelling one — an operator clearing
  * {@code villager-progression.required-advancement} is saying "gate the trade, require no
- * advancement" — so it reads as absent. And a well-formed key that names no advancement <em>on this
- * server</em> stays a runtime warning: that is a property of the server's version and datapacks, not
- * of the file, and making a datapack change refuse to start is the failure mode #79 rejected.
+ * advancement" — so it reads as absent. Note the exemption is about what survives, not about the
+ * blank itself: a blank entry inside a <em>list</em> is dropped with a warning while a usable entry
+ * remains beside it, and is fatal when none does, because a list that empties itself leaves exactly
+ * the armed-but-permissive gate this policy exists to prevent. And a well-formed key that names no
+ * advancement <em>on this server</em> stays a runtime warning: that is a property of the server's
+ * version and datapacks, not of the file, and making a datapack change refuse to start is the
+ * failure mode #79 rejected.
  *
  * <p>Package-private on purpose: it is parsing scaffolding, not part of the configuration
  * contract that the rest of the plugin reads.
@@ -171,11 +189,24 @@ final class ConfigReader {
      *
      * <p>Every entry is put through {@link AdvancementKeys#canonical}, so the compiled gate table
      * and {@code BukkitAdvancementLookup} reason about one string rather than two spellings of it.
-     * A blank entry contributes no requirement and is dropped with a warning — it disarms nothing,
-     * because the entries beside it still apply. A non-blank entry the server's key parser rejects
-     * is fatal; see this class's documentation for why that is not a warning.
+     * A non-blank entry the server's key parser rejects is fatal; see this class's documentation for
+     * why that is not a warning.
      *
-     * @throws ConfigLoadException naming the entry, if any entry is not a resolvable key
+     * <p>A blank entry is dropped with a warning <strong>only while a usable entry survives beside
+     * it</strong>. That proviso is the whole of it: a blank list item expresses nothing, so dropping
+     * it changes no requirement as long as the list still requires something. A list that
+     * <em>empties itself</em> — every configured entry blank — is the outcome the fail-closed policy
+     * exists to prevent, reached by a different route: the gate stays {@code enabled: true} with no
+     * requirement at all, which is a gate that reports itself armed and admits everyone. It takes
+     * the same {@link ConfigLoadException} arm as an unparseable key.
+     *
+     * <p>An <em>absent</em> key and an explicitly empty list are a different thing and stay
+     * non-fatal. Writing {@code require-advancements: []}, or leaving the key out, says "require no
+     * advancement" and says it unambiguously; only a list that was written with entries and has none
+     * left is a configuration the operator got wrong.
+     *
+     * @throws ConfigLoadException naming the entry, if any entry is not a resolvable key, or if
+     *                             every entry of a non-empty list was blank
      */
     List<String> advancementKeys(String key, List<String> def) throws ConfigLoadException {
         List<String> configured = strings(key, def);
@@ -183,14 +214,38 @@ final class ConfigReader {
         for (String entry : configured) {
             String normalised = AdvancementKeys.canonical(entry);
             if (normalised.isEmpty()) {
-                warnings.add(qualify(key) + ": dropped a blank entry, which requires nothing. "
-                        + "Remove the empty list item, or name an advancement.");
                 continue;
             }
             requireResolvable(key, entry, normalised);
             canonical.add(normalised);
         }
+        if (canonical.size() < configured.size()) {
+            requireSomethingLeft(key, configured, canonical);
+        }
         return List.copyOf(canonical);
+    }
+
+    /**
+     * Decides what a dropped blank entry costs: a warning when the list still requires something,
+     * and a rejected document when it no longer does.
+     */
+    private void requireSomethingLeft(String key, List<String> configured, List<String> canonical)
+            throws ConfigLoadException {
+        int dropped = configured.size() - canonical.size();
+        if (!canonical.isEmpty()) {
+            warnings.add(qualify(key) + ": dropped " + dropped + " blank entr"
+                    + (dropped == 1 ? "y" : "ies") + ", which require nothing. The "
+                    + canonical.size() + " remaining " + (canonical.size() == 1 ? "entry is" : "entries are")
+                    + " still required, so nothing was disarmed. Remove the empty list "
+                    + (dropped == 1 ? "item" : "items") + ", or name an advancement.");
+            return;
+        }
+        throw new ConfigLoadException(qualify(key) + ": every entry is blank, so this list requires "
+                + "nothing at all while still being written as a requirement. config.yml has NOT "
+                + "been applied. A gate left with no requirement admits every player while "
+                + "reporting itself enabled, which is the failure this list is read strictly to "
+                + "prevent. Name an advancement, or write the empty list \"[]\" if no advancement "
+                + "is meant to be required.");
     }
 
     /**
