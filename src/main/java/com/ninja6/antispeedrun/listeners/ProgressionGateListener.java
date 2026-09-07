@@ -3,13 +3,15 @@ package com.ninja6.antispeedrun.listeners;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
@@ -129,11 +131,17 @@ public final class ProgressionGateListener implements Listener {
     private final AntiSpeedrunPlugin plugin;
 
     /**
-     * When each player was last told they are gated. Registered with
+     * When each player was last told they are gated, <em>per gate</em>. Registered with
      * {@link com.ninja6.antispeedrun.progression.PlayerStateRegistry} rather than held as a bare
      * map, so quit cleanup happens without this class remembering to do it — finding R-08.
+     *
+     * <p>Keyed on the dimension as well as the player because the two refusals are different news:
+     * a player turned back from the Nether and then, seconds later, from the End would otherwise be
+     * told nothing the second time, and the second refusal is the more surprising one. The inner
+     * map is concurrent because a player's two gates can be evaluated from different region threads
+     * over their session.
      */
-    private final PlayerStateMap<Long> lastFeedback;
+    private final PlayerStateMap<Map<DimensionUnlock, Long>> lastFeedback;
 
     public ProgressionGateListener(AntiSpeedrunPlugin plugin) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
@@ -237,7 +245,7 @@ public final class ProgressionGateListener implements Listener {
         if (plan.cancelTransit()) {
             event.setCancelled(true);
         }
-        ejectAndReposition(vehicle, plan.ejected());
+        ejectAndReposition(vehicle, plan);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -332,11 +340,13 @@ public final class ProgressionGateListener implements Listener {
     private void reject(Player player, PluginConfig config, DimensionUnlock dimension,
                         EligibilityResult result) {
         long now = System.currentTimeMillis();
-        long last = lastFeedback.getOrDefault(player.getUniqueId(), 0L);
+        Map<DimensionUnlock, Long> perGate = lastFeedback.computeIfAbsent(
+                player.getUniqueId(), id -> new ConcurrentHashMap<>(2));
+        long last = perGate.getOrDefault(dimension, 0L);
         if (now - last < FEEDBACK_COOLDOWN_MILLIS) {
             return;
         }
-        lastFeedback.put(player.getUniqueId(), now);
+        perGate.put(dimension, now);
 
         MiniMessage mini = MiniMessage.miniMessage();
         player.sendMessage(mini.deserialize(
@@ -353,11 +363,27 @@ public final class ProgressionGateListener implements Listener {
      * does not reposition anything. Without it a cancelled portal leaves the player standing in the
      * block that produced the event, and the server offers the transit again as soon as the portal
      * cooldown lapses.
+     *
+     * <p>The heading is the player's <em>velocity</em>, not their look direction. Those differ
+     * exactly when it matters: a player who walks backwards into a portal, or who turns to look
+     * sideways as the event fires, would be nudged in a direction unrelated to the portal, and in
+     * the backwards-walking case further into it. Look direction remains the fallback for a player
+     * who is not moving at all, where there is nothing better to go on.
      */
     private void pushBack(Player player) {
-        Vector heading = player.getLocation().getDirection();
+        if (player.getVehicle() != null) {
+            // Velocity applied to a passenger does nothing; the vehicle owns the movement. A
+            // mounted player refused here has already been told why, and the vehicle path in
+            // onEntityPortal is what actually separates them from the portal.
+            return;
+        }
+        Vector travel = player.getVelocity();
         SafeRetreat.Offset offset =
-                SafeRetreat.backwards(heading.getX(), heading.getZ(), PUSHBACK_STRENGTH);
+                SafeRetreat.backwards(travel.getX(), travel.getZ(), PUSHBACK_STRENGTH);
+        if (offset.isZero()) {
+            Vector look = player.getLocation().getDirection();
+            offset = SafeRetreat.backwards(look.getX(), look.getZ(), PUSHBACK_STRENGTH);
+        }
         player.setVelocity(new Vector(offset.x(), PUSHBACK_LIFT, offset.z()));
     }
 
@@ -382,49 +408,63 @@ public final class ProgressionGateListener implements Listener {
     }
 
     /**
-     * Takes the blocked riders off the vehicle and puts them down two blocks behind it.
+     * Takes the blocked riders off the vehicle and puts them back where they were.
      *
-     * <p>Scheduled on the <strong>vehicle's</strong> {@code EntityScheduler}, which runs it next
-     * tick on the region that owns the vehicle. Finding R-09: calling {@code removePassenger}
-     * inline, while the portal transfer this event belongs to is still resolving, is a known source
-     * of ghost entities — a vehicle that arrives without its rider, or a rider that arrives twice.
-     * By next tick the transfer has settled one way or the other and the passenger list is a normal
-     * thing to mutate.
+     * <h2>Why the return position is computed here and not in the task</h2>
      *
-     * <p>The heading is read at schedule time, not inside the task, because by next tick a
-     * cancelled vehicle's velocity has already been zeroed by the cancellation and there would be
-     * no "backward" left to compute.
+     * The dismount cannot happen inline. Audit finding R-09 is explicit that mutating a passenger
+     * list while the portal transfer is resolving produces ghost entities — a vehicle that arrives
+     * without its rider, or a rider that arrives twice — so it is deferred by a tick.
+     *
+     * <p>But a mixed crew's transit is deliberately <em>not</em> cancelled, so by the time that
+     * deferred work runs the blocked rider may already be standing in the dimension the gate just
+     * refused them. A task that asked "where is this rider?" at that point would be told "the
+     * Nether", and would set them down two blocks behind that — a chauffeur service into a sealed
+     * dimension. {@link VehicleTransit#orders} exists to fix the answer <em>now</em>, on the event
+     * thread, while it is still the Overworld; the task below is handed a position and computes
+     * none.
+     *
+     * <p>The same reasoning covers the block reads. {@link #terrainOf} probes the source world, and
+     * on Folia a region thread may only read the world it owns — after a transfer the rider's own
+     * region is in the destination world and could not legally answer. Reading here, before
+     * anything has moved, is both correct and the only legal moment.
+     *
+     * <p>The heading is likewise read now: by next tick a cancelled vehicle's velocity has been
+     * zeroed and there would be no "backward" left to compute.
+     *
+     * <h2>Why the rider, not the vehicle, is the anchor</h2>
+     *
+     * The R-09 amendment says to schedule the dismount on the vehicle's region, and an earlier
+     * revision did exactly that. The vehicle is the wrong anchor precisely when the vehicle is the
+     * thing that leaves: a cross-dimensional transfer removes the entity in the source dimension,
+     * and {@code EntityScheduler} answers a retired entity by running the <em>retired</em> callback
+     * instead of the task. With that callback {@code null}, the whole ejection was dropped in
+     * silence. Anchoring on the rider — who is the subject of the gate, and who survives — keeps
+     * the work attached to something that will still be there, and the retired callback below is
+     * non-{@code null} so that even the remaining case (the player logs out mid-transit) leaves a
+     * line in the log rather than nothing.
      */
-    private void ejectAndReposition(Entity vehicle, List<Player> blocked) {
+    private void ejectAndReposition(Entity vehicle, VehicleTransit.Plan<Player> plan) {
         Vector velocity = vehicle.getVelocity();
         double headingX = velocity.getX();
         double headingZ = velocity.getZ();
 
-        vehicle.getScheduler().run(plugin, task -> {
-            for (Player rider : blocked) {
-                if (!rider.isOnline()) {
-                    continue;
-                }
-                vehicle.removePassenger(rider);
-                reposition(rider, headingX, headingZ);
-            }
-        }, null);
+        for (VehicleTransit.Ejection<Player, Location> order :
+                VehicleTransit.orders(plan, rider -> returnPointFor(rider, headingX, headingZ))) {
+            scheduleEjection(order.rider(), order.returnTo());
+        }
     }
 
     /**
-     * Puts one ejected rider on solid ground behind the portal.
+     * Where a rider goes back to, decided against the world they are still in.
      *
-     * <p>{@code teleportAsync} rather than {@code teleport}: two blocks is enough to leave the
-     * current region, and {@code Entity#teleport} throws on Folia when it does. The returned future
-     * is where the outcome is handled — a teleport that the server declines is logged rather than
-     * dropped, because a rider who was ejected but not moved is standing in the portal being
-     * offered the transit again.
-     *
-     * <p>A rider whose retreat lands nowhere usable is left where they are, minus the vehicle. That
-     * is worse than a good landing and better than a guess: this code has no way to know that some
-     * arbitrary nearby column is not lava.
+     * <p>{@link SafeRetreat#landing} never answers "nowhere": with no usable heading, or no safe
+     * ground behind the portal, it hands back the origin — the one spot known to be survivable,
+     * because the rider was in it a moment ago. That matters here rather than being a nicety: with
+     * the transit going ahead, declining to reposition is the same thing as carrying the rider
+     * through the gate.
      */
-    private void reposition(Player rider, double headingX, double headingZ) {
+    private Location returnPointFor(Player rider, double headingX, double headingZ) {
         Location origin = rider.getLocation();
         SafeRetreat.Offset offset =
                 SafeRetreat.backwards(headingX, headingZ, SafeRetreat.EJECT_DISTANCE_BLOCKS);
@@ -434,43 +474,71 @@ public final class ProgressionGateListener implements Listener {
             Vector look = origin.getDirection();
             offset = SafeRetreat.backwards(look.getX(), look.getZ(), SafeRetreat.EJECT_DISTANCE_BLOCKS);
         }
-        if (offset.isZero()) {
-            return;
-        }
 
         World world = origin.getWorld();
         if (world == null) {
-            return;
+            return origin;
         }
-        int targetX = (int) Math.floor(origin.getX() + offset.x());
-        int targetZ = (int) Math.floor(origin.getZ() + offset.z());
-        OptionalInt groundY = SafeRetreat.groundY(terrainOf(world), targetX,
-                (int) Math.floor(origin.getY()), targetZ, world.getMinHeight(), world.getMaxHeight());
-        if (groundY.isEmpty()) {
-            plugin.getLogger().fine(() -> "No safe landing behind the portal for "
-                    + rider.getName() + "; left them dismounted in place.");
-            return;
+        SafeRetreat.Landing landing = SafeRetreat.landing(origin.getX(), origin.getY(), origin.getZ(),
+                offset, terrainOf(world), world.getMinHeight(), world.getMaxHeight());
+        if (!landing.retreated()) {
+            plugin.getLogger().fine(() -> "No safe landing behind the portal for " + rider.getName()
+                    + "; returning them to where they boarded instead.");
         }
-
-        Location target = new Location(world, targetX + 0.5D, groundY.getAsInt(), targetZ + 0.5D,
+        return new Location(world, landing.x(), landing.y(), landing.z(),
                 origin.getYaw(), origin.getPitch());
-        rider.teleportAsync(target).whenComplete((moved, failure) -> {
-            if (failure != null) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to reposition " + rider.getName() + " after a gated portal transit.",
-                        failure);
-            } else if (!Boolean.TRUE.equals(moved)) {
-                plugin.getLogger().fine(() -> "The server declined to reposition " + rider.getName()
-                        + " after a gated portal transit.");
+    }
+
+    /**
+     * Dismounts one rider and returns them to the position captured before the transit.
+     *
+     * <p>Runs next tick on the <strong>rider's</strong> region — see
+     * {@link #ejectAndReposition} for why not the vehicle's — with a retired callback that logs,
+     * so an ejection can no longer be dropped without trace.
+     *
+     * <p>{@code teleportAsync} rather than {@code teleport}: the destination is in the world the
+     * rider started in, which after an uncancelled transit is a different world entirely, and
+     * {@code Entity#teleport} throws on Folia the moment the destination leaves the current region.
+     * The returned future is where the outcome is handled — a teleport the server declines is
+     * logged rather than dropped, because a rider who was ejected but not moved is a rider the gate
+     * did not actually stop.
+     */
+    private void scheduleEjection(Player rider, Location returnTo) {
+        rider.getScheduler().run(plugin, task -> {
+            if (!rider.isOnline()) {
+                return;
             }
-        });
+            if (rider.getVehicle() != null) {
+                // Ordinarily redundant -- teleportAsync dismounts a passenger unless RETAIN_VEHICLE
+                // is asked for -- but stated rather than relied upon, since a rider left aboard a
+                // vehicle that did transit is the exact failure this method exists to prevent.
+                rider.leaveVehicle();
+            }
+            rider.teleportAsync(returnTo).whenComplete((moved, failure) -> {
+                if (failure != null) {
+                    plugin.getLogger().log(Level.WARNING, "Failed to reposition " + rider.getName()
+                            + " after a gated portal transit; they may have been carried through.",
+                            failure);
+                } else if (!Boolean.TRUE.equals(moved)) {
+                    plugin.getLogger().warning("The server declined to reposition " + rider.getName()
+                            + " after a gated portal transit; they may have been carried through.");
+                }
+            });
+        }, () -> plugin.getLogger().warning("Could not eject " + rider.getName()
+                + " at a gated portal: they left the server before the dismount ran."));
     }
 
     /**
      * The {@link SafeRetreat.Terrain} probe over a live world.
      *
-     * <p>Called from the vehicle's own region task, and only for a column two blocks from the
-     * vehicle, so the chunks it reads are ones that region is already ticking.
+     * <p>Called on the event thread, before any transfer resolves, and only for a column two blocks
+     * from the vehicle — so the world it reads is the one the calling region owns and the chunks
+     * are ones that region is already ticking.
+     *
+     * <p>Each method answers one plain question about one block. In particular {@code isPassable}
+     * is Bukkit's collision question and nothing more: lava and water are passable, and it is
+     * {@code isHazard} that says they are not somewhere to stand. Composing the two is
+     * {@link SafeRetreat}'s job, where a test can reach it.
      */
     private static SafeRetreat.Terrain terrainOf(World world) {
         return new SafeRetreat.Terrain() {
@@ -484,6 +552,30 @@ public final class ProgressionGateListener implements Listener {
                 Block block = world.getBlockAt(x, y, z);
                 return block.getType().isSolid() && !block.isLiquid();
             }
+
+            @Override
+            public boolean isHazard(int x, int y, int z) {
+                Block block = world.getBlockAt(x, y, z);
+                return block.isLiquid() || HAZARDS.contains(block.getType());
+            }
         };
     }
+
+    /**
+     * Blocks that are passable but not survivable, beyond the fluids {@code Block#isLiquid} already
+     * covers. Not exhaustive and not trying to be — it is the handful an ejection two blocks from a
+     * portal could plausibly land in, and everything here would otherwise satisfy the collision
+     * check and hurt the player.
+     */
+    private static final Set<Material> HAZARDS = Set.of(
+            Material.LAVA,
+            Material.FIRE,
+            Material.SOUL_FIRE,
+            Material.CAMPFIRE,
+            Material.SOUL_CAMPFIRE,
+            Material.MAGMA_BLOCK,
+            Material.POWDER_SNOW,
+            Material.CACTUS,
+            Material.SWEET_BERRY_BUSH,
+            Material.WITHER_ROSE);
 }

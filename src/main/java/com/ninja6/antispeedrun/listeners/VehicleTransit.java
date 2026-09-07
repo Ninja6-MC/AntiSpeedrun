@@ -3,6 +3,7 @@ package com.ninja6.antispeedrun.listeners;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -79,5 +80,54 @@ public final class VehicleTransit {
         // Cancel only when nobody qualified is left to carry. With a mixed crew the vehicle goes,
         // which is the point of the exercise.
         return new Plan<>(ejected, ejected.size() == riders.size());
+    }
+
+    /**
+     * Where one ejected rider is to be put back.
+     *
+     * @param rider    the rider to dismount
+     * @param returnTo where to place them, <strong>captured before the transit resolved</strong>
+     * @param <T>      the rider representation
+     * @param <P>      the position representation; {@code Location} in production
+     */
+    public record Ejection<T, P>(T rider, P returnTo) {
+
+        public Ejection {
+            Objects.requireNonNull(rider, "rider");
+            Objects.requireNonNull(returnTo, "returnTo");
+        }
+    }
+
+    /**
+     * Fixes each ejected rider's return position <em>now</em>, before the portal transfer resolves.
+     *
+     * <p>This method is one line long and exists entirely for its timing, so it is worth being
+     * blunt about what it is defending against. The dismount and the teleport cannot happen inline
+     * — audit finding R-09 is explicit that mutating a passenger list while the portal transfer is
+     * resolving produces ghost entities — so they are deferred by a tick. But when a mixed crew
+     * travels, the transit is <em>not</em> cancelled, and by the time that deferred work runs the
+     * rider may already be standing in the dimension the gate just refused them. A deferred task
+     * that asks "where is this rider?" gets the answer "in the Nether", and repositioning them two
+     * blocks behind that is a chauffeur service into a sealed dimension rather than a gate.
+     *
+     * <p>So the question is asked here instead, on the event thread, while the answer is still the
+     * Overworld. {@code captureReturnPoint} is invoked eagerly, once per ejected rider, before this
+     * method returns; the deferred task is handed a position and never computes one.
+     *
+     * @param plan               the triage from {@link #plan}
+     * @param captureReturnPoint reads the rider's current position and works out where to put them
+     *                           back. Called immediately, not later
+     * @return one order per ejected rider, in plan order. Empty when nothing is to be ejected
+     */
+    public static <T, P> List<Ejection<T, P>> orders(Plan<T> plan,
+                                                     Function<? super T, ? extends P> captureReturnPoint) {
+        Objects.requireNonNull(plan, "plan");
+        Objects.requireNonNull(captureReturnPoint, "captureReturnPoint");
+
+        List<Ejection<T, P>> orders = new ArrayList<>(plan.ejected().size());
+        for (T rider : plan.ejected()) {
+            orders.add(new Ejection<>(rider, captureReturnPoint.apply(rider)));
+        }
+        return List.copyOf(orders);
     }
 }

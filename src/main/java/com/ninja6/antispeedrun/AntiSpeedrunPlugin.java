@@ -83,7 +83,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     /** Server-wide dimension unlocks, persisted to {@code state.yml}. Volatile for the usual reason. */
     private volatile DimensionUnlockStore dimensionUnlocks;
 
-    /** Temporary bypass grants, held in each player's persistent data container. */
+    /**
+     * Temporary bypass grants, held in each player's persistent data container.
+     *
+     * <p>Read by {@code ProgressionGateListener} on every portal and cross-dimensional teleport, as
+     * is {@link #dimensionUnlocks}. Both must therefore be assigned before that listener is
+     * registered — the note lives on the fields as well as at the registration site because it is
+     * the registration that moves during a refactor, not these.
+     */
     private volatile BypassStore bypasses;
 
     /** Whether a player has already received the journey book, held in their container. */

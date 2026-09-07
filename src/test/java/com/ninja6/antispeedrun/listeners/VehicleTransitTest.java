@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -108,5 +109,148 @@ class VehicleTransitTest {
     void planIsImmutable() {
         VehicleTransit.Plan<String> plan = VehicleTransit.plan(List.of("newbie"), rider -> true);
         assertThrows(UnsupportedOperationException.class, () -> plan.ejected().add("gatecrasher"));
+    }
+
+    /**
+     * The outcome, not the plan.
+     *
+     * <p>The plan tests above were all green while a blocked rider in a mixed crew was in fact
+     * carried into the Nether: the triage was right and the deferred work asked "where is this
+     * rider?" after the transit had already answered "the Nether". A test of the plan cannot see
+     * that. These run the whole sequence — triage, capture, transit, ejection — against a rider
+     * that records the dimension it is in, and assert where each one finishes.
+     */
+    @Nested
+    @DisplayName("the outcome of a portal transit")
+    class Outcome {
+
+        private static final String OVERWORLD = "OVERWORLD";
+        private static final String NETHER = "NETHER";
+
+        /** A rider that knows which dimension it is in, and can be moved between them. */
+        private static final class Rider {
+            private final String name;
+            private final boolean qualified;
+            private String dimension = OVERWORLD;
+
+            Rider(String name, boolean qualified) {
+                this.name = name;
+                this.qualified = qualified;
+            }
+        }
+
+        /**
+         * Runs a transit the way {@code ProgressionGateListener} does, in the same order.
+         *
+         * <p>The order is the entire subject of the test, so it is spelled out rather than helped:
+         * triage, then capture each ejected rider's return point <em>while they are still in the
+         * source dimension</em>, then let the transit happen, then run the deferred ejections.
+         */
+        private void runTransit(List<Rider> riders) {
+            VehicleTransit.Plan<Rider> plan = VehicleTransit.plan(riders, rider -> !rider.qualified);
+
+            List<VehicleTransit.Ejection<Rider, String>> orders =
+                    VehicleTransit.orders(plan, rider -> rider.dimension);
+
+            if (!plan.cancelTransit()) {
+                for (Rider rider : riders) {
+                    rider.dimension = NETHER;
+                }
+            }
+            // Next tick, on each rider's own region.
+            for (VehicleTransit.Ejection<Rider, String> order : orders) {
+                order.rider().dimension = order.returnTo();
+            }
+        }
+
+        /**
+         * B1. The boat goes, the qualified rider goes with it, and the blocked rider does not —
+         * which is the whole of what #35 asks for and what the plan-level tests could not see.
+         */
+        @Test
+        @DisplayName("a blocked rider in a mixed crew does not end up in the gated dimension")
+        void mixedCrewLeavesTheBlockedRiderBehind() {
+            Rider veteran = new Rider("veteran", true);
+            Rider newbie = new Rider("newbie", false);
+
+            runTransit(List.of(veteran, newbie));
+
+            assertEquals(NETHER, veteran.dimension, "the qualified rider is not stranded");
+            assertEquals(OVERWORLD, newbie.dimension,
+                    "the blocked rider must not be carried through the gate");
+        }
+
+        @Test
+        @DisplayName("a lone blocked rider stays put, and so does the boat")
+        void loneRiderStaysPut() {
+            Rider newbie = new Rider("newbie", false);
+            runTransit(List.of(newbie));
+            assertEquals(OVERWORLD, newbie.dimension);
+        }
+
+        @Test
+        @DisplayName("an all-blocked crew all stay behind")
+        void everyoneBlocked() {
+            Rider one = new Rider("one", false);
+            Rider two = new Rider("two", false);
+            runTransit(List.of(one, two));
+            assertEquals(OVERWORLD, one.dimension);
+            assertEquals(OVERWORLD, two.dimension);
+        }
+
+        @Test
+        @DisplayName("a fully qualified crew travels together and nobody is sent back")
+        void everyoneQualified() {
+            Rider one = new Rider("one", true);
+            Rider two = new Rider("two", true);
+            runTransit(List.of(one, two));
+            assertEquals(NETHER, one.dimension);
+            assertEquals(NETHER, two.dimension);
+        }
+
+        /**
+         * The mechanism, asserted directly as well as through the outcome above: the return point
+         * is read before the transit, not when the ejection runs. Deferring this one call is
+         * precisely the defect, so it gets its own test rather than only being implied.
+         */
+        @Test
+        @DisplayName("the return point is captured eagerly, before the transit can change it")
+        void returnPointIsCapturedEagerly() {
+            Rider newbie = new Rider("newbie", false);
+            VehicleTransit.Plan<Rider> plan =
+                    VehicleTransit.plan(List.of(new Rider("veteran", true), newbie),
+                            rider -> !rider.qualified);
+
+            List<VehicleTransit.Ejection<Rider, String>> orders =
+                    VehicleTransit.orders(plan, rider -> rider.dimension);
+
+            // The transit happens only now. A lazily captured return point would follow it.
+            newbie.dimension = NETHER;
+
+            assertEquals(1, orders.size(), "every blocked rider gets exactly one order");
+            assertEquals(OVERWORLD, orders.get(0).returnTo(),
+                    "the captured position predates the transit");
+        }
+
+        @Test
+        @DisplayName("no blocked rider's ejection is dropped")
+        void everyBlockedRiderGetsAnOrder() {
+            List<Rider> riders = List.of(new Rider("a", false), new Rider("b", true),
+                    new Rider("c", false));
+            VehicleTransit.Plan<Rider> plan = VehicleTransit.plan(riders, rider -> !rider.qualified);
+            List<VehicleTransit.Ejection<Rider, String>> orders =
+                    VehicleTransit.orders(plan, rider -> rider.dimension);
+
+            assertEquals(plan.ejected().size(), orders.size());
+            assertEquals(List.of("a", "c"), orders.stream().map(o -> o.rider().name).toList());
+        }
+
+        @Test
+        @DisplayName("a plan with nothing to eject produces no orders")
+        void noOrdersForANoOpPlan() {
+            VehicleTransit.Plan<Rider> plan =
+                    VehicleTransit.plan(List.of(new Rider("a", true)), rider -> !rider.qualified);
+            assertTrue(VehicleTransit.orders(plan, rider -> rider.dimension).isEmpty());
+        }
     }
 }
