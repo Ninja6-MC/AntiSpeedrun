@@ -19,10 +19,16 @@ import org.bukkit.entity.Player;
  *
  * <ul>
  *   <li>{@code NamespacedKey.fromString} returns {@code null} — it does not throw — for a key that
- *       is not {@code namespace:path}, so a typo in {@code config.yml} arrives as {@code null}.</li>
+ *       is not {@code namespace:path}. Since #83 this branch is <strong>unreachable from
+ *       {@code config.yml}</strong>: {@code ConfigReader} canonicalises every configured key and
+ *       rejects the document outright for one this same parser would refuse, precisely so that a
+ *       typo cannot arrive here and be waived. It is kept because this class takes a {@code String}
+ *       from any caller, and because being wrong about that would waive a requirement silently.</li>
  *   <li>{@code Bukkit.getAdvancement} returns {@code null} for a well-formed key that names no
  *       loaded advancement. That covers a renamed vanilla advancement, a datapack that removes the
- *       tree, and a server started with advancements switched off.</li>
+ *       tree, and a server started with advancements switched off. This one stays a runtime warning
+ *       on purpose: it is a property of the server, not of the file, so the same configuration is
+ *       valid on one version and not the next.</li>
  * </ul>
  *
  * Either yields {@link State#UNRESOLVABLE}, logged once per key so a misconfigured server says so

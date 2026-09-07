@@ -17,9 +17,19 @@ import java.util.Optional;
  * <p>Fallback policy, applied uniformly by {@link ConfigReader}: an absent key falls back silently
  * to the shipped default recorded in each accessor's javadoc below; a key of the wrong type falls
  * back to the same default and records a {@link #warnings() warning}; an unknown key is ignored
- * with a warning. Only a document that cannot be parsed at all is a
- * {@link ConfigLoadException}, and that never disables the plugin — see
- * {@link ConfigSnapshotHolder}.
+ * with a warning. A document that cannot be parsed at all is a {@link ConfigLoadException}, and so —
+ * the one value-level exception, decided on #83 — is an advancement requirement the server could not
+ * resolve: an unresolvable requirement is waived at runtime rather than enforced, so falling back
+ * for it would publish a gate that reports itself armed and lets everyone through. See
+ * {@link ConfigReader} for that policy in full.
+ *
+ * <p>A rejected document never disables the plugin, and what it costs depends on when it is
+ * rejected. On a reload the previous snapshot stays live and nothing changes — see
+ * {@link ConfigSnapshotHolder}. At startup there is no previous snapshot, so {@link #defaults()}
+ * stays live instead, and those defaults <strong>declare no item tiers</strong>: every dimension
+ * gate runs on its shipped keys while item gating is off entirely, which is what the
+ * {@code gated-items} warning below exists to say out loud. Both are logged; neither is silent.
+ * Whether that startup arm should instead refuse to start is #91.
  *
  * <p>Values here are modelled exactly as {@code config.yml} states them. Match patterns are kept
  * as raw strings: compiling them into material sets is Task 4.2.1's job, not this type's.
@@ -144,7 +154,7 @@ public record PluginConfig(
     // Section 1 - dimension gates
     // ---------------------------------------------------------------------------------------
 
-    private static DimensionGates parseDimensionGates(ConfigReader r) {
+    private static DimensionGates parseDimensionGates(ConfigReader r) throws ConfigLoadException {
         r.expect("nether", "the_end");
         return new DimensionGates(
                 parseDimensionGate(r.child("nether"), List.of("minecraft:story/smelt_iron"),
@@ -157,14 +167,15 @@ public record PluginConfig(
     }
 
     private static DimensionGate parseDimensionGate(ConfigReader r, List<String> defaultAdvancements,
-                                                    String defaultRejection) {
+                                                    String defaultRejection)
+            throws ConfigLoadException {
         r.expect("enabled", "require-playtime-hours", "require-account-age-days",
                 "require-advancements", "rejection-message");
         return new DimensionGate(
                 r.bool("enabled", true),
                 r.decimal("require-playtime-hours", 0.0D),
                 r.integer("require-account-age-days", 0),
-                r.strings("require-advancements", defaultAdvancements),
+                r.advancementKeys("require-advancements", defaultAdvancements),
                 r.string("rejection-message", defaultRejection));
     }
 
@@ -172,7 +183,7 @@ public record PluginConfig(
     // Section 2 - item progression
     // ---------------------------------------------------------------------------------------
 
-    private static ItemProgression parseItemProgression(ConfigReader r) {
+    private static ItemProgression parseItemProgression(ConfigReader r) throws ConfigLoadException {
         r.expect("enabled", "drop-recall-enabled", "gate-dispensers", "gate-nested-bundles",
                 "feedback-cooldown-seconds", "rejection-message", "gated-items");
 
@@ -204,7 +215,7 @@ public record PluginConfig(
                 parsed);
     }
 
-    private static ItemTier parseItemTier(String id, ConfigReader r) {
+    private static ItemTier parseItemTier(String id, ConfigReader r) throws ConfigLoadException {
         r.expect("match-patterns", "exclude-materials", "items", "require-advancements",
                 "require-playtime-hours", "require-account-age-days", "hint");
         return new ItemTier(
@@ -212,7 +223,7 @@ public record PluginConfig(
                 r.strings("match-patterns", List.of()),
                 r.strings("exclude-materials", List.of()),
                 r.strings("items", List.of()),
-                r.strings("require-advancements", List.of()),
+                r.advancementKeys("require-advancements", List.of()),
                 r.decimal("require-playtime-hours", 0.0D),
                 r.integer("require-account-age-days", 0),
                 r.string("hint", ""));
@@ -299,11 +310,12 @@ public record PluginConfig(
                 r.atLeast("outer-end-poll-seconds", 2, 1));
     }
 
-    private static VillagerProgression parseVillagerProgression(ConfigReader r) {
+    private static VillagerProgression parseVillagerProgression(ConfigReader r)
+            throws ConfigLoadException {
         r.expect("gate-mending-trade", "required-advancement");
         return new VillagerProgression(
                 r.bool("gate-mending-trade", false),
-                r.string("required-advancement", "minecraft:story/cure_zombie_villager"));
+                r.advancementKey("required-advancement", "minecraft:story/cure_zombie_villager"));
     }
 
     // ---------------------------------------------------------------------------------------
@@ -344,7 +356,9 @@ public record PluginConfig(
      *                              server, so a non-zero value seals the dimension for everyone on
      *                              a fresh world
      * @param requireAdvancements   namespaced advancement keys, all of which must be earned;
-     *                              defaults per dimension as shipped
+     *                              defaults per dimension as shipped. Canonical: trimmed, with the
+     *                              implicit {@code minecraft:} namespace supplied, and already
+     *                              proven resolvable by {@link AdvancementKeys}
      * @param rejectionMessage      MiniMessage shown on a blocked entry attempt
      */
     public record DimensionGate(
@@ -407,7 +421,8 @@ public record PluginConfig(
      * @param matchPatterns         wildcard material patterns; default empty
      * @param excludeMaterials      material names removed after pattern matching; default empty
      * @param items                 explicitly named materials; default empty
-     * @param requireAdvancements   advancement keys required to hold the tier; default empty
+     * @param requireAdvancements   advancement keys required to hold the tier, canonical and proven
+     *                              resolvable by {@link AdvancementKeys}; default empty
      * @param requirePlaytimeHours  default {@code 0.0}
      * @param requireAccountAgeDays default {@code 0}
      * @param hint                  player-facing text explaining how to unlock; default empty
@@ -570,7 +585,9 @@ public record PluginConfig(
      * Section 8.
      *
      * @param gateMendingTrade    default {@code false}
-     * @param requiredAdvancement default {@code "minecraft:story/cure_zombie_villager"}
+     * @param requiredAdvancement canonical advancement key, or {@code ""} when the operator has
+     *                            cleared it to mean "gate the trade, require no advancement";
+     *                            default {@code "minecraft:story/cure_zombie_villager"}
      */
     public record VillagerProgression(boolean gateMendingTrade, String requiredAdvancement) {
         public VillagerProgression {

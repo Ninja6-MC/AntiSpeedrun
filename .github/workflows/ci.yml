@@ -18,6 +18,13 @@ jobs:
   build:
     name: Build and Test
     runs-on: ubuntu-latest
+    # Both jobs together normally finish in about 3.5 minutes, so 15 is roughly four times
+    # the observed norm -- generous against a cold cache or a slow runner, and short enough
+    # that a wedge turns red inside one review cycle. Without it a job inherits GitHub's
+    # 360-minute default, where a queued run, a slow run and a hung one are indistinguishable
+    # for six hours. `Build and Test` is a required check, so that is six hours of a gate
+    # neither passing nor failing. agent-review-gate.yml already sets timeout-minutes: 5.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Code
@@ -104,6 +111,9 @@ jobs:
     name: Folia Boot Smoke Test
     runs-on: ubuntu-latest
     needs: build
+    # Same reasoning as `build`. This job downloads the Folia jar and boots a real server,
+    # so it has more moving parts than the build, but the same headroom is ample.
+    timeout-minutes: 15
 
     steps:
       - name: Set up Java 21
@@ -168,6 +178,11 @@ jobs:
           PY
 
       - name: Boot Server and Assert Plugin Enables
+        # The step that actually waits on a server, and the one #86 watched sit for 25 minutes.
+        # The `timeout 300` below already caps the JVM at five minutes; this caps the step as a
+        # whole, so a boot that wedges somewhere the inner timeout does not cover still fails
+        # in minutes. A server that has not enabled the plugin by now is not going to.
+        timeout-minutes: 8
         run: |
           set -uo pipefail
           echo "eula=true" > eula.txt

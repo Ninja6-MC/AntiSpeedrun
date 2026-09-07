@@ -182,12 +182,24 @@ public final class ConfigSnapshotHolder {
         }
     }
 
+    /**
+     * Reports a rejected document without asserting what surviving on the previous snapshot means,
+     * because that differs between a reload and a startup and this class cannot tell them apart.
+     *
+     * <p>The message used to say "the previously loaded configuration remains live… run /asr reload
+     * again" on both paths. On a reload that is exactly right. At startup there is no previously
+     * loaded configuration — the holder was constructed on {@code PluginConfig.defaults()}, which
+     * gates no items — and no reload to run, so the line reassured an operator about the one case
+     * where the news is worst. {@code AntiSpeedrunPlugin} follows this with the honest startup line,
+     * but a {@code SEVERE} is read on its own often enough that it has to be true on its own.
+     */
     private void reject(ConfigLoadException failure) {
         logger.log(Level.SEVERE,
-                "ConfigLoadException: config.yml was rejected and has NOT been applied. "
-                        + "The previously loaded configuration remains live and the plugin stays "
-                        + "enabled. Fix the file and run /asr reload again. Cause: "
-                        + failure.getMessage(),
+                "ConfigLoadException: config.yml was rejected and has NOT been applied. The plugin "
+                        + "stays enabled and keeps running on the configuration it already had: "
+                        + "after a reload that is the previous file, at startup it is the shipped "
+                        + "defaults, which gate NO items. Check the next log line for which. Fix "
+                        + "the file and run /asr reload. Cause: " + failure.getMessage(),
                 failure);
     }
 }
