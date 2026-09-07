@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Dimension gates are now enforced. A player who has not met the configured
+  `dimension-gates.<dimension>.require-*` requirements cannot reach the Nether or the End on foot,
+  as the passenger of a boat, minecart or camel, or by a cross-dimensional Ender pearl teleport.
+  Intra-dimensional teleports — `/spawn`, random-teleport plugins, chorus fruit — are untouched, as
+  are teleports another plugin or an operator asked for. The gate is waived by
+  `antispeedrun.bypass.gates`, by an unexpired `/asr bypass` grant, or by an `/asr unlock` override.
+- Selective ejection at a portal: an unqualified rider is dismounted and set down on solid ground
+  two blocks behind the vehicle, while qualified riders in the same boat carry on. The vehicle is
+  only stopped when nobody aboard qualifies, so no empty vehicle is sent through.
 - `/antispeedrun` (`/asr`) administration command with tab completion: `reload`, `profile apply
   <CASUAL|SMP_STANDARD|HARDCORE>`, `unlock <nether|end> [lock]`, `bypass <player> [duration|off]`
   and `inspect <player>`. Each subcommand is gated on its own `antispeedrun.admin.*` node, and

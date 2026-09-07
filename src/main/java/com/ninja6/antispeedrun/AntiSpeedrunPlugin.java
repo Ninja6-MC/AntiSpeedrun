@@ -20,6 +20,7 @@ import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.gating.GateCollisionException;
 import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.gating.MaterialGates;
+import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
 import com.ninja6.antispeedrun.progression.ProgressionListener;
@@ -82,7 +83,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     /** Server-wide dimension unlocks, persisted to {@code state.yml}. Volatile for the usual reason. */
     private volatile DimensionUnlockStore dimensionUnlocks;
 
-    /** Temporary bypass grants, held in each player's persistent data container. */
+    /**
+     * Temporary bypass grants, held in each player's persistent data container.
+     *
+     * <p>Read by {@code ProgressionGateListener} on every portal and cross-dimensional teleport, as
+     * is {@link #dimensionUnlocks}. Both must therefore be assigned before that listener is
+     * registered — the note lives on the fields as well as at the registration site because it is
+     * the registration that moves during a refactor, not these.
+     */
     private volatile BypassStore bypasses;
 
     /** Whether a player has already received the journey book, held in their container. */
@@ -159,6 +167,13 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         }
         this.bypasses = new BypassStore(this);
         this.journeyBook = new JourneyBookStore(this);
+
+        // Registered here rather than beside ProgressionListener above, and the order is
+        // load-bearing: the gate reads bypasses() and dimensionUnlocks() on every portal event, so
+        // both stores have to exist before the first event can reach it. Registering it earlier
+        // would open a window in which a player walking into a portal during startup NPEs the
+        // handler -- narrow, but the kind of window that only ever fires in production.
+        getServer().getPluginManager().registerEvents(new ProgressionGateListener(this), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
