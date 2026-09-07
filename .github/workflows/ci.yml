@@ -123,7 +123,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Download Built JAR
-        uses: actions/download-artifact@448e3f862ab3ef47aa50ff917776823c9946035b # v5.0.0
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v5.0.0
         with:
           name: AntiSpeedrun-SNAPSHOT
           path: plugins
