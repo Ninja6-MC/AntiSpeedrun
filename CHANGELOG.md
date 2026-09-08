@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Item tier gates are now enforced. The compiled `item-progression.gated-items` table was
+  previously built on every reload and read by nothing; four channels now consult it. A player who
+  has not met a tier's requirements cannot pick a gated item up off the ground, take one out of any
+  container by any click — ordinary, shift, hotbar swap 1-9, off-hand swap, double-click gather or
+  drop — or buy one from a villager or wandering trader. The gate is waived by
+  `antispeedrun.bypass.items`, by an unexpired `/asr bypass` grant, or by setting
+  `item-progression.enabled: false`. Crafting views are untouched, and putting gated items *into* a
+  container is never blocked.
+- Drop recall, implementing `item-progression.drop-recall-enabled`, which until now was parsed and
+  read by nothing. A player may always re-collect an item entity they dropped or died with,
+  whatever its tier, so that gear held by administrative grant, gear predating installation, and
+  gear held under a since-revoked bypass is gated rather than confiscated. The stamp is written to
+  the item *entity*, never to an `ItemStack`, so it cannot be transferred, stockpiled or merged
+  into a stack — see `docs/provenance-model.md` §4.
 - Dimension gates are now enforced. A player who has not met the configured
   `dimension-gates.<dimension>.require-*` requirements cannot reach the Nether or the End on foot,
   as the passenger of a boat, minecart or camel, or by a cross-dimensional Ender pearl teleport.

@@ -106,11 +106,16 @@ Two keys survive. Any key not listed here does not exist.
 
 | Key | Container | Lifetime | Owner | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| `n6_asr_dropper` | **`Item` entity** | Dies on stack merge, on pickup, and on the ~5 minute despawn | UUID of the dropping player | Death and manual-drop recall (§4) |
+| `antispeedrun:drop-owner` | **`Item` entity** | Dies on stack merge, on pickup, and on the ~5 minute despawn | UUID of the dropping player | Death and manual-drop recall (§4) |
 | `n6_asr_secondary_dragon` | `EnderDragon` entity | Entity lifetime | — | Marks a plugin-spawned scaling dragon (Epic 6; unrelated to items) |
 
 UUIDs are stored as `PersistentDataType.LONG_ARRAY` holding `[mostSigBits, leastSigBits]`
 (16 bytes), never as `STRING` (36 bytes).
+
+Earlier revisions of this record called the first key `n6_asr_dropper`. Bukkit already
+namespaces every key under the plugin, so the name carries no hand-rolled prefix and the key
+on disk is `antispeedrun:drop-owner` — the convention `BypassStore` set with
+`bypass-expires-at`. The row above is the name that exists.
 
 **No ItemStack ever carries a plugin tag.** This is the invariant that makes laundering
 structurally impossible: there is no per-item entitlement to forge, transfer, or inherit.
@@ -119,9 +124,21 @@ structurally impossible: there is no per-item entitlement to forge, transfer, or
 
 ## §4. The one retained provenance rule: death and drop recall
 
-`PlayerDropItemEvent` and `PlayerDeathEvent` stamp `n6_asr_dropper` on the resulting `Item`
-**entities**. A player may always re-collect an item entity carrying their own UUID,
+`PlayerDropItemEvent` and `PlayerDeathEvent` stamp `antispeedrun:drop-owner` on the resulting
+`Item` **entities**. A player may always re-collect an item entity carrying their own UUID,
 regardless of tier.
+
+The two events reach those entities differently, and the difference is forced by the API
+rather than chosen. `PlayerDropItemEvent` hands over the `Item` entity directly, so it is
+stamped inline. `PlayerDeathEvent` does not: `getDrops()` is a list of `ItemStack`s, and the
+entities carrying them do not exist until the server spawns them immediately afterwards.
+Stamping those stacks instead is the one thing this model forbids, so the death is recorded
+(player, position, timestamp) and `ItemSpawnEvent` attributes items appearing within four
+blocks and one second to it. The bound this leaves is stated rather than hidden: another
+player's item spawning on a fresh corpse inside that second is stamped for the dead player.
+It requires standing on a corpse in the same second, it privileges one player over one stack
+until that stack despawns, and the alternative reopens the laundering vector this whole model
+exists to close.
 
 `BlockDropItemEvent` **does not stamp anything.** This is what closes C-02: breaking a
 container confers nothing on the breaker.
@@ -152,6 +169,11 @@ is the feature here:
 
 ### Narrowed
 - **#13** (Task 4.2.3) — death and manual drops only; `BlockDropItemEvent` stamping removed.
+  Subsequently closed as a task, on the reasoning that what survives is not a provenance
+  system but the single recall rule in §4. That rule exists only to serve #12's second
+  acceptance criterion and ships with it, in `DropRecall`; #13 is not reopened. Note that the
+  argument given when closing it — that a player who died holding gear had already passed its
+  tier check — does not hold for the three cases §4 names, which is why the rule survives.
 - **#17** (Task 4.3.4) — mob-pickup cancellation removed. A zombie holding a diamond sword
   is harmless, because the unqualified player still cannot pick it up when the zombie dies.
   This also resolves R-13: piglin bartering and Allay sorters are no longer affected.
