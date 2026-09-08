@@ -610,8 +610,12 @@ class PluginConfigTest {
                           require-advancements:
                             - "story/mine stone"
                     """)));
+            // gate-mending-trade is stated rather than left to its default, because its default is
+            // false and a gate that is off is not gating this server fails to enforce -- the key
+            // under it is then a warning by design. The rule under test is the one for a live gate.
             assertThrows(ConfigLoadException.class, () -> PluginConfig.from(yaml("""
                     villager-progression:
+                      gate-mending-trade: true
                       required-advancement: "not a key"
                     """)));
         }

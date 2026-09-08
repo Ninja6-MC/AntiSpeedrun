@@ -80,8 +80,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tiers, so the old fallback turned item gating off server-wide over a single typo while every gate
   still reported itself armed. A file that cannot be parsed at all is unchanged: it still falls back
   to the defaults and the server still starts, because a file that says nothing describes no gating
-  to enforce. `/asr reload` is unchanged in both cases — the configuration already running stays
-  live and the plugin is never disabled.
+  to enforce. So does a bad key inside a gate that is switched off — `enabled: false`,
+  `item-progression.enabled: false`, or `gate-mending-trade: false` — which is a warning, because a
+  gate that is off admits everyone and says so, and a stale key in a section an operator has already
+  turned off must not stop a server that booted yesterday. A file that parses but whose
+  `gated-items` cannot be turned into a gate table at all now stops the plugin too, for the same
+  reason a tier collision does. `/asr reload` is unchanged in every case — the configuration already
+  running stays live and the plugin is never disabled — and a reload that would not survive a
+  restart now says so in the log rather than waiting for the restart to say it.
 
 ### Fixed
 - `DIAMOND` is gated. `DIAMOND_*` has no trailing underscore to match the gem itself, so every tool made from a diamond was gated while the diamond was not.

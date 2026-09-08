@@ -14,6 +14,20 @@ profile: SMP_STANDARD
 # at runtime rather than enforced, so a gate naming one would report itself armed and let
 # every player through. To require no advancement, write an empty list: [].
 #
+# Two qualifications, so this does not read as a wider promise than it is:
+#
+#   * It applies to gates that are switched ON. A bad key inside a section whose "enabled"
+#     is false -- or under item-progression when that is false, or under
+#     villager-progression when gate-mending-trade is false -- is a WARNING. A gate that
+#     is off admits everyone and says so, so it is not gating the plugin fails to apply,
+#     and a stale key in a section you have already turned off must not stop your server.
+#     Turning that section back on with the key unchanged is what then fails, at the next
+#     start.
+#   * It does not yet catch every way a requirement can go missing. Writing
+#     require-advancements as a single value instead of a list still warns rather than
+#     errors, and gate-mending-trade: true with a blank required-advancement is a gate
+#     that is on and requires nothing, with no warning at all. Both are issue #92.
+#
 # What a rejected file costs depends on WHEN it is rejected, so check the log:
 #
 #   /asr reload  - nothing changes. The configuration already running stays live, item
@@ -21,8 +35,10 @@ profile: SMP_STANDARD
 #   server start - there is no previous configuration to keep, so what happens depends on
 #                  how the file is wrong, and the SEVERE line above the outcome says which:
 #
-#                  * A bad advancement key, or a require-advancements list whose entries
-#                    all name nothing, STOPS THE PLUGIN. It does not start on defaults,
+#                  * A bad advancement key under a gate that is switched on, or a
+#                    require-advancements list whose entries all name nothing under one,
+#                    STOPS THE PLUGIN. So does a file that parses but whose gated-items
+#                    cannot be turned into a gate table at all. It does not start on defaults,
 #                    because those defaults declare NO gated item tiers -- so booting on
 #                    them would turn item gating off across the whole server over one
 #                    typo, which is the ungated-but-armed failure this file is read

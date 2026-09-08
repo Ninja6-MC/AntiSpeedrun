@@ -33,6 +33,14 @@ import java.util.Optional;
  * to say out loud. A document that cannot be parsed at all still lands on {@link #defaults()} and
  * still starts, with that warning logged. Nothing about either path is silent.
  *
+ * <p>Two limits on the first arm, so it is not read as a guarantee it does not yet make. It applies
+ * to gates that are switched <em>on</em>: a bad key under {@code enabled: false}, under
+ * {@code item-progression.enabled: false}, or under {@code gate-mending-trade: false} is a warning,
+ * because a gate that is off gates nothing either way and a stale key in a section the operator has
+ * already turned off must not refuse a boot. And it does not yet catch a
+ * {@code require-advancements} written as a scalar, or {@code gate-mending-trade: true} beside a
+ * blank {@code required-advancement}; both are #92.
+ *
  * <p>Values here are modelled exactly as {@code config.yml} states them. Match patterns are kept
  * as raw strings: compiling them into material sets is Task 4.2.1's job, not this type's.
  *
@@ -173,11 +181,15 @@ public record PluginConfig(
             throws ConfigLoadException {
         r.expect("enabled", "require-playtime-hours", "require-account-age-days",
                 "require-advancements", "rejection-message");
+        // Read first, and handed to the key reader: a disabled gate admits everyone and says so,
+        // so a key it names is not gating this server would fail to enforce and must not be able
+        // to refuse a boot. See ConfigReader#advancementKeys(String, List, boolean).
+        boolean enabled = r.bool("enabled", true);
         return new DimensionGate(
-                r.bool("enabled", true),
+                enabled,
                 r.decimal("require-playtime-hours", 0.0D),
                 r.integer("require-account-age-days", 0),
-                r.advancementKeys("require-advancements", defaultAdvancements),
+                r.advancementKeys("require-advancements", defaultAdvancements, enabled),
                 r.string("rejection-message", defaultRejection));
     }
 
@@ -189,13 +201,17 @@ public record PluginConfig(
         r.expect("enabled", "drop-recall-enabled", "gate-dispensers", "gate-nested-bundles",
                 "feedback-cooldown-seconds", "rejection-message", "gated-items");
 
+        // Read before the tiers, and handed to each of them: item-progression.enabled: false gates
+        // no item at all, so a key a tier names under it is not gating this server would fail to
+        // enforce and must not be able to refuse a boot.
+        boolean enabled = r.bool("enabled", true);
+
         ConfigReader tiers = r.child("gated-items");
         List<ItemTier> parsed = new ArrayList<>();
         for (String id : tiers.keys()) {
-            parsed.add(parseItemTier(id, tiers.child(id)));
+            parsed.add(parseItemTier(id, tiers.child(id), enabled));
         }
 
-        boolean enabled = r.bool("enabled", true);
         if (enabled && parsed.isEmpty()) {
             // gated-items is the one section with no code-level default, so this combination is
             // exactly what defaults() produces -- and defaults() is the startup fallback when
@@ -217,7 +233,8 @@ public record PluginConfig(
                 parsed);
     }
 
-    private static ItemTier parseItemTier(String id, ConfigReader r) throws ConfigLoadException {
+    private static ItemTier parseItemTier(String id, ConfigReader r, boolean enforced)
+            throws ConfigLoadException {
         r.expect("match-patterns", "exclude-materials", "items", "require-advancements",
                 "require-playtime-hours", "require-account-age-days", "hint");
         return new ItemTier(
@@ -225,7 +242,7 @@ public record PluginConfig(
                 r.strings("match-patterns", List.of()),
                 r.strings("exclude-materials", List.of()),
                 r.strings("items", List.of()),
-                r.advancementKeys("require-advancements", List.of()),
+                r.advancementKeys("require-advancements", List.of(), enforced),
                 r.decimal("require-playtime-hours", 0.0D),
                 r.integer("require-account-age-days", 0),
                 r.string("hint", ""));
@@ -315,9 +332,13 @@ public record PluginConfig(
     private static VillagerProgression parseVillagerProgression(ConfigReader r)
             throws ConfigLoadException {
         r.expect("gate-mending-trade", "required-advancement");
+        // gate-mending-trade defaults to false, so this is the section most likely to carry a key
+        // nothing reads. It must not be able to refuse a boot while the gate is off.
+        boolean gated = r.bool("gate-mending-trade", false);
         return new VillagerProgression(
-                r.bool("gate-mending-trade", false),
-                r.advancementKey("required-advancement", "minecraft:story/cure_zombie_villager"));
+                gated,
+                r.advancementKey("required-advancement", "minecraft:story/cure_zombie_villager",
+                        gated));
     }
 
     // ---------------------------------------------------------------------------------------

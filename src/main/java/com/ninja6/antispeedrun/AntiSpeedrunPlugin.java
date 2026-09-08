@@ -335,7 +335,18 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      *         outcomes {@link ReloadOutcome#stopsStartup()} names.
      */
     public boolean reloadConfiguration() {
-        return applyConfiguration() == ReloadOutcome.APPLIED;
+        ReloadOutcome outcome = applyConfiguration();
+        if (outcome.stopsStartup()) {
+            // Survivable here and only here. The running configuration is now the newer of the two
+            // in the sense that matters: it is the one that works, and the file on disk would not
+            // get this server up again. Without this line the refusal is silent until the next
+            // restart, which may be weeks away and will not be connected to this reload.
+            getLogger().warning("config.yml on disk is now in a state AntiSpeedrun refuses to "
+                    + "START on, so this server is running a configuration that would not survive "
+                    + "a restart: the next start would disable the plugin rather than reach the "
+                    + "state it is in now. Fix config.yml before the next restart, not after it.");
+        }
+        return outcome == ReloadOutcome.APPLIED;
     }
 
     /**
@@ -372,7 +383,17 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 + "worse than not starting. Fix config.yml and restart."),
         /** The file parsed but its tiers collide; nothing changed. Fatal at startup. */
         GATES_REJECTED("AntiSpeedrun will not start while item-progression.gated-items contains an "
-                + "unresolvable tier collision. Fix config.yml and restart.");
+                + "unresolvable tier collision. Fix config.yml and restart."),
+        /**
+         * The file parsed but the item gate table could not be built from it, for a reason that
+         * was not a tier collision; nothing changed. Fatal at startup, for the same reason a
+         * collision is: the file described gating and this server could not produce it.
+         */
+        GATES_UNBUILDABLE("AntiSpeedrun will not start: config.yml parsed, but the item gate table "
+                + "could not be built from it. The failure is logged above. The file describes "
+                + "gating, so starting on the shipped defaults instead would turn item gating off "
+                + "across the whole server while every gate still reported itself armed. Fix "
+                + "config.yml and restart.");
 
         private final String startupRefusal;
 
@@ -408,9 +429,17 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      *
      * <p>Separated from {@link #applyConfiguration()} because it is the whole of the #91 decision
      * and it is pure: a collision reported by the binding, otherwise the type of the rejection the
-     * holder handed back. A rejection of {@code null} — the binding threw something that was not a
-     * collision — is the unclassifiable case and takes the survivable arm, since nothing has
-     * established that the file describes an unenforceable gate.
+     * holder handed back.
+     *
+     * <p>A rejection of {@code null} means the holder never rejected the document — it parsed —
+     * and the binding is what failed, with something other than a collision. That case is fatal
+     * too, and deliberately so. The fallback exists for a file that describes no gating, and the
+     * file having parsed <em>is</em> the establishment that it describes some: it named tiers this
+     * server then could not turn into a gate table. Landing on {@link PluginConfig#defaults()}
+     * there declares no tiers at all, which is item gating off server-wide for a file that asked
+     * for it — the same armed-but-permissive outcome #91 exists to remove, reached through the
+     * least-understood path of the three. An unclassifiable failure is the last place to guess
+     * permissive.
      *
      * @param collided  whether the gate compiler rejected the candidate over a tier collision
      * @param rejection the failure that rejected the document, or {@code null} if the document
@@ -419,6 +448,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     static ReloadOutcome rejectionOutcome(boolean collided, ConfigLoadException rejection) {
         if (collided) {
             return ReloadOutcome.GATES_REJECTED;
+        }
+        if (rejection == null) {
+            return ReloadOutcome.GATES_UNBUILDABLE;
         }
         return rejection instanceof UnenforceableGateException
                 ? ReloadOutcome.GATE_UNENFORCEABLE

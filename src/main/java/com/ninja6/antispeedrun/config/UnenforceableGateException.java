@@ -24,9 +24,30 @@ package com.ninja6.antispeedrun.config;
  *       the plugin, exactly as an unresolvable tier collision already does.</li>
  * </ul>
  *
- * <p>The principle both arms share, stated once: <strong>the plugin refuses to start when the file
- * describes gating it cannot enforce, and falls back to the defaults only when the file describes
- * no gating at all.</strong>
+ * <p>The principle both arms share, stated once: <strong>where the plugin can tell that the file
+ * describes gating it could not enforce, it refuses to start rather than fall back to the
+ * defaults.</strong> The fallback is for a file that describes no gating at all.
+ *
+ * <h2>What this does not cover</h2>
+ *
+ * <p>Stated as a limit rather than left to be discovered, because the sentence above reads like a
+ * guarantee and is not yet one. Two ways of writing a requirement still disarm a gate without
+ * reaching this exception, so a file can describe gating this server will not apply and start
+ * anyway:
+ *
+ * <ul>
+ *   <li>{@code require-advancements} written as a scalar rather than a list falls back through
+ *       {@code ConfigReader#stringList} to the default on a warning, which can arm a tier with no
+ *       requirement.</li>
+ *   <li>{@code gate-mending-trade: true} with a blank {@code required-advancement} is a gate that
+ *       is on and requires nothing, and warns about neither half, because each half is legitimate
+ *       on its own.</li>
+ * </ul>
+ *
+ * <p>Both are #92 and are fixed there, not here; this class covers the unresolvable key and the
+ * self-emptying list. A third exemption is deliberate and stays: a gate whose {@code enabled} flag
+ * is {@code false} claims nothing, so an unresolvable key inside it is a warning rather than a
+ * refusal to boot — see {@code ConfigReader#advancementKeys(String, java.util.List, boolean)}.
  */
 public class UnenforceableGateException extends ConfigLoadException {
 

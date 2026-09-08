@@ -29,6 +29,14 @@ import java.util.Set;
  * <strong>This is deliberate and it is the fail-closed choice</strong>, decided on #83 against the
  * alternative of dropping the requirement with a warning.
  *
+ * <p>Two boundaries on that, because the sentence above is easy to read as wider than it is. It
+ * applies only to a gate that is switched <em>on</em> — the {@code enforced} overloads take the
+ * flag, and a gate that is off claims nothing, so a stale key inside it is a warning rather than a
+ * refused document. And it is not yet every route by which a requirement can go missing: a
+ * {@code require-advancements} written as a scalar falls back through {@link #stringList} on a
+ * warning, and {@code gate-mending-trade: true} beside a blank {@code required-advancement} warns
+ * on neither half. Those two are #92 and are fixed there.
+ *
  * <p><strong>What "rejected" costs differs between a reload and a boot, and the difference is why
  * the exception is a named subtype.</strong> On {@code /asr reload} the previously loaded
  * configuration and everything derived from it stay live, so nothing is disarmed and the rule is
@@ -280,6 +288,29 @@ final class ConfigReader {
      *                                    unusable
      */
     List<String> advancementKeys(String key, List<String> def) throws ConfigLoadException {
+        return advancementKeys(key, def, true);
+    }
+
+    /**
+     * As {@link #advancementKeys(String, List)}, but fatal only when the gate that reads this list
+     * is switched on.
+     *
+     * <p>The strictness exists to stop a gate reporting itself armed while admitting everyone. A
+     * gate whose {@code enabled} flag is {@code false} makes no such claim: it admits everyone and
+     * says so, so a key it names gates nothing either way and there is no unenforceable gating for
+     * the plugin to refuse to start over. Reading it strictly anyway would mean a server that
+     * booted yesterday refusing to boot today because of a stale key inside a section the operator
+     * has already turned off — a false refusal, and a much worse one at startup than at reload.
+     *
+     * <p>The key is still normalised and still warned about, because switching the section back on
+     * is exactly when the operator needs to know, and because that flip is then the thing that
+     * fails rather than something unrelated much later.
+     *
+     * @param enforced whether the gate reading this list is switched on. {@code false} downgrades
+     *                 every fatal case here to a warning and drops the unusable entries
+     */
+    List<String> advancementKeys(String key, List<String> def, boolean enforced)
+            throws ConfigLoadException {
         StringList configured = stringList(key, def);
         List<String> canonical = new ArrayList<>(configured.values().size());
         for (String entry : configured.values()) {
@@ -287,21 +318,26 @@ final class ConfigReader {
             if (normalised.isEmpty()) {
                 continue;
             }
-            requireResolvable(key, entry, normalised);
+            if (!AdvancementKeys.isResolvable(normalised)) {
+                requireResolvable(key, entry, normalised, enforced);
+                continue;
+            }
             canonical.add(normalised);
         }
         StringList surviving = new StringList(canonical, configured.declared());
         if (surviving.dropped() > 0) {
-            requireSomethingLeft(key, surviving);
+            requireSomethingLeft(key, surviving, enforced);
         }
         return surviving.values();
     }
 
     /**
-     * Decides what a dropped entry costs: a warning when the list still requires something, and a
-     * rejected document when it no longer does.
+     * Decides what a dropped entry costs: a warning when the list still requires something or the
+     * gate reading it is switched off, and a rejected document when a live gate is left requiring
+     * nothing.
      */
-    private void requireSomethingLeft(String key, StringList surviving) throws ConfigLoadException {
+    private void requireSomethingLeft(String key, StringList surviving, boolean enforced)
+            throws ConfigLoadException {
         int dropped = surviving.dropped();
         int kept = surviving.values().size();
         if (!surviving.emptiedItself()) {
@@ -310,6 +346,15 @@ final class ConfigReader {
                     + kept + " remaining " + (kept == 1 ? "entry is" : "entries are")
                     + " still required, so nothing was disarmed. Remove the empty list "
                     + (dropped == 1 ? "item" : "items") + ", or name an advancement.");
+            return;
+        }
+        if (!enforced) {
+            warnings.add(qualify(key) + ": all " + dropped + " entr"
+                    + (dropped == 1 ? "y names" : "ies name") + " no advancement, so this list "
+                    + "requires nothing at all. That is tolerated only because the gate reading it "
+                    + "is switched off; switching it on with this list unchanged will stop the "
+                    + "plugin at the next start. Name an advancement, or write the empty list "
+                    + "\"[]\" if no advancement is meant to be required.");
             return;
         }
         throw new UnenforceableGateException(qualify(key) + ": all " + dropped + " entr"
@@ -335,18 +380,42 @@ final class ConfigReader {
      *                                    key
      */
     String advancementKey(String key, String def) throws ConfigLoadException {
+        return advancementKey(key, def, true);
+    }
+
+    /**
+     * As {@link #advancementKey(String, String)}, but fatal only when the gate that reads this key
+     * is switched on. See {@link #advancementKeys(String, List, boolean)} for why a switched-off
+     * gate describes no gating and so cannot describe gating this server would fail to enforce.
+     *
+     * @param enforced whether the gate reading this key is switched on. {@code false} downgrades
+     *                 an unresolvable key to a warning and reads it as no requirement
+     */
+    String advancementKey(String key, String def, boolean enforced) throws ConfigLoadException {
         String configured = string(key, def);
         String normalised = AdvancementKeys.canonical(configured);
         if (normalised.isEmpty()) {
             return "";
         }
-        requireResolvable(key, configured, normalised);
+        if (!AdvancementKeys.isResolvable(normalised)) {
+            requireResolvable(key, configured, normalised, enforced);
+            return "";
+        }
         return normalised;
     }
 
-    private void requireResolvable(String key, String configured, String normalised)
-            throws ConfigLoadException {
-        if (AdvancementKeys.isResolvable(normalised)) {
+    /**
+     * Rejects an unresolvable key, or — when the gate reading it is switched off — records it as a
+     * warning and lets the caller drop it.
+     */
+    private void requireResolvable(String key, String configured, String normalised,
+            boolean enforced) throws ConfigLoadException {
+        if (!enforced) {
+            warnings.add(qualify(key) + ": \"" + configured + "\" is not an advancement key this "
+                    + "server can resolve (read as \"" + normalised + "\"), so it was dropped. "
+                    + "That is a warning rather than an error only because the gate reading it is "
+                    + "switched off and so gates nothing either way; switching it on with this key "
+                    + "unchanged will stop the plugin at the next start. Fix the spelling.");
             return;
         }
         throw new UnenforceableGateException(qualify(key) + ": \"" + configured + "\" is not an advancement "
