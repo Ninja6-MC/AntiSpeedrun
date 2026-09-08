@@ -30,6 +30,7 @@ import com.ninja6.antispeedrun.progression.UnlockWatch;
 import com.ninja6.antispeedrun.storage.BypassStore;
 import com.ninja6.antispeedrun.storage.DimensionUnlockStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
+import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
 import com.ninja6.antispeedrun.storage.YamlStateFile;
 
 /**
@@ -145,8 +146,13 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         }
 
         this.playerState = new PlayerStateRegistry();
+        // The announced-milestone record lives in each player's PDC, so it needs nothing but this
+        // plugin instance and can be built here, ahead of the file-backed stores below. Without it
+        // a gate cleared by require-account-age-days while the player was offline is never
+        // announced to them at all -- see ProgressionManager#announceUnlocksClearedWhileAway (#84).
         this.progression = new ProgressionManager(
-                getLogger(), new BukkitAdvancementLookup(getLogger()), playerState);
+                getLogger(), new BukkitAdvancementLookup(getLogger()), playerState,
+                new PlayerAnnouncedUnlockStore(this));
         this.progressionListener = new ProgressionListener(this, progression);
         getServer().getPluginManager().registerEvents(progressionListener, this);
 
