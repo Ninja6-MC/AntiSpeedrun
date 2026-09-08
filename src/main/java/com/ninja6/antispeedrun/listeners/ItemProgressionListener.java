@@ -63,11 +63,20 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *
  * <p>A drag only ever moves items <em>from</em> the cursor <em>into</em> slots, so it cannot take
  * anything out of a container. For it to matter, the cursor would have to be holding a gated stack
- * taken from the container — and it cannot be. Every gesture that could load it that way is refused
- * above: {@code DIRECT}, {@code QUICK_MOVE} and {@code HOTBAR_SWAP} on a top slot all name the
- * clicked slot, and {@code COLLECT_TO_CURSOR} names the cursor wherever it was clicked. A cursor
- * that reaches a drag with a gated stack on it was therefore loaded from the player's own
- * inventory, and every drag a handler could cancel would be a deposit or an own-inventory move.
+ * taken from the container, and every <em>click</em> that could load it that way is refused in
+ * {@link #onInventoryClick}: {@code DIRECT}, {@code QUICK_MOVE} and {@code HOTBAR_SWAP} on a top
+ * slot all name the clicked slot, and {@code COLLECT_TO_CURSOR} names the cursor wherever it was
+ * clicked. So in ordinary play a cursor reaching a drag with a gated stack on it was loaded from
+ * the player's own inventory, and every drag a handler could cancel would be a deposit or an
+ * own-inventory move.
+ *
+ * <p>"Ordinary play" rather than "always", because there is one exception and stating the argument
+ * without it would be overclaiming: {@code PICKUP_FROM_BUNDLE} takes a gated stack out of a bundle
+ * sitting in a container without ever being tested, for the reason
+ * {@link InventoryGestures} sets out. It does not change the conclusion — a handler that refused
+ * only drags spanning both halves would let that player scatter the stack within their own
+ * inventory anyway, so keeping one would have stopped nothing — but the gap is real until #15
+ * closes it, and this paragraph is the sole justification for dropping a handler #9 named.
  *
  * <p>An earlier revision had one anyway, and it went wrong in both directions before it was
  * removed: first refusing a player tidying their own inventory, then — narrowed to drags spanning

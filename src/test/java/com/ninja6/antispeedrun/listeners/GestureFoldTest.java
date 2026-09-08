@@ -110,20 +110,31 @@ class GestureFoldTest {
         }
 
         /**
-         * Exhaustive rather than sampled, because the arm is a list of constants and the failure
-         * mode is somebody adding one to it. Every action that is not a {@code PLACE_*} or
-         * {@code NOTHING} must leave the fold to the click type.
+         * Exhaustive rather than sampled, because both arms are lists of constants and the failure
+         * mode is somebody adding one to either. Only the three {@code PLACE_*} actions may produce
+         * a {@code DEPOSIT}, and no click type may produce one on its own.
+         *
+         * <p>Both enums are swept, not just the actions. Fixing the click type would constrain the
+         * action arm alone, and a {@code case MIDDLE -> DEPOSIT} slipped into the click switch would
+         * pass every assertion in this file — which is the same shape of gap that let the original
+         * deposit defect through.
          */
         @Test
-        @DisplayName("no other action anywhere in the API resolves to a deposit")
+        @DisplayName("no other action or click type anywhere in the API resolves to a deposit")
         void onlyPlaceActionsDeposit() {
             for (InventoryAction action : InventoryAction.values()) {
                 boolean isPlace = action == InventoryAction.PLACE_ALL
                         || action == InventoryAction.PLACE_SOME
                         || action == InventoryAction.PLACE_ONE;
-                if (!isPlace) {
-                    assertNotEquals(Gesture.DEPOSIT, of(action, ClickType.LEFT),
-                            action + " must not be classified as a deposit");
+                for (ClickType click : ClickType.values()) {
+                    Gesture gesture = of(action, click);
+                    if (isPlace) {
+                        assertEquals(Gesture.DEPOSIT, gesture,
+                                action + " with " + click + " must be a deposit");
+                    } else {
+                        assertNotEquals(Gesture.DEPOSIT, gesture,
+                                action + " with " + click + " must not be a deposit");
+                    }
                 }
             }
         }
