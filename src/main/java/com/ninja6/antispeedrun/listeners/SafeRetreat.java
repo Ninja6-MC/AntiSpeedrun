@@ -129,8 +129,11 @@ public final class SafeRetreat {
         boolean isSolid(int x, int y, int z);
 
         /**
-         * Whether standing in or on this block would hurt. Lava and water (drowning), fire, and the
-         * handful of blocks that damage on contact.
+         * Whether this block disqualifies the space it occupies as somewhere to put a rider.
+         * Chiefly harm — lava and water (drowning), fire, and the handful of blocks that damage on
+         * contact — but an implementation may also refuse a block that is merely a bad place to
+         * arrive. The listener's does: it counts a portal block, on the reasoning that setting a
+         * refused rider down inside the portal hands them the transit again.
          *
          * <p>Separate from {@link #isPassable} because the two disagree exactly where it matters:
          * every hazard worth naming here is passable, which is what made an earlier revision of

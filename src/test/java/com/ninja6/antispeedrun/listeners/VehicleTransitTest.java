@@ -145,6 +145,17 @@ class VehicleTransitTest {
          * <p>The order is the entire subject of the test, so it is spelled out rather than helped:
          * triage, then capture each ejected rider's return point <em>while they are still in the
          * source dimension</em>, then let the transit happen, then run the deferred ejections.
+         *
+         * <p><strong>This is a mirror, and the listener owns the original.</strong> A {@code
+         * Player} cannot be constructed off a server, so this cannot call {@code
+         * ProgressionGateListener#ejectAndReposition}; it re-enacts that method's sequence instead.
+         * The consequence is worth being blunt about: restoring the old, defective ordering
+         * <em>here</em> makes these tests fail, but restoring it in the listener would not, because
+         * the listener is not what runs. So the two are kept in step by hand — a change to
+         * {@code ejectAndReposition}'s sequence must be made here in the same commit, and that
+         * method's javadoc says so from the other side. {@link #returnPointIsCapturedEagerly} is
+         * the assertion that does bear on production code directly, pinning
+         * {@link VehicleTransit#orders} rather than this re-enactment.
          */
         private void runTransit(List<Rider> riders) {
             VehicleTransit.Plan<Rider> plan = VehicleTransit.plan(riders, rider -> !rider.qualified);
