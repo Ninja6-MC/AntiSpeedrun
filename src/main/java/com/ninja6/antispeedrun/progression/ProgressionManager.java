@@ -43,7 +43,8 @@ import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
  * Quit cleanup is {@link PlayerStateRegistry#forget(UUID)} on {@code PlayerQuitEvent}, and it runs
  * once. Any per-player entry written <em>after</em> it therefore has nothing left to remove it and
  * survives to {@code onDisable}. Every method here that writes to a per-player map — {@link
- * #evaluate}, {@link #primeUnlocks} and {@link #announceNewUnlocks} — consequently checks
+ * #evaluate}, {@link #primeUnlocks}, {@link #announceUnlocksClearedWhileAway} and {@link
+ * #announceNewUnlocks} — consequently checks
  * {@code Player#isOnline()} first and declines to store rather than trusting its caller. The check
  * costs a field read on paths that already do a map lookup, and it is what makes {@link UnlockWatch}
  * safe: a scheduled task is the one kind of caller that can outlive the player it holds, and the
@@ -91,10 +92,22 @@ public final class ProgressionManager {
 
     /**
      * Milestone ids each player has already been told about, so an unlock is announced once and not
-     * on every subsequent advancement. Primed silently on join; #57 will persist it, at which point
-     * a player who unlocks the Nether and rejoins will still not be re-congratulated.
+     * on every subsequent advancement.
+     *
+     * <p>Session-scoped, and dropped on quit with every other per-player row. The durable copy is
+     * {@link #durable}, which is what lets a join tell a gate cleared while the player was away from
+     * one they cleared weeks ago (#84).
      */
     private final PlayerStateMap<Set<String>> announced;
+
+    /**
+     * Where that set survives a session, so a gate cleared while the player was offline can be told
+     * apart from one they cleared weeks ago (issue #84).
+     *
+     * <p>{@link AnnouncedUnlockStore#NONE} when the manager is built without persistence, which
+     * makes {@link #announceUnlocksClearedWhileAway} behave exactly as {@link #primeUnlocks} does.
+     */
+    private final AnnouncedUnlockStore durable;
 
     /**
      * Players already counted against the R-15 "no first-join recorded" warning.
@@ -126,20 +139,37 @@ public final class ProgressionManager {
      *                    cleanup covers them without this class owning a quit hook
      * @param timeToLive  how long a captured snapshot stays usable; see {@link ProgressionCache}
      * @param clock       wall-clock milliseconds; {@code System::currentTimeMillis} in production
+     * @param durable     where the announced set persists between sessions;
+     *                    {@link AnnouncedUnlockStore#NONE} for a manager that should stay silent on
+     *                    join, as it was before #84
      */
     public ProgressionManager(Logger logger, AdvancementLookup advancements, PlayerStateRegistry state,
-                              Duration timeToLive, Supplier<Long> clock) {
+                              Duration timeToLive, Supplier<Long> clock, AnnouncedUnlockStore durable) {
         this.logger = Objects.requireNonNull(logger, "logger");
         this.advancements = Objects.requireNonNull(advancements, "advancements");
         this.state = Objects.requireNonNull(state, "state");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.durable = Objects.requireNonNull(durable, "durable");
         this.cache = new ProgressionCache(state, timeToLive, clock);
         this.announced = state.register("progression-announced-milestones");
     }
 
+    /** As above, with no durable announced set. */
+    public ProgressionManager(Logger logger, AdvancementLookup advancements, PlayerStateRegistry state,
+                              Duration timeToLive, Supplier<Long> clock) {
+        this(logger, advancements, state, timeToLive, clock, AnnouncedUnlockStore.NONE);
+    }
+
     /** A manager on the default cache time-to-live and the system clock. */
+    public ProgressionManager(Logger logger, AdvancementLookup advancements, PlayerStateRegistry state,
+                              AnnouncedUnlockStore durable) {
+        this(logger, advancements, state, ProgressionCache.DEFAULT_TIME_TO_LIVE,
+                System::currentTimeMillis, durable);
+    }
+
+    /** As above, with no durable announced set. */
     public ProgressionManager(Logger logger, AdvancementLookup advancements, PlayerStateRegistry state) {
-        this(logger, advancements, state, ProgressionCache.DEFAULT_TIME_TO_LIVE, System::currentTimeMillis);
+        this(logger, advancements, state, AnnouncedUnlockStore.NONE);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -332,15 +362,69 @@ public final class ProgressionManager {
     /**
      * Records which milestones the player already satisfies, <em>without</em> announcing them.
      *
-     * <p>Called on join, on {@code /asr reload}, and for players already online when the plugin
-     * enables. Without it the next advancement earned would announce every gate the player cleared
-     * weeks ago.
+     * <p>Called on {@code /asr reload} and for players already online when the plugin enables —
+     * neither of which is a moment the player has arrived at anything, so neither says anything.
+     * Without it the next advancement earned would announce every gate the player cleared weeks ago.
+     *
+     * <p>The join path is {@link #announceUnlocksClearedWhileAway} instead, which does the same
+     * bookkeeping and then says what the durable record says is new.
      */
     public void primeUnlocks(Player player, PluginConfig config) {
         if (!player.isOnline()) {
             return;
         }
         announced.put(player.getUniqueId(), eligibleIds(player, config));
+    }
+
+    /**
+     * The join path: records what the player satisfies, and announces whatever they have not been
+     * told about before.
+     *
+     * <p>Issue #84. A gate whose last outstanding requirement is {@code require-account-age-days}
+     * clears while the player is offline — tenure advances whether they are logged in or not — so
+     * neither {@code PlayerAdvancementDoneEvent} nor {@link UnlockWatch} can ever announce it: by
+     * the time they log back in, the gate is already open and the silent prime has already recorded
+     * it. The only way to tell that apart from a gate cleared weeks ago is to know what the player
+     * was last told, which is what {@link AnnouncedUnlockStore} persists.
+     *
+     * <p>A player with no persisted record at all is primed silently and told nothing, so installing
+     * the feature on an established server does not congratulate its whole population at once. The
+     * reasoning is in {@link AnnouncedUnlocks}.
+     *
+     * <p>Reads and writes the player's persisted record, so it carries the same threading rule as
+     * everything else here — call it from a handler for this player, or from a task on their
+     * {@code EntityScheduler}.
+     *
+     * @return the milestones announced, in configured order; empty when nothing was
+     */
+    public List<Milestone> announceUnlocksClearedWhileAway(Player player, PluginConfig config) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(config, "config");
+        if (!player.isOnline()) {
+            return List.of();
+        }
+
+        List<Milestone> eligible = eligibleMilestones(player, config);
+        List<String> eligibleIds = new ArrayList<>(eligible.size());
+        for (Milestone milestone : eligible) {
+            eligibleIds.add(milestone.id());
+        }
+
+        AnnouncedUnlocks decision = AnnouncedUnlocks.onJoin(durable.load(player), eligibleIds);
+
+        Set<String> nowEligible = ConcurrentHashMap.newKeySet();
+        nowEligible.addAll(eligibleIds);
+        announced.put(player.getUniqueId(), nowEligible);
+        durable.save(player, decision.record());
+
+        List<Milestone> announcedNow = new ArrayList<>();
+        for (Milestone milestone : eligible) {
+            if (decision.announce().contains(milestone.id())) {
+                announce(player, milestone);
+                announcedNow.add(milestone);
+            }
+        }
+        return List.copyOf(announcedNow);
     }
 
     /**
@@ -351,7 +435,9 @@ public final class ProgressionManager {
      * the announcement lands in the same tick the advancement is earned — and from
      * {@link UnlockWatch}, which covers the gate whose last outstanding requirement is
      * {@code require-playtime-hours} or {@code require-account-age-days} and so has no event to
-     * fire on. Between the two, every requirement kind announces. There is still no global sweeper:
+     * fire on. The third trigger is {@link #announceUnlocksClearedWhileAway} on join, which is the
+     * only one that can cover a duration that elapsed while the player was not on the server at all.
+     * Between the three, every requirement kind announces. There is still no global sweeper:
      * the watch is a per-player {@code EntityScheduler} task, armed only while that player has such
      * a requirement outstanding, for the reason given in {@link ProgressionCache}.
      *
@@ -378,6 +464,10 @@ public final class ProgressionManager {
             }
         }
         announced.put(id, nowEligible);
+        // Persist alongside the in-memory set, so a gate announced this session is not announced a
+        // second time on the next join. Without this the durable record would only ever hold what
+        // the previous join saw, and every online unlock would repeat itself once more (#84).
+        durable.save(player, Set.copyOf(nowEligible));
 
         for (Milestone milestone : newlyUnlocked) {
             announce(player, milestone);
@@ -387,12 +477,21 @@ public final class ProgressionManager {
 
     private Set<String> eligibleIds(Player player, PluginConfig config) {
         Set<String> ids = ConcurrentHashMap.newKeySet();
-        for (Milestone milestone : Milestone.dimensionGates(config)) {
-            if (evaluate(player, config, milestone).eligible()) {
-                ids.add(milestone.id());
-            }
+        for (Milestone milestone : eligibleMilestones(player, config)) {
+            ids.add(milestone.id());
         }
         return ids;
+    }
+
+    /** The dimension gates this player currently satisfies, in configured order. */
+    private List<Milestone> eligibleMilestones(Player player, PluginConfig config) {
+        List<Milestone> eligible = new ArrayList<>();
+        for (Milestone milestone : Milestone.dimensionGates(config)) {
+            if (evaluate(player, config, milestone).eligible()) {
+                eligible.add(milestone);
+            }
+        }
+        return eligible;
     }
 
     private void announce(Player player, Milestone milestone) {

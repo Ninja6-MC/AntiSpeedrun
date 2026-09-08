@@ -14,6 +14,10 @@
  *       the two. No Bukkit types, so it is exercisable off-server.</li>
  *   <li>{@link com.ninja6.antispeedrun.progression.ProgressionManager} — the server-facing
  *       service that captures snapshots, caches them, and announces unlocks.</li>
+ *   <li>{@link com.ninja6.antispeedrun.progression.AnnouncedUnlocks} — what a join should announce,
+ *       given what the player satisfies now and what they were last told. Pure, like the evaluator,
+ *       and paired with {@link com.ninja6.antispeedrun.progression.AnnouncedUnlockStore}, which is
+ *       where "what they were last told" survives a session (#84).</li>
  *   <li>{@link com.ninja6.antispeedrun.progression.PlayerStateRegistry} — the one place per-player
  *       state is allowed to live, so that quit cleanup is not re-implemented per feature.</li>
  * </ul>
@@ -63,5 +67,10 @@
  *   <li><em>Playtime and account age</em> change continuously, so they are covered by a coarse
  *       time-to-live instead.</li>
  * </ul>
+ *
+ * <p>Account age also changes while nothing here is running at all, which is why announcements have
+ * a third trigger beside the advancement event and
+ * {@link com.ninja6.antispeedrun.progression.UnlockWatch}: the join itself, comparing what the
+ * player satisfies against the durable record of what they have been told (#84).</p>
  */
 package com.ninja6.antispeedrun.progression;
