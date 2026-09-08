@@ -74,6 +74,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `gate-natural-structure-chests`, `gate-player-placed-chests` and `gate-armor-stands` removed — each configured a distinction that no longer exists. `dropper-can-retrieve` and `death-drop-retrieval` collapse into `drop-recall-enabled`.
 - Mob item pickup is no longer intercepted; piglin bartering and Allay sorters are unaffected.
 - Soft-dependency matrix trimmed to Floodgate, the only optional integration the plugin consumes.
+- A `config.yml` that names an advancement key the server cannot resolve — or a
+  `require-advancements` list written with entries that all name nothing — now stops the plugin at
+  startup instead of starting it on the shipped defaults. Those defaults declare no gated item
+  tiers, so the old fallback turned item gating off server-wide over a single typo while every gate
+  still reported itself armed. A file that cannot be parsed at all is unchanged: it still falls back
+  to the defaults and the server still starts, because a file that says nothing describes no gating
+  to enforce. `/asr reload` is unchanged in both cases — the configuration already running stays
+  live and the plugin is never disabled.
 
 ### Fixed
 - `DIAMOND` is gated. `DIAMOND_*` has no trailing underscore to match the gem itself, so every tool made from a diamond was gated while the diamond was not.

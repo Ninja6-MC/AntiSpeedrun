@@ -23,13 +23,15 @@ import java.util.Optional;
  * for it would publish a gate that reports itself armed and lets everyone through. See
  * {@link ConfigReader} for that policy in full.
  *
- * <p>A rejected document never disables the plugin, and what it costs depends on when it is
- * rejected. On a reload the previous snapshot stays live and nothing changes — see
- * {@link ConfigSnapshotHolder}. At startup there is no previous snapshot, so {@link #defaults()}
- * stays live instead, and those defaults <strong>declare no item tiers</strong>: every dimension
- * gate runs on its shipped keys while item gating is off entirely, which is what the
- * {@code gated-items} warning below exists to say out loud. Both are logged; neither is silent.
- * Whether that startup arm should instead refuse to start is #91.
+ * <p>What a rejected document costs depends on when it is rejected. On a reload it costs nothing:
+ * the previous snapshot stays live, whatever the reason for the rejection, and the plugin is not
+ * disabled — see {@link ConfigSnapshotHolder}. At startup there is no previous snapshot, and #91
+ * split the two failures rather than treating them alike. A document naming a gate this server
+ * could not enforce is an {@link UnenforceableGateException} and the plugin refuses to start on it,
+ * because {@link #defaults()} <strong>declare no item tiers</strong> — landing there would run a
+ * server with item gating off entirely, which is what the {@code gated-items} warning below exists
+ * to say out loud. A document that cannot be parsed at all still lands on {@link #defaults()} and
+ * still starts, with that warning logged. Nothing about either path is silent.
  *
  * <p>Values here are modelled exactly as {@code config.yml} states them. Match patterns are kept
  * as raw strings: compiling them into material sets is Task 4.2.1's job, not this type's.

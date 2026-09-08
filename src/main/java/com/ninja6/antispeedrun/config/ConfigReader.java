@@ -22,25 +22,23 @@ import java.util.Set;
  * <h2>The one exception: an advancement key the server cannot resolve is fatal</h2>
  *
  * <p>{@link #advancementKey} and {@link #advancementKeys} do not fall back. A key that is still not
- * resolvable after {@link AdvancementKeys#canonical normalisation} throws {@link ConfigLoadException},
- * and so does a requirement list that is written with entries but has none left once the ones naming
- * no advancement are dropped — whether they were blank, or written with no value at all. Either
- * rejects the whole document and nothing is published. <strong>This is
- * deliberate and it is the fail-closed choice</strong>, decided on #83 against the alternative of
- * dropping the requirement with a warning.
+ * resolvable after {@link AdvancementKeys#canonical normalisation} throws
+ * {@link UnenforceableGateException}, and so does a requirement list that is written with entries
+ * but has none left once the ones naming no advancement are dropped — whether they were blank, or
+ * written with no value at all. Either rejects the whole document and nothing is published.
+ * <strong>This is deliberate and it is the fail-closed choice</strong>, decided on #83 against the
+ * alternative of dropping the requirement with a warning.
  *
- * <p><strong>What "rejected" costs differs between a reload and a boot, and the difference matters.
- * </strong> On {@code /asr reload} the previously loaded configuration and everything derived from
- * it stay live, so nothing is disarmed and the rule is closed end to end. At {@code onEnable} there
- * is no previous configuration: {@code AntiSpeedrunPlugin} starts on {@link PluginConfig#defaults()}
- * and its {@code CONFIG_REJECTED} arm leaves it there, logging loudly. Those defaults keep the
- * dimension gates armed on their shipped keys, but they declare <em>no item tiers</em>, so item
- * gating is off until the file is fixed. That is an amplification of one typo and it is not what
- * this policy wants; turning that arm into a refusal to start is a separate change against
- * {@code AntiSpeedrunPlugin}, and it collides with audit finding R-11's deliberate decision that a
- * malformed {@code config.yml} must not stop the server. That collision is #91, which carries the
- * options and is the maintainer's call. Until it is settled, the honest statement is the one above
- * rather than "the previous configuration stays live", which is true only of a reload.
+ * <p><strong>What "rejected" costs differs between a reload and a boot, and the difference is why
+ * the exception is a named subtype.</strong> On {@code /asr reload} the previously loaded
+ * configuration and everything derived from it stay live, so nothing is disarmed and the rule is
+ * closed end to end; the subtype changes nothing there. At {@code onEnable} there is no previous
+ * configuration to keep, and {@code AntiSpeedrunPlugin} refuses to start rather than fall back to
+ * {@link PluginConfig#defaults()} — which declare <em>no item tiers</em>, so booting on them would
+ * turn all item gating off over one typo, which is the same armed-but-permissive outcome this rule
+ * exists to prevent. A document that fails to parse at all keeps the fallback that audit finding
+ * R-11 asked for, because it describes no gating for the plugin to fail to enforce. That is the
+ * split decided on #91; {@link UnenforceableGateException} carries the reasoning in full.
  *
  * <p>The reasoning, so it is not re-argued: an unresolvable advancement is not a strict requirement,
  * it is <em>no</em> requirement. {@code BukkitAdvancementLookup} returns {@code UNRESOLVABLE} for a
@@ -260,8 +258,8 @@ final class ConfigReader {
      * something. A list that <em>empties itself</em> — written with entries, none of which survived
      * — is the outcome the fail-closed policy exists to prevent, reached by a different route: the
      * gate stays {@code enabled: true} with no requirement at all, which is a gate that reports
-     * itself armed and admits everyone. It takes the same {@link ConfigLoadException} arm as an
-     * unparseable key.
+     * itself armed and admits everyone. It takes the same {@link UnenforceableGateException} arm as
+     * an unresolvable key.
      *
      * <p>"Unusable" is deliberately wider than "blank", and the count is taken from what the
      * document declared rather than from what {@link #strings} handed back — see
@@ -277,8 +275,9 @@ final class ConfigReader {
      * advancement" and says it unambiguously; only a list that was written with entries and has none
      * left is a configuration the operator got wrong.
      *
-     * @throws ConfigLoadException naming the entry, if any entry is not a resolvable key, or if
-     *                             every entry of a non-empty list turned out to be unusable
+     * @throws UnenforceableGateException naming the entry, if any entry is not a resolvable key,
+     *                                    or if every entry of a non-empty list turned out to be
+     *                                    unusable
      */
     List<String> advancementKeys(String key, List<String> def) throws ConfigLoadException {
         StringList configured = stringList(key, def);
@@ -313,10 +312,12 @@ final class ConfigReader {
                     + (dropped == 1 ? "item" : "items") + ", or name an advancement.");
             return;
         }
-        throw new ConfigLoadException(qualify(key) + ": all " + dropped + " entr"
+        throw new UnenforceableGateException(qualify(key) + ": all " + dropped + " entr"
                 + (dropped == 1 ? "y names" : "ies name") + " no advancement, so this list requires "
                 + "nothing at all while still being written as a requirement. config.yml has NOT "
-                + "been applied. A gate left with no requirement admits every player while "
+                + "been applied: after a reload the configuration already running stays live, and "
+                + "at startup the plugin does not enable. A gate left with no requirement admits "
+                + "every player while "
                 + "reporting itself enabled, which is the failure this list is read strictly to "
                 + "prevent. An entry can end up naming nothing by being blank, or by being written "
                 + "with no value at all (a bare \"-\"). Name an advancement, or write the empty "
@@ -330,7 +331,8 @@ final class ConfigReader {
      * the key is how an operator switches the requirement off, and it is not a typo. Anything else
      * the server's key parser rejects is fatal.
      *
-     * @throws ConfigLoadException naming the value, if it is not blank and not a resolvable key
+     * @throws UnenforceableGateException naming the value, if it is not blank and not a resolvable
+     *                                    key
      */
     String advancementKey(String key, String def) throws ConfigLoadException {
         String configured = string(key, def);
@@ -347,10 +349,12 @@ final class ConfigReader {
         if (AdvancementKeys.isResolvable(normalised)) {
             return;
         }
-        throw new ConfigLoadException(qualify(key) + ": \"" + configured + "\" is not an advancement "
+        throw new UnenforceableGateException(qualify(key) + ": \"" + configured + "\" is not an advancement "
                 + "key this server can resolve (read as \"" + normalised + "\"; a key is "
                 + "namespace:path, lower case, using only a-z 0-9 / . _ and -). config.yml has NOT "
-                + "been applied. This is an error rather than a warning because an unresolvable "
+                + "been applied: after a reload the configuration already running stays live, and "
+                + "at startup the plugin does not enable. This is an error rather than a warning "
+                + "because an unresolvable "
                 + "advancement is waived at runtime, not enforced, so the gate that names it would "
                 + "silently let every player through. Fix the spelling and reload.");
     }
