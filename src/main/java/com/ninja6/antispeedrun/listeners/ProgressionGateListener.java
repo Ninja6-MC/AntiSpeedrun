@@ -131,15 +131,20 @@ public final class ProgressionGateListener implements Listener {
     /**
      * Blocks {@link #terrainOf} reports as unfit to be put down in, beyond the fluids
      * {@code Block#isLiquid} already covers. Not exhaustive and not trying to be — it is the
-     * handful an ejection two blocks from a portal could plausibly land in, and every one of them
-     * would otherwise satisfy the collision check.
+     * handful an ejection two blocks from a portal could plausibly land in. Most of them would
+     * otherwise satisfy the collision check; {@code END_PORTAL} is the exception, being solid
+     * enough already that {@code isPassable} refuses it without help, and it is listed for
+     * completeness beside the other two portal blocks rather than because it is load-bearing.
      *
      * <p>Two kinds of thing, and the second is the reason this is not simply called "hazards".
      * Most entries hurt: fire, powder snow, a cactus, a magma block one would stand <em>on</em>.
      * The three portal blocks do not hurt at all — they are here because a rider set down inside
      * the portal they were just refused is immediately offered the same transit again, and while
      * {@link #onPlayerPortal} does catch them on foot, the right answer is not to aim there in the
-     * first place. Cheap to exclude, and it removes the churn.
+     * first place. What this buys is narrow and worth stating plainly: wherever the search has
+     * another standable column to offer, it will no longer choose one occupied by a portal. It
+     * does not remove the churn in general, because {@link SafeRetreat#landing} falls back to the
+     * origin when it finds nowhere at all, and the origin is the portal mouth.
      */
     private static final Set<Material> UNFIT_LANDINGS = Set.of(
             Material.LAVA,
