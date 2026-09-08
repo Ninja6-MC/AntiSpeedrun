@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Item tier gates are now enforced. The compiled `item-progression.gated-items` table was
+  previously built on every reload and read by nothing; three channels now consult it. A player who
+  has not met a tier's requirements cannot pick a gated item up off the ground, take one out of a
+  container by an ordinary, shift, hotbar-swap, off-hand-swap, double-click-gather or drop click,
+  or buy one from a villager or wandering trader. The gate is waived by
+  `antispeedrun.bypass.items`, by an unexpired `/asr bypass` grant, or by setting
+  `item-progression.enabled: false`. Putting gated items *into* a container is never blocked,
+  including onto a slot that already holds a matching stack, and neither is moving them around
+  inside your own inventory — dragging included, since a drag only moves items out of the cursor
+  and the clicks that would load the cursor from a container are refused. Views that hand a
+  player's own item straight back — the crafting grid, a crafting table, and the anvil, smithing
+  table, grindstone, enchanting table, cartography table, loom and stonecutter — are untouched;
+  furnaces, brewing stands, Crafters and storage blocks are containers and are gated.
+  Bundle contents are **not** yet gated: an item pulled out of a bundle is not checked, which is
+  tracked separately and is why `gate-nested-bundles` still does nothing.
+- Drop recall, implementing `item-progression.drop-recall-enabled`, which until now was parsed and
+  read by nothing. A player may always re-collect an item entity they dropped or died with,
+  whatever its tier, so that gear held by administrative grant, gear predating installation, and
+  gear held under a since-revoked bypass is gated rather than confiscated. The stamp is written to
+  the item *entity*, never to an `ItemStack`, so it cannot be transferred, stockpiled or merged
+  into a stack — see `docs/provenance-model.md` §4.
 - Dimension gates are now enforced. A player who has not met the configured
   `dimension-gates.<dimension>.require-*` requirements cannot reach the Nether or the End on foot,
   as the passenger of a boat, minecart or camel, or by a cross-dimensional Ender pearl teleport.

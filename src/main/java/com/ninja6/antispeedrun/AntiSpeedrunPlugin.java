@@ -20,6 +20,7 @@ import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.gating.GateCollisionException;
 import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.gating.MaterialGates;
+import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
@@ -174,6 +175,12 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // would open a window in which a player walking into a portal during startup NPEs the
         // handler -- narrow, but the kind of window that only ever fires in production.
         getServer().getPluginManager().registerEvents(new ProgressionGateListener(this), this);
+
+        // The item gate, registered here for the same reason and with one of its own: it reads
+        // bypasses() on every pickup and every container click, and it reads itemGates(), which
+        // only holds a compiled table once applyConfiguration() above has run. Both are in place
+        // by this line.
+        getServer().getPluginManager().registerEvents(new ItemProgressionListener(this), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
