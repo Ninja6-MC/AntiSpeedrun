@@ -12,7 +12,10 @@
  * <ul>
  *   <li><strong>Per-player booleans go in the player's PDC</strong> —
  *       {@link com.ninja6.antispeedrun.storage.BypassStore} and
- *       {@link com.ninja6.antispeedrun.storage.JourneyBookStore}. The server already persists a
+ *       {@link com.ninja6.antispeedrun.storage.JourneyBookStore}, and the announced-milestone
+ *       record in {@link com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore} (#84), which is
+ *       a short delimited string rather than a boolean but belongs here for the same reasons. The
+ *       server already persists a
  *       {@code PersistentDataContainer} with the playerdata it writes anyway, so this needs no I/O
  *       layer of its own, no flush, no eviction and no per-player map — which also means there is
  *       nothing here to register with {@code PlayerStateRegistry} and nothing to leak on quit
