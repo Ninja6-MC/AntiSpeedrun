@@ -128,6 +128,39 @@ public final class ProgressionGateListener implements Listener {
     /** A small hop, so the nudge clears a block lip instead of grinding into it. */
     private static final double PUSHBACK_LIFT = 0.2D;
 
+    /**
+     * Blocks {@link #terrainOf} reports as unfit to be put down in, beyond the fluids
+     * {@code Block#isLiquid} already covers. Not exhaustive and not trying to be — it is the
+     * handful an ejection two blocks from a portal could plausibly land in. Most of them would
+     * otherwise satisfy the collision check; {@code END_PORTAL} is the exception, being solid
+     * enough already that {@code isPassable} refuses it without help, and it is listed for
+     * completeness beside the other two portal blocks rather than because it is load-bearing.
+     *
+     * <p>Two kinds of thing, and the second is the reason this is not simply called "hazards".
+     * Most entries hurt: fire, powder snow, a cactus, a magma block one would stand <em>on</em>.
+     * The three portal blocks do not hurt at all — they are here because a rider set down inside
+     * the portal they were just refused is immediately offered the same transit again, and while
+     * {@link #onPlayerPortal} does catch them on foot, the right answer is not to aim there in the
+     * first place. What this buys is narrow and worth stating plainly: wherever the search has
+     * another standable column to offer, it will no longer choose one occupied by a portal. It
+     * does not remove the churn in general, because {@link SafeRetreat#landing} falls back to the
+     * origin when it finds nowhere at all, and the origin is the portal mouth.
+     */
+    private static final Set<Material> UNFIT_LANDINGS = Set.of(
+            Material.LAVA,
+            Material.FIRE,
+            Material.SOUL_FIRE,
+            Material.CAMPFIRE,
+            Material.SOUL_CAMPFIRE,
+            Material.MAGMA_BLOCK,
+            Material.POWDER_SNOW,
+            Material.CACTUS,
+            Material.SWEET_BERRY_BUSH,
+            Material.WITHER_ROSE,
+            Material.NETHER_PORTAL,
+            Material.END_PORTAL,
+            Material.END_GATEWAY);
+
     private final AntiSpeedrunPlugin plugin;
 
     /**
@@ -161,6 +194,40 @@ public final class ProgressionGateListener implements Listener {
      * <p>{@code PlayerPortalEvent} has its own {@code HandlerList} despite extending
      * {@code PlayerTeleportEvent}, so {@link #onPlayerTeleport} does not also see this event and
      * the two cannot double-handle one transit.
+     *
+     * <h2>A mounted player, and why {@code willDismountPlayer()} is not consulted — #94</h2>
+     *
+     * The open question #93 left was whether this event fires for a player who is <em>riding</em>
+     * something, and therefore whether this handler and {@link #onEntityPortal} are two
+     * interception points for one transit or one of them is a hole. Both halves are now settled,
+     * against the API and against upstream rather than against the method name.
+     *
+     * <p><strong>{@code willDismountPlayer()} cannot answer it, on this API or any later one.</strong>
+     * On the pinned {@code paper-api 1.21.4} the backing {@code dismounted} field on
+     * {@code PlayerTeleportEvent} is assigned {@code true} by every one of its constructors and has
+     * no setter and no constructor parameter, so the method is a compile-time constant dressed as a
+     * question — every {@code PlayerPortalEvent} answers {@code true} regardless of what the server
+     * is about to do. Upstream agrees: it is deprecated for removal, with the note that
+     * <em>dismounting on teleport is no longer controlled by the server</em>. Reading it would add a
+     * branch that can never be taken.
+     *
+     * <p><strong>The transit itself is covered twice, not once.</strong> A passenger cannot start a
+     * portal transit of its own — vanilla's {@code Entity#canUsePortal} refuses an entity that is
+     * riding — so a mounted player only ever crosses because the <em>vehicle</em> crossed and
+     * carried them. On Paper that produces both events: {@link EntityPortalEvent} for the vehicle
+     * and this one for the passenger being taken along with it. So a mounted {@code
+     * PlayerPortalEvent} always has an {@code EntityPortalEvent} beside it, and there is no mounted
+     * case that reaches neither handler.
+     *
+     * <p>That is what makes {@link #pushBack}'s mounted early-return correct rather than merely
+     * harmless: the vehicle path is what actually separates a mounted rider from the portal, and a
+     * velocity nudge on a passenger would be inert even if it tried.
+     *
+     * <p>One upstream caveat, recorded so it is not rediscovered as a defect here: Folia's
+     * asynchronous portal path is reported not to fire <em>either</em> event for a vehicle carrying
+     * a passenger (PaperMC/Folia#453). That is a gap in the server, not in this listener — nothing
+     * this class could do differently would see a transit it is never told about — and it closes
+     * when upstream closes it.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerPortal(PlayerPortalEvent event) {
@@ -374,7 +441,9 @@ public final class ProgressionGateListener implements Listener {
         if (player.getVehicle() != null) {
             // Velocity applied to a passenger does nothing; the vehicle owns the movement. A
             // mounted player refused here has already been told why, and the vehicle path in
-            // onEntityPortal is what actually separates them from the portal.
+            // onEntityPortal is what actually separates them from the portal -- which it always
+            // gets the chance to do, because a passenger never starts a portal transit by itself.
+            // See onPlayerPortal's javadoc for #94's answer and the evidence behind it.
             return;
         }
         Vector travel = player.getVelocity();
@@ -443,6 +512,19 @@ public final class ProgressionGateListener implements Listener {
      * the work attached to something that will still be there, and the retired callback below is
      * non-{@code null} so that even the remaining case (the player logs out mid-transit) leaves a
      * line in the log rather than nothing.
+     *
+     * <h2>The ordering here is mirrored by a test, and the two must move together</h2>
+     *
+     * {@code Player} cannot be constructed off a server, so nothing can drive this method directly.
+     * {@code VehicleTransitTest.Outcome#runTransit} therefore <em>re-enacts</em> the four steps
+     * below — triage, capture, transit, deferred ejection — over a rider double, and asserts which
+     * dimension each rider finishes in. That is a real test of the ordering, but it is a test of
+     * the ordering as the harness spells it out, not as this method spells it out: if the capture
+     * moved back inside the deferred work here, the harness would be untouched and would stay
+     * green. A drifted harness that still passes is the failure mode, so any change to the sequence
+     * below belongs in {@code runTransit} in the same commit. {@code
+     * VehicleTransitTest.Outcome#returnPointIsCapturedEagerly} is the part that does bear on real
+     * code, pinning {@link VehicleTransit#orders}' eagerness against the actual API.
      */
     private void ejectAndReposition(Entity vehicle, VehicleTransit.Plan<Player> plan) {
         Vector velocity = vehicle.getVelocity();
@@ -537,7 +619,8 @@ public final class ProgressionGateListener implements Listener {
      *
      * <p>Each method answers one plain question about one block. In particular {@code isPassable}
      * is Bukkit's collision question and nothing more: lava and water are passable, and it is
-     * {@code isHazard} that says they are not somewhere to stand. Composing the two is
+     * {@code isHazard} that says they are not somewhere to stand — along with the rest of
+     * {@link #UNFIT_LANDINGS}, including the portal blocks. Composing the three is
      * {@link SafeRetreat}'s job, where a test can reach it.
      */
     private static SafeRetreat.Terrain terrainOf(World world) {
@@ -556,26 +639,9 @@ public final class ProgressionGateListener implements Listener {
             @Override
             public boolean isHazard(int x, int y, int z) {
                 Block block = world.getBlockAt(x, y, z);
-                return block.isLiquid() || HAZARDS.contains(block.getType());
+                return block.isLiquid() || UNFIT_LANDINGS.contains(block.getType());
             }
         };
     }
 
-    /**
-     * Blocks that are passable but not survivable, beyond the fluids {@code Block#isLiquid} already
-     * covers. Not exhaustive and not trying to be — it is the handful an ejection two blocks from a
-     * portal could plausibly land in, and everything here would otherwise satisfy the collision
-     * check and hurt the player.
-     */
-    private static final Set<Material> HAZARDS = Set.of(
-            Material.LAVA,
-            Material.FIRE,
-            Material.SOUL_FIRE,
-            Material.CAMPFIRE,
-            Material.SOUL_CAMPFIRE,
-            Material.MAGMA_BLOCK,
-            Material.POWDER_SNOW,
-            Material.CACTUS,
-            Material.SWEET_BERRY_BUSH,
-            Material.WITHER_ROSE);
 }
