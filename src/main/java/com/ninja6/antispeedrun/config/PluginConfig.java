@@ -33,13 +33,18 @@ import java.util.Optional;
  * to say out loud. A document that cannot be parsed at all still lands on {@link #defaults()} and
  * still starts, with that warning logged. Nothing about either path is silent.
  *
- * <p>Two limits on the first arm, so it is not read as a guarantee it does not yet make. It applies
- * to gates that are switched <em>on</em>: a bad key under {@code enabled: false}, under
+ * <p>One limit on the first arm, so it is not read as wider than it is. It applies to gates that are
+ * switched <em>on</em>: a bad key under {@code enabled: false}, under
  * {@code item-progression.enabled: false}, or under {@code gate-mending-trade: false} is a warning,
  * because a gate that is off gates nothing either way and a stale key in a section the operator has
- * already turned off must not refuse a boot. And it does not yet catch a
- * {@code require-advancements} written as a scalar, or {@code gate-mending-trade: true} beside a
- * blank {@code required-advancement}; both are #92.
+ * already turned off must not refuse a boot.
+ *
+ * <p>#92 closed the two routes #91 left open, on the same arm: a {@code require-advancements}
+ * written as a scalar where falling back leaves no requirement at all — an item tier, whose default
+ * is {@code List.of()} — and {@code gate-mending-trade: true} beside a blank
+ * {@code required-advancement}. A scalar under a <em>dimension</em> gate stays a warning, because
+ * the shipped default there is non-empty and the gate goes on requiring something; refusing to boot
+ * on a configuration that is still enforceable is the false refusal #91 was blocked over.
  *
  * <p>Values here are modelled exactly as {@code config.yml} states them. Match patterns are kept
  * as raw strings: compiling them into material sets is Task 4.2.1's job, not this type's.
@@ -333,7 +338,9 @@ public record PluginConfig(
             throws ConfigLoadException {
         r.expect("gate-mending-trade", "required-advancement");
         // gate-mending-trade defaults to false, so this is the section most likely to carry a key
-        // nothing reads. It must not be able to refuse a boot while the gate is off.
+        // nothing reads. It must not be able to refuse a boot while the gate is off. With the gate
+        // on it is the other half of #92's second waiver path: a blank key beside it is a gate that
+        // reports itself armed and requires nothing, and is refused at the read site.
         boolean gated = r.bool("gate-mending-trade", false);
         return new VillagerProgression(
                 gated,

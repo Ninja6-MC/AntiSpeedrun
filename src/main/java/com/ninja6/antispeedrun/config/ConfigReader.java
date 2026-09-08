@@ -29,13 +29,31 @@ import java.util.Set;
  * <strong>This is deliberate and it is the fail-closed choice</strong>, decided on #83 against the
  * alternative of dropping the requirement with a warning.
  *
- * <p>Two boundaries on that, because the sentence above is easy to read as wider than it is. It
+ * <p>One boundary on that, because the sentence above is easy to read as wider than it is. It
  * applies only to a gate that is switched <em>on</em> — the {@code enforced} overloads take the
  * flag, and a gate that is off claims nothing, so a stale key inside it is a warning rather than a
- * refused document. And it is not yet every route by which a requirement can go missing: a
- * {@code require-advancements} written as a scalar falls back through {@link #stringList} on a
- * warning, and {@code gate-mending-trade: true} beside a blank {@code required-advancement} warns
- * on neither half. Those two are #92 and are fixed there.
+ * refused document.
+ *
+ * <h2>The rule is about the requirement going missing, not about the spelling</h2>
+ *
+ * <p>An unresolvable key is only one way to end up with a gate that is switched on and requires
+ * nothing. #92 closed the other two, and they take the same arm because they have the same
+ * consequence:
+ *
+ * <ul>
+ *   <li>a {@code require-advancements} written as a <strong>scalar</strong> where a list is
+ *       expected, <em>where the fallback default is itself empty</em>. {@link #stringList} warns and
+ *       substitutes the shipped default, which for an item tier is {@code List.of()} — so the tier
+ *       came out armed and requiring nothing, on a warning. A key with an upper-case letter was
+ *       already fatal; the same operator mistake written with the wrong YAML shape is now fatal
+ *       too. Where the default is non-empty, as it is for every dimension gate, the gate still
+ *       requires something and was never unenforceable, so that stays the ordinary wrong-type
+ *       warning — see {@link #requireListShape};</li>
+ *   <li>a <strong>blank single</strong> key beside the flag that switches its gate on —
+ *       {@code villager-progression.required-advancement: ""} with {@code gate-mending-trade: true}.
+ *       Each half is legitimate alone, which is why neither warned; together they are a gate that
+ *       reports itself armed and admits every player.</li>
+ * </ul>
  *
  * <p><strong>What "rejected" costs differs between a reload and a boot, and the difference is why
  * the exception is a named subtype.</strong> On {@code /asr reload} the previously loaded
@@ -61,16 +79,18 @@ import java.util.Set;
  * when there is no correct running state at all.
  *
  * <p>Two things are <em>not</em> covered by that rule, on purpose. A <strong>blank single</strong>
- * key names no advancement rather than misspelling one — an operator clearing
- * {@code villager-progression.required-advancement} is saying "gate the trade, require no
- * advancement" — so it reads as absent. Note the exemption is about what survives, not about the
+ * key under a gate that is <em>off</em> names no advancement rather than misspelling one — an
+ * operator clearing {@code villager-progression.required-advancement} beside
+ * {@code gate-mending-trade: false} is saying "do not gate the trade, and require nothing for it" —
+ * so it reads as absent. Note the exemption is about what survives, not about the
  * blank itself: an entry naming no advancement inside a <em>list</em> is dropped with a warning while
  * a usable entry remains beside it, and is fatal when none does, because a list that empties itself
  * leaves exactly the armed-but-permissive gate this policy exists to prevent. And a well-formed key
  * that names no
  * advancement <em>on this server</em> stays a runtime warning: that is a property of the server's
  * version and datapacks, not of the file, and making a datapack change refuse to start is the
- * failure mode #79 rejected.
+ * failure mode #79 rejected. {@code MilestoneEvaluator} documents that waiver and the other
+ * deliberate fail-open paths in one place.
  *
  * <p>Package-private on purpose: it is parsing scaffolding, not part of the configuration
  * contract that the rest of the plugin reads.
@@ -284,8 +304,9 @@ final class ConfigReader {
      * left is a configuration the operator got wrong.
      *
      * @throws UnenforceableGateException naming the entry, if any entry is not a resolvable key,
-     *                                    or if every entry of a non-empty list turned out to be
-     *                                    unusable
+     *                                    if every entry of a non-empty list turned out to be
+     *                                    unusable, or if the value is not written as a list at all
+     *                                    while {@code def} is empty (see {@link #requireListShape})
      */
     List<String> advancementKeys(String key, List<String> def) throws ConfigLoadException {
         return advancementKeys(key, def, true);
@@ -306,11 +327,15 @@ final class ConfigReader {
      * is exactly when the operator needs to know, and because that flip is then the thing that
      * fails rather than something unrelated much later.
      *
+     * <p>The value's <em>shape</em> is read strictly on the same condition, and on one more: see
+     * {@link #requireListShape}, which is #92's first waiver path.
+     *
      * @param enforced whether the gate reading this list is switched on. {@code false} downgrades
      *                 every fatal case here to a warning and drops the unusable entries
      */
     List<String> advancementKeys(String key, List<String> def, boolean enforced)
             throws ConfigLoadException {
+        requireListShape(key, def, enforced);
         StringList configured = stringList(key, def);
         List<String> canonical = new ArrayList<>(configured.values().size());
         for (String entry : configured.values()) {
@@ -329,6 +354,60 @@ final class ConfigReader {
             requireSomethingLeft(key, surviving, enforced);
         }
         return surviving.values();
+    }
+
+    /**
+     * Rejects a {@code require-advancements} that is not written as a list at all, when falling
+     * back would leave a live gate requiring nothing.
+     *
+     * <p>Deliberately checked before {@link #stringList} rather than inside it: the fallback is
+     * right for every other key, and it is only this one where substituting the default can publish
+     * no requirement at all under a gate that reports itself armed.
+     *
+     * <p><strong>Two conditions, not one, and the second is the one worth stating.</strong> The
+     * gate has to be switched on — a gate that is off gates nothing either way, and a stale value
+     * in a section the operator has already turned off must not stop a server that booted
+     * yesterday. And the <em>fallback default has to be empty</em>, which in practice means an item
+     * tier: {@code PluginConfig.parseItemTier} passes {@code List.of()}, so falling back arms the
+     * tier and requires nothing, which is the outcome this whole policy exists to prevent. Every
+     * dimension gate ships a non-empty default, so falling back there leaves the gate requiring the
+     * shipped advancements — not what the file says, which is worth a warning, but not a gate this
+     * server would fail to enforce. Refusing to boot on a configuration that is still enforceable
+     * is a false refusal, and false refusals at startup were the merge blocker on #91.
+     *
+     * <p>In both non-fatal cases {@code stringList}'s own wrong-type warning does the work, and
+     * this adds the sentence that says what was substituted and what it costs.
+     */
+    private void requireListShape(String key, List<String> def, boolean enforced)
+            throws ConfigLoadException {
+        Object raw = section.get(key);
+        if (raw == null || raw instanceof List<?>) {
+            return;
+        }
+        if (!enforced) {
+            warnings.add(qualify(key) + ": is not written as a list, so the shipped default was "
+                    + "used instead of what the file says. That is tolerated only because the gate "
+                    + "reading it is switched off; switching it on unchanged will stop the plugin "
+                    + "at the next start. Write each advancement as its own \"- \" list entry.");
+            return;
+        }
+        if (!def.isEmpty()) {
+            warnings.add(qualify(key) + ": is not written as a list, so the shipped default ("
+                    + String.join(", ", def) + ") is required instead of what the file says. The "
+                    + "gate is still enforcing something, which is why this is not an error, but "
+                    + "it is not enforcing what the file asked for. Write each advancement as its "
+                    + "own \"- \" list entry.");
+            return;
+        }
+        throw new UnenforceableGateException(qualify(key) + ": " + describe(raw) + " is not a list "
+                + "of advancement keys, and config.yml has NOT been applied: after a reload the "
+                + "configuration already running stays live, and at startup the plugin does not "
+                + "enable. There is no default to fall back to here, so the gate would be "
+                + "published switched on and requiring nothing at all, which admits every player "
+                + "while reporting itself armed. This is the same error an unresolvable key gets, "
+                + "because it is the same mistake with the same consequence. Write each "
+                + "advancement as its own \"- \" list entry, or write the empty list \"[]\" if no "
+                + "advancement is meant to be required.");
     }
 
     /**
@@ -372,11 +451,12 @@ final class ConfigReader {
     /**
      * Reads a single advancement key, normalised as {@link #advancementKeys} normalises each entry.
      *
-     * <p>A blank value reads as "no advancement is required" and comes back as {@code ""}: clearing
-     * the key is how an operator switches the requirement off, and it is not a typo. Anything else
-     * the server's key parser rejects is fatal.
+     * <p>Reads the key as a gate that is switched <em>on</em> would read it, so a blank value is
+     * fatal here: see {@link #advancementKey(String, String, boolean)}, where the caller says
+     * whether the gate is on and a blank under a gate that is off comes back as {@code ""}.
+     * Anything the server's key parser rejects is fatal either way.
      *
-     * @throws UnenforceableGateException naming the value, if it is not blank and not a resolvable
+     * @throws UnenforceableGateException naming the value, if it is blank or is not a resolvable
      *                                    key
      */
     String advancementKey(String key, String def) throws ConfigLoadException {
@@ -388,13 +468,35 @@ final class ConfigReader {
      * is switched on. See {@link #advancementKeys(String, List, boolean)} for why a switched-off
      * gate describes no gating and so cannot describe gating this server would fail to enforce.
      *
+     * <p>{@code enforced} decides the blank case too, in the other direction, and that is #92's
+     * second waiver path. A blank beside a gate that is switched on is not a requirement switched
+     * off, it is a requirement that went missing: clearing the key and setting
+     * {@code gate-mending-trade: true} are each legitimate on their own, which is why neither half
+     * warned, but together they publish a gate that reports itself armed and admits every player,
+     * reached without a single malformed character. There is nothing else to fall back on —
+     * {@code villager-progression} declares this key and the flag, and nothing else. Switching the
+     * gate off remains the way to say "do not gate the mending trade".
+     *
      * @param enforced whether the gate reading this key is switched on. {@code false} downgrades
-     *                 an unresolvable key to a warning and reads it as no requirement
+     *                 an unresolvable key to a warning and reads it as no requirement; {@code true}
+     *                 additionally makes a blank value fatal instead of reading it as no
+     *                 requirement
      */
     String advancementKey(String key, String def, boolean enforced) throws ConfigLoadException {
         String configured = string(key, def);
         String normalised = AdvancementKeys.canonical(configured);
         if (normalised.isEmpty()) {
+            if (enforced) {
+                throw new UnenforceableGateException(qualify(key) + ": is blank while the gate "
+                        + "that reads it is switched on, so that gate is enabled and requires "
+                        + "nothing at all. config.yml has NOT been applied: after a reload the "
+                        + "configuration already running stays live, and at startup the plugin "
+                        + "does not enable. A cleared key is how the requirement is switched off, "
+                        + "and gate-mending-trade: true is how the gate is switched on; each is "
+                        + "legitimate alone, but together they publish a gate that reports itself "
+                        + "armed and admits every player. Name an advancement, or set "
+                        + "gate-mending-trade to false if the trade is not meant to be gated.");
+            }
             return "";
         }
         if (!AdvancementKeys.isResolvable(normalised)) {

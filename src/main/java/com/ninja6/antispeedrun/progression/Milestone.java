@@ -93,15 +93,16 @@ public record Milestone(String id, String displayName, MilestoneRequirement requ
      *       a {@code NamespacedKey} resolution and a {@code Bukkit.getAdvancement} for it, and made
      *       a server whose key was wrong log an unresolvable-key warning about a feature it had
      *       switched off. Empty.</li>
-     *   <li><strong>The gate is on but the key is blank.</strong> {@code ConfigReader} refuses the
-     *       document for a key the server cannot resolve, but deliberately exempts a blank one and
-     *       hands back {@code ""}: a key cleared to nothing reads as "gate the trade, but do not
-     *       require an advancement for it", not as a typo, and rejecting config.yml for it would be
-     *       right about the syntax and wrong about the intent. So an operator who empties the key
-     *       reaches here, and the gate imposes no advancement requirement. Any non-blank key that
-     *       arrives is already canonical and already known to resolve, so
-     *       {@link BukkitAdvancementLookup} can no longer be handed a malformed one from this
-     *       path.</li>
+     *   <li><strong>The gate is on but the key is blank.</strong> <em>No {@code config.yml} can
+     *       produce this any more.</em> #92 made a blank {@code required-advancement} beside
+     *       {@code gate-mending-trade: true} an {@code UnenforceableGateException} at the read
+     *       site, precisely because it is a gate that reports itself armed and admits everyone; and
+     *       with the gate off the branch above returns first. The branch is kept for a
+     *       {@code PluginConfig} built in code — {@code VillagerProgression} is a public record —
+     *       where nothing has been through the read site. It answers "no requirement" rather than
+     *       requiring {@code ""}, so {@link BukkitAdvancementLookup} is never handed the empty key
+     *       from this path. Any non-blank key arriving from configuration is already canonical and
+     *       already known to resolve.</li>
      * </ul>
      *
      * @return the configured key, or empty when no advancement is required of the trade gate
