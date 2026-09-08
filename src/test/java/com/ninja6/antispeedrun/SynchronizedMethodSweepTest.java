@@ -9,6 +9,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
@@ -39,8 +42,8 @@ import org.junit.jupiter.api.Test;
  *
  * <p>{@code synchronized} blocks on any other expression pass. Whether the object such a block locks
  * is genuinely unreachable from outside is a judgement about which the regular review is the right
- * instrument; {@code this} and {@code SomeClass.class} are the two cases where no judgement is
- * needed.
+ * instrument; {@code this}, {@code Outer.this} and {@code SomeClass.class} are the cases where no
+ * judgement is needed.
  */
 class SynchronizedMethodSweepTest {
 
@@ -48,13 +51,21 @@ class SynchronizedMethodSweepTest {
     private static final Pattern SYNCHRONIZED_METHOD =
             Pattern.compile("\\bsynchronized\\b(?!\\s*\\()");
 
+    /** A dotted name: {@code Foo}, {@code Outer.Inner}, {@code com.ninja6.Foo}. */
+    private static final String QUALIFIER =
+            "[A-Za-z_$][A-Za-z0-9_$]*(?:\\s*\\.\\s*[A-Za-z_$][A-Za-z0-9_$]*)*";
+
     /**
-     * {@code synchronized (this)} or {@code synchronized (Some.Qualified.Name.class)} — the two
-     * block forms that take a monitor external code can also name.
+     * {@code synchronized (this)}, {@code synchronized (Outer.this)} or {@code synchronized
+     * (Some.Qualified.Name.class)} — the block forms that take a monitor external code can also
+     * name. A qualified {@code this} is the form an inner-class listener reaches for, and it takes
+     * the enclosing instance's monitor, which is as public as its own. Redundant parentheses around
+     * the monitor are tolerated, and every gap is {@code \s*}, so a form split across lines matches
+     * too.
      */
     private static final Pattern SYNCHRONIZED_PUBLIC_MONITOR = Pattern.compile(
-            "\\bsynchronized\\s*\\(\\s*(?:this|[A-Za-z_$][A-Za-z0-9_$]*"
-                    + "(?:\\s*\\.\\s*[A-Za-z_$][A-Za-z0-9_$]*)*\\s*\\.\\s*class)\\s*\\)");
+            "\\bsynchronized\\s*\\(\\s*(?:\\(\\s*)*(?:this|" + QUALIFIER
+                    + "\\s*\\.\\s*(?:this|class))\\s*(?:\\)\\s*)*\\)");
 
     private static final Path SOURCE_ROOT = Path.of("src", "main", "java");
 
@@ -87,18 +98,39 @@ class SynchronizedMethodSweepTest {
      * Returns {@code line:text} for every offending line in {@code source}, in file order. Comments
      * and the contents of string, character and text-block literals are removed before matching, so
      * the word {@code synchronized} inside them is not mistaken for code.
+     *
+     * <p>Matching runs over the whole stripped text rather than line by line, so a form broken
+     * across lines — {@code synchronized (} then {@code this) {} on the next — is still seen.
+     * Nothing in the build reformats sources, so that layout is possible. Each match is mapped back
+     * to the line its first character sits on; the stripper preserves every newline, so an offset
+     * into the stripped text is an offset into the source.
      */
     private static List<String> findOffenders(String source) {
-        String[] code = stripCommentsAndLiterals(source).split("\n", -1);
+        String stripped = stripCommentsAndLiterals(source);
         String[] original = source.split("\n", -1);
-        List<String> offenders = new ArrayList<>();
-        for (int i = 0; i < code.length; i++) {
-            if (SYNCHRONIZED_METHOD.matcher(code[i]).find()
-                    || SYNCHRONIZED_PUBLIC_MONITOR.matcher(code[i]).find()) {
-                offenders.add((i + 1) + ": " + original[i].trim());
+        SortedSet<Integer> lines = new TreeSet<>();
+        for (Pattern pattern : List.of(SYNCHRONIZED_METHOD, SYNCHRONIZED_PUBLIC_MONITOR)) {
+            Matcher matcher = pattern.matcher(stripped);
+            while (matcher.find()) {
+                lines.add(lineOf(stripped, matcher.start()));
             }
         }
+        List<String> offenders = new ArrayList<>();
+        for (int line : lines) {
+            offenders.add((line + 1) + ": " + original[line].trim());
+        }
         return offenders;
+    }
+
+    /** The zero-based index of the line that {@code offset} falls on. */
+    private static int lineOf(String text, int offset) {
+        int line = 0;
+        for (int i = 0; i < offset; i++) {
+            if (text.charAt(i) == '\n') {
+                line++;
+            }
+        }
+        return line;
     }
 
     /**
@@ -139,7 +171,10 @@ class SynchronizedMethodSweepTest {
                 i += 3;
                 while (i < n && !source.startsWith("\"\"\"", i)) {
                     if (source.charAt(i) == '\\' && i + 1 < n) {
-                        out.append("  ");
+                        // A text-block line continuation escapes the newline itself. Emit that
+                        // newline rather than a space, or the stripped text loses a line and every
+                        // later offence is reported one line early.
+                        out.append(' ').append(source.charAt(i + 1) == '\n' ? '\n' : ' ');
                         i += 2;
                         continue;
                     }
@@ -158,7 +193,7 @@ class SynchronizedMethodSweepTest {
                 i++;
                 while (i < n && source.charAt(i) != quote && source.charAt(i) != '\n') {
                     if (source.charAt(i) == '\\' && i + 1 < n) {
-                        out.append("  ");
+                        out.append(' ').append(source.charAt(i + 1) == '\n' ? '\n' : ' ');
                         i += 2;
                         continue;
                     }
@@ -199,6 +234,24 @@ class SynchronizedMethodSweepTest {
         void flagsThis() {
             assertEquals(List.of("1: synchronized (this) {"), findOffenders("synchronized (this) {\n"));
             assertEquals(List.of("1: synchronized(this) {"), findOffenders("synchronized(this) {\n"));
+        }
+
+        @Test
+        @DisplayName("flags synchronized (Outer.this), the inner-class form of the same hazard")
+        void flagsQualifiedThis() {
+            assertEquals(List.of("1: synchronized (Outer.this) {"),
+                    findOffenders("synchronized (Outer.this) {\n"));
+            assertEquals(List.of("1: synchronized (com.ninja6.Outer.this) {"),
+                    findOffenders("synchronized (com.ninja6.Outer.this) {\n"));
+        }
+
+        @Test
+        @DisplayName("flags a monitor broken across lines, and one in redundant parentheses")
+        void flagsMonitorSpanningLines() {
+            assertEquals(List.of("1: synchronized ("),
+                    findOffenders("synchronized (\n        this) {\n"));
+            assertEquals(List.of("1: synchronized ((this)) {"),
+                    findOffenders("synchronized ((this)) {\n"));
         }
 
         @Test
@@ -258,6 +311,17 @@ class SynchronizedMethodSweepTest {
         void reportsLineNumber() {
             assertEquals(List.of("3: synchronized (this) {"),
                     findOffenders("class A {\n  void go() {\n    synchronized (this) {\n"));
+        }
+
+        @Test
+        @DisplayName("keeps line numbers straight past a text-block line continuation")
+        void reportsLineNumberAfterLineContinuation() {
+            assertEquals(List.of("5: synchronized (this) {"),
+                    findOffenders("class A {\n"
+                            + "  String s = \"\"\"\n"
+                            + "      a \\\n"
+                            + "      b\"\"\";\n"
+                            + "  synchronized (this) {\n"));
         }
     }
 }
