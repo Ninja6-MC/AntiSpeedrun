@@ -74,6 +74,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `gate-natural-structure-chests`, `gate-player-placed-chests` and `gate-armor-stands` removed — each configured a distinction that no longer exists. `dropper-can-retrieve` and `death-drop-retrieval` collapse into `drop-recall-enabled`.
 - Mob item pickup is no longer intercepted; piglin bartering and Allay sorters are unaffected.
 - Soft-dependency matrix trimmed to Floodgate, the only optional integration the plugin consumes.
+- A `config.yml` that names an advancement key the server cannot resolve — or a
+  `require-advancements` list written with entries that all name nothing — now stops the plugin at
+  startup instead of starting it on the shipped defaults. Those defaults declare no gated item
+  tiers, so the old fallback turned item gating off server-wide over a single typo while every gate
+  still reported itself armed. A file that cannot be parsed at all is unchanged: it still falls back
+  to the defaults and the server still starts, because a file that says nothing describes no gating
+  to enforce. So does a bad key inside a gate that is switched off — `enabled: false`,
+  `item-progression.enabled: false`, or `gate-mending-trade: false` — which is a warning, because a
+  gate that is off admits everyone and says so, and a stale key in a section an operator has already
+  turned off must not stop a server that booted yesterday. A file that parses but whose
+  `gated-items` cannot be turned into a gate table at all now stops the plugin too, for the same
+  reason a tier collision does. `/asr reload` is unchanged in every case — the configuration already
+  running stays live and the plugin is never disabled — and a reload that would not survive a
+  restart now says so in the log rather than waiting for the restart to say it.
 
 ### Fixed
 - A dimension gate whose last outstanding requirement is `require-account-age-days` is now announced. Tenure advances while the player is offline, so the gate was already open by the time they logged back in, was recorded silently by the join prime, and had no advancement and no online watch left to announce it — the player was never told. The set of gates a player has been congratulated on is now persisted in their `PersistentDataContainer`, and a join announces the difference. A player with no persisted record is primed silently, so installing this on an established server does not congratulate its whole population at once.

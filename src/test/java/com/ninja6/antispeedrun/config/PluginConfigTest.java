@@ -559,6 +559,48 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("reject the document as an unenforceable gate, not as an unreadable file")
+        void anUnresolvableKeyIsNamedAsAnUnenforceableGate() {
+            // #91: the startup path treats the two apart, and the exception type is the only thing
+            // that tells them apart -- a file that will not parse describes no gating and lands on
+            // the defaults, while this one describes gating the server would not enforce and stops
+            // the plugin instead. Asserting the type here is asserting that distinction survives.
+            assertThrows(UnenforceableGateException.class,
+                    () -> withNetherKeys("story/smelt iron"));
+            assertThrows(UnenforceableGateException.class,
+                    () -> PluginConfig.from(yaml("""
+                            villager-progression:
+                              gate-mending-trade: true
+                              required-advancement: "Story/Cure_Zombie_Villager"
+                            """)));
+        }
+
+        @Test
+        @DisplayName("a list that empties itself is an unenforceable gate for the same reason")
+        void anEmptiedListIsNamedAsAnUnenforceableGate() {
+            assertThrows(UnenforceableGateException.class,
+                    () -> PluginConfig.from(yaml("""
+                            dimension-gates:
+                              the_end:
+                                enabled: true
+                                require-advancements:
+                                  - "   "
+                            """)));
+        }
+
+        @Test
+        @DisplayName("a document that will not parse is NOT an unenforceable gate")
+        void aMalformedDocumentIsNotAnUnenforceableGate() {
+            // The other half of the #91 split, and the one that keeps audit finding R-11's landing
+            // zone: a file that says nothing cannot be describing a gate this server would fail to
+            // enforce, so it must not be classified as one. The source used here is the same shape
+            // as the plugin's own -- parse, or fail with the plain named error.
+            ConfigLoadException broken = assertThrows(ConfigLoadException.class,
+                    () -> yaml("profile: HARDCORE\n  bad: indent\n"));
+            assertFalse(broken instanceof UnenforceableGateException, broken.getMessage());
+        }
+
+        @Test
         @DisplayName("are refused under item tiers and the villager gate on the same rule")
         void everySectionIsCoveredByTheSameRule() {
             assertThrows(ConfigLoadException.class, () -> PluginConfig.from(yaml("""
@@ -568,8 +610,12 @@ class PluginConfigTest {
                           require-advancements:
                             - "story/mine stone"
                     """)));
+            // gate-mending-trade is stated rather than left to its default, because its default is
+            // false and a gate that is off is not gating this server fails to enforce -- the key
+            // under it is then a warning by design. The rule under test is the one for a live gate.
             assertThrows(ConfigLoadException.class, () -> PluginConfig.from(yaml("""
                     villager-progression:
+                      gate-mending-trade: true
                       required-advancement: "not a key"
                     """)));
         }
@@ -839,6 +885,71 @@ class PluginConfigTest {
                     severe.get(0).getMessage());
             assertTrue(severe.get(0).getMessage().contains("has NOT been applied"));
             assertTrue(severe.get(0).getThrown() instanceof ConfigLoadException);
+        }
+
+        @Test
+        @DisplayName("hands the rejection to the listener, keeping the type the startup path needs")
+        void rejectionIsReportedToTheListener() {
+            // #91 needs the caller to tell "the file described gating we cannot enforce" from "the
+            // file did not parse", and an empty Optional cannot say which. The listener is how.
+            CapturingLogger log = new CapturingLogger();
+            ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+            AtomicReference<ConfigLoadException> reported = new AtomicReference<>();
+
+            assertTrue(holder.reload(() -> yaml("""
+                    dimension-gates:
+                      nether:
+                        require-advancements:
+                          - "story/smelt iron"
+                    """), candidate -> "gates", reported::set).isEmpty());
+
+            assertTrue(reported.get() instanceof UnenforceableGateException,
+                    String.valueOf(reported.get()));
+            assertEquals(PluginConfig.defaults(), holder.get(), "nothing may have been published");
+
+            reported.set(null);
+            assertTrue(holder.reload(() -> yaml("profile: HARDCORE\n  bad: indent\n"),
+                    candidate -> "gates", reported::set).isEmpty());
+            assertNotNull(reported.get());
+            assertFalse(reported.get() instanceof UnenforceableGateException,
+                    reported.get().getMessage());
+        }
+
+        @Test
+        @DisplayName("says the plugin does not enable at startup when a gate cannot be enforced")
+        void theSevereLineDistinguishesTheTwoStartupOutcomes() {
+            CapturingLogger log = new CapturingLogger();
+            ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+
+            assertFalse(holder.reload(() -> yaml("""
+                    dimension-gates:
+                      nether:
+                        require-advancements:
+                          - "story/smelt iron"
+                    """)));
+
+            // An operator who reads only this line must not be told the plugin stays enabled, since
+            // at startup it will not: that was the wrong half of the old single-sentence message.
+            String message = log.at(Level.SEVERE).get(0).getMessage();
+            assertTrue(message.contains("At startup the plugin does NOT enable"), message);
+            assertFalse(message.contains("at startup it is the shipped defaults"), message);
+        }
+
+        @Test
+        @DisplayName("a binding rejection is not reported to the listener, being the caller's own")
+        void aBindingRejectionIsNotAConfigRejection() {
+            // The caller already knows -- it threw. Reporting it here would make a tier collision
+            // indistinguishable from a document the reader refused, and those disable the plugin
+            // for different reasons and with different messages.
+            CapturingLogger log = new CapturingLogger();
+            ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+            AtomicReference<ConfigLoadException> reported = new AtomicReference<>();
+
+            assertTrue(holder.reload(() -> yaml("profile: HARDCORE\n"), candidate -> {
+                throw new IllegalStateException("tiers collide over MACE");
+            }, reported::set).isEmpty());
+
+            assertNull(reported.get());
         }
 
         @Test

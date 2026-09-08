@@ -3,6 +3,7 @@ package com.ninja6.antispeedrun.config;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -138,17 +139,44 @@ public final class ConfigSnapshotHolder {
      *         remains live and the plugin is not disabled
      */
     public <T> Optional<T> reload(ConfigSource source, SnapshotBinding<T> binding) {
+        return reload(source, binding, failure -> { });
+    }
+
+    /**
+     * As {@link #reload(ConfigSource, SnapshotBinding)}, additionally handing the rejected-document
+     * failure to {@code onRejected} before returning empty.
+     *
+     * <p>This exists because the caller cannot tell the two failures apart from an empty
+     * {@link Optional} alone, and at startup it has to: an
+     * {@link UnenforceableGateException} means the file described gating this server would not
+     * enforce, which {@code AntiSpeedrunPlugin} refuses to start on, while any other
+     * {@link ConfigLoadException} means the file described nothing at all and the shipped defaults
+     * are a legible place to land (#91). The listener is <em>not</em> called when the binding
+     * rejects the candidate — that failure is the caller's own and it already knows about it — so a
+     * caller that distinguishes three outcomes tracks the binding's rejection separately, as it
+     * always did.
+     *
+     * <p>The listener runs on the calling thread with no lock held, before this returns. It must not
+     * block; log or record, nothing more.
+     */
+    public <T> Optional<T> reload(ConfigSource source, SnapshotBinding<T> binding,
+            Consumer<ConfigLoadException> onRejected) {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(binding, "binding");
+        Objects.requireNonNull(onRejected, "onRejected");
 
         PluginConfig candidate;
         try {
             candidate = PluginConfig.from(source.load());
         } catch (ConfigLoadException failure) {
             reject(failure);
+            onRejected.accept(failure);
             return Optional.empty();
         } catch (RuntimeException failure) {
-            reject(new ConfigLoadException("config.yml could not be read: " + failure, failure));
+            ConfigLoadException wrapped =
+                    new ConfigLoadException("config.yml could not be read: " + failure, failure);
+            reject(wrapped);
+            onRejected.accept(wrapped);
             return Optional.empty();
         }
 
@@ -194,12 +222,22 @@ public final class ConfigSnapshotHolder {
      * but a {@code SEVERE} is read on its own often enough that it has to be true on its own.
      */
     private void reject(ConfigLoadException failure) {
-        logger.log(Level.SEVERE,
-                "ConfigLoadException: config.yml was rejected and has NOT been applied. The plugin "
-                        + "stays enabled and keeps running on the configuration it already had: "
+        // The two sentences differ because the outcomes do (#91). This class still cannot tell a
+        // reload from a startup, but it can tell which failure it is holding, and that is what
+        // decides whether the startup half of the sentence is "runs on defaults" or "does not
+        // start" -- so neither reader is told something false about their own case.
+        String consequence = failure instanceof UnenforceableGateException
+                ? "After a reload the previous configuration stays live and the plugin stays "
+                        + "enabled. At startup the plugin does NOT enable: the shipped defaults "
+                        + "gate no items, so running on them would disarm item gating server-wide "
+                        + "over this one key."
+                : "The plugin stays enabled and keeps running on the configuration it already had: "
                         + "after a reload that is the previous file, at startup it is the shipped "
-                        + "defaults, which gate NO items. Check the next log line for which. Fix "
-                        + "the file and run /asr reload. Cause: " + failure.getMessage(),
+                        + "defaults, which gate NO items. Check the next log line for which.";
+        logger.log(Level.SEVERE,
+                "ConfigLoadException: config.yml was rejected and has NOT been applied. "
+                        + consequence + " Fix the file, then run /asr reload or restart. Cause: "
+                        + failure.getMessage(),
                 failure);
     }
 }
