@@ -1,8 +1,10 @@
 package com.ninja6.antispeedrun.listeners;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.Material;
@@ -15,7 +17,6 @@ import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.TradeSelectEvent;
 import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
@@ -41,21 +42,44 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * {@code /antispeedrun} status line, printing how many materials were in it. Every transfer channel
  * Epic 4 enumerates was open.
  *
- * <p>Four channels in, one rule behind all of them, exactly as {@link ProgressionGateListener} is
+ * <p>Three channels in, one rule behind all of them, exactly as {@link ProgressionGateListener} is
  * built:
  *
  * <ul>
  *   <li><strong>{@link PlayerAttemptPickupItemEvent}</strong> (#12) — an item on the ground.</li>
  *   <li><strong>{@link InventoryClickEvent}</strong> (#9, and #54's second criterion) — taking a
  *       gated stack out of any container, by any of the six gestures that can do it.</li>
- *   <li><strong>{@link InventoryDragEvent}</strong> (#9) — the backstop described on
- *       {@link #onInventoryDrag}.</li>
  *   <li><strong>{@link TradeSelectEvent}</strong> (#54) — a villager or wandering trader offering
  *       a gated result.</li>
  * </ul>
  *
  * <p>Plus the three handlers that maintain §4 drop recall, which decides nothing and gates nothing;
  * see {@link DropRecall}.
+ *
+ * <h2>There is deliberately no {@code InventoryDragEvent} handler</h2>
+ *
+ * #9 asks that inventory dragging be "100% blocked", and this class does not do it, so the reason
+ * is recorded here rather than left as an omission.
+ *
+ * <p>A drag only ever moves items <em>from</em> the cursor <em>into</em> slots, so it cannot take
+ * anything out of a container. For it to matter, the cursor would have to be holding a gated stack
+ * taken from the container — and it cannot be. Every gesture that could load it that way is refused
+ * above: {@code DIRECT}, {@code QUICK_MOVE} and {@code HOTBAR_SWAP} on a top slot all name the
+ * clicked slot, and {@code COLLECT_TO_CURSOR} names the cursor wherever it was clicked. A cursor
+ * that reaches a drag with a gated stack on it was therefore loaded from the player's own
+ * inventory, and every drag a handler could cancel would be a deposit or an own-inventory move.
+ *
+ * <p>An earlier revision had one anyway, and it went wrong in both directions before it was
+ * removed: first refusing a player tidying their own inventory, then — narrowed to drags spanning
+ * both halves — exempting the one shape that could in principle scatter a container-loaded cursor
+ * while still refusing an ordinary stack split. It could not do better, because
+ * {@code InventoryDragEvent} carries no provenance for the cursor and no condition over it can tell
+ * a sorted stack from a siphoned one.
+ *
+ * <p>This is the argument {@code docs/provenance-model.md} already used to close #10: under
+ * material-only gating, moving a diamond between containers leaves it a diamond, and an exploit
+ * described against the provenance model does not survive the switch. #9's drag criterion is the
+ * same criterion viewed from the same angle.
  *
  * <h2>What the provenance record removed from this class</h2>
  *
@@ -126,17 +150,25 @@ public final class ItemProgressionListener implements Listener {
      *
      * <p>{@code CRAFTING} is the player's own inventory screen, whose "top inventory" is their 2x2
      * grid, and {@code WORKBENCH} is the same argument one block larger. The rest are the
-     * single-block workstations. None of them mints a material the player was not already holding:
-     * an anvil repairs, an enchanting table enchants, a grindstone and a stonecutter reduce, a loom
-     * and a cartography table decorate, and a smithing table upgrades gear from parts that had to
-     * come through a gated channel first.
+     * single-block workstations. An anvil repairs, an enchanting table enchants, a grindstone and a
+     * stonecutter reduce, a loom and a cartography table decorate, and a smithing table upgrades
+     * gear from parts that had to come through a gated channel first.
+     *
+     * <p>Some of these do produce a <em>different</em> material from their inputs — a crafting table
+     * and a stonecutter plainly do — so the safety here is not a property of the views. It is a
+     * property of the shipped tiers: no tier in the shipped {@code gated-items} is reachable this
+     * way, because every gated output has a same-or-higher-tier gated ingredient, and the netherite
+     * path is closed at {@code ANCIENT_DEBRIS} on the pickup gate. An operator who adds a craftable
+     * item to a tier above its own ingredients opens a hole here and gets no warning, which is the
+     * same class of configuration hazard {@code docs/provenance-model.md} flags when it says to
+     * re-verify the tier table if prerequisites are retuned.
      *
      * <p>The line is drawn at whether the block <em>keeps</em> what is put into it. Furnaces, blast
      * furnaces, smokers, brewing stands, Crafters and every storage type are deliberately absent:
      * they hold their contents, a hopper can pull those contents into somebody else's inventory,
      * and #9 names them as containers. A furnace input slot is a chest slot that happens to smelt.
      */
-    private static final List<InventoryType> PASS_THROUGH_VIEWS = List.of(
+    private static final Set<InventoryType> PASS_THROUGH_VIEWS = EnumSet.of(
             InventoryType.CRAFTING,
             InventoryType.WORKBENCH,
             InventoryType.ANVIL,
@@ -246,7 +278,8 @@ public final class ItemProgressionListener implements Listener {
         int topSize = event.getView().getTopInventory().getSize();
         boolean clickedTop = rawSlot >= 0 && rawSlot < topSize;
 
-        ItemStack moving = switch (ItemGateRules.withdrawn(gestureOf(event), clickedTop)) {
+        ItemStack moving = switch (ItemGateRules.withdrawn(
+                InventoryGestures.of(event.getAction(), event.getClick()), clickedTop)) {
             case CLICKED_SLOT -> event.getCurrentItem();
             case CURSOR -> event.getCursor();
             case NONE -> null;
@@ -256,117 +289,6 @@ public final class ItemProgressionListener implements Listener {
         }
 
         if (refuse(player, moving.getType())) {
-            event.setCancelled(true);
-        }
-    }
-
-    /**
-     * Folds Bukkit's click taxonomy down to the distinctions the gate cares about.
-     *
-     * <p>The action is consulted before the click type, and only for the deposits, because the
-     * click type cannot tell a deposit from a pickup: both are a left button on one slot, and which
-     * one happened is decided by what the cursor was carrying. The three {@code PLACE_*} actions
-     * are the whole set — all of the cursor, part of it, or one item — and {@code NOTHING} is a
-     * click the server resolved to no movement at all. Everything else falls through to the click
-     * type, which keeps the bundle actions and any action a future version adds on the conservative
-     * side rather than granting them a deposit's exemption by default.
-     *
-     * <p>{@code default} is {@link ItemGateRules.Gesture#DIRECT} rather than {@code INERT}, which
-     * is the conservative direction: an unrecognised or future click type on a container slot
-     * holding a gated stack is treated as a withdrawal and refused, rather than waved through. It
-     * costs nothing, because a click on a slot the player may already take from is not gated
-     * anyway, and clicks outside the window carry a raw slot of {@code -999} which is not in the
-     * top inventory and never reaches this classification.
-     */
-    private static ItemGateRules.Gesture gestureOf(InventoryClickEvent event) {
-        switch (event.getAction()) {
-            case PLACE_ALL, PLACE_SOME, PLACE_ONE -> {
-                return ItemGateRules.Gesture.DEPOSIT;
-            }
-            case NOTHING -> {
-                return ItemGateRules.Gesture.INERT;
-            }
-            default -> {
-                // Not a deposit; the click type decides.
-            }
-        }
-        return switch (event.getClick()) {
-            case NUMBER_KEY, SWAP_OFFHAND -> ItemGateRules.Gesture.HOTBAR_SWAP;
-            case DOUBLE_CLICK -> ItemGateRules.Gesture.COLLECT_TO_CURSOR;
-            case DROP, CONTROL_DROP -> ItemGateRules.Gesture.DROP;
-            case SHIFT_LEFT, SHIFT_RIGHT -> ItemGateRules.Gesture.QUICK_MOVE;
-            case WINDOW_BORDER_LEFT, WINDOW_BORDER_RIGHT, UNKNOWN -> ItemGateRules.Gesture.INERT;
-            default -> ItemGateRules.Gesture.DIRECT;
-        };
-    }
-
-    /**
-     * A drag distributing a gated stack across slots.
-     *
-     * <h2>Why this handler exists even though a drag cannot withdraw</h2>
-     *
-     * Worth stating, because the honest answer is not the obvious one. A drag only ever moves items
-     * <em>from</em> the cursor <em>into</em> slots, so unlike every gesture in
-     * {@link #onInventoryClick} it cannot take anything out of a container. #9's criterion that
-     * dragging be "100% blocked" is therefore not describing a siphon of its own; it is closing the
-     * second half of one, where a double-click gathers a container's stacks onto the cursor and a
-     * drag then scatters them into the player's inventory.
-     *
-     * <p>{@link ItemGateRules.Gesture#COLLECT_TO_CURSOR} already refuses that first half, so this
-     * handler is the backstop for a cursor that should never have been loaded.
-     *
-     * <p>It is a backstop, though, and not a blanket refusal, because the exemptions the click path
-     * grants have to hold here too or the gate starts confiscating rather than gating. A
-     * pass-through view is excluded for the same reason it is in {@link #onInventoryClick}, and a
-     * drag is only refused when its slots span <em>both</em> halves of the view. The two halves
-     * are two separate exemptions and both are needed:
-     *
-     * <ul>
-     *   <li>A drag entirely within the container is a deposit, which
-     *       {@link ItemGateRules#withdrawn} is built to permit.</li>
-     *   <li>A drag entirely within the player's own inventory never touched the container at all.
-     *       Splitting your own stack across your own hotbar is the same action with or without a
-     *       chest open, and refusing it because a chest happens to be open would stop a player
-     *       holding above-tier gear by administrative grant — precisely the population §4 recall
-     *       exists for — from tidying their own inventory.</li>
-     * </ul>
-     *
-     * <p>What that leaves uncovered is the drag that scatters a container-loaded cursor entirely
-     * into the player's own half, and it is worth being plain that this handler no longer catches
-     * it. It never could distinguish a cursor loaded from the container from one the player picked
-     * up themselves, so the choice was between refusing both and refusing neither, and refusing an
-     * ordinary stack split is the worse of the two errors. The gather that would have loaded such a
-     * cursor is refused by {@link ItemGateRules.Gesture#COLLECT_TO_CURSOR} in
-     * {@link #onInventoryClick}, which is where the siphon is actually closed.
-     */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onInventoryDrag(InventoryDragEvent event) {
-        if (!(event.getWhoClicked() instanceof Player player)) {
-            return;
-        }
-        if (PASS_THROUGH_VIEWS.contains(event.getView().getTopInventory().getType())) {
-            return;
-        }
-        ItemStack dragged = event.getOldCursor();
-        if (dragged.getType().isAir()) {
-            return;
-        }
-
-        int topSize = event.getView().getTopInventory().getSize();
-        boolean intoPlayer = false;
-        boolean touchesContainer = false;
-        for (int rawSlot : event.getRawSlots()) {
-            if (rawSlot >= topSize) {
-                intoPlayer = true;
-            } else if (rawSlot >= 0) {
-                touchesContainer = true;
-            }
-        }
-        if (!intoPlayer || !touchesContainer) {
-            return;
-        }
-
-        if (refuse(player, dragged.getType())) {
             event.setCancelled(true);
         }
     }
@@ -486,8 +408,13 @@ public final class ItemProgressionListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onItemSpawn(ItemSpawnEvent event) {
         PluginConfig config = plugin.configuration();
+        if (!config.itemProgression().dropRecallEnabled()) {
+            return;
+        }
+        // Read after the config check, not before it, so a server with recall switched off pays
+        // nothing at all here -- and so the order matches the one the javadoc above describes.
         long now = System.currentTimeMillis();
-        if (!config.itemProgression().dropRecallEnabled() || !recall.hasPendingDeaths(now)) {
+        if (!recall.hasPendingDeaths(now)) {
             return;
         }
         Item item = event.getEntity();

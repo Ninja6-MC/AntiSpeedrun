@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `antispeedrun.bypass.items`, by an unexpired `/asr bypass` grant, or by setting
   `item-progression.enabled: false`. Putting gated items *into* a container is never blocked,
   including onto a slot that already holds a matching stack, and neither is moving them around
-  inside your own inventory. Views that hand a player's own item straight back — the crafting grid,
+  inside your own inventory — dragging included, since a drag can only ever move items out of the
+  cursor and every way of loading the cursor from a container is already refused. Views that hand a
+  player's own item straight back — the crafting grid,
   a crafting table, and the anvil, smithing table, grindstone, enchanting table, cartography table,
   loom and stonecutter — are untouched; furnaces, brewing stands, Crafters and storage blocks are
   containers and are gated.
