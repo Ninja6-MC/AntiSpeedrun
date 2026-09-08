@@ -28,26 +28,35 @@ package com.ninja6.antispeedrun.config;
  * describes gating it could not enforce, it refuses to start rather than fall back to the
  * defaults.</strong> The fallback is for a file that describes no gating at all.
  *
- * <h2>What this does not cover</h2>
+ * <h2>What reaches this exception</h2>
  *
- * <p>Stated as a limit rather than left to be discovered, because the sentence above reads like a
- * guarantee and is not yet one. Two ways of writing a requirement still disarm a gate without
- * reaching this exception, so a file can describe gating this server will not apply and start
- * anyway:
+ * <p>Four ways a {@code config.yml} can describe a gate that is switched on and requires nothing,
+ * listed together because they were closed one at a time and read as one rule:
  *
  * <ul>
- *   <li>{@code require-advancements} written as a scalar rather than a list falls back through
- *       {@code ConfigReader#stringList} to the default on a warning, which can arm a tier with no
- *       requirement.</li>
- *   <li>{@code gate-mending-trade: true} with a blank {@code required-advancement} is a gate that
- *       is on and requires nothing, and warns about neither half, because each half is legitimate
- *       on its own.</li>
+ *   <li>an advancement key the server's parser cannot resolve (#83);</li>
+ *   <li>a requirement list written with entries that all name nothing, so it empties itself
+ *       (#89);</li>
+ *   <li>{@code require-advancements} written as a scalar rather than a list, where falling back
+ *       leaves no requirement at all — an item tier, whose default is the empty list (#92);</li>
+ *   <li>{@code gate-mending-trade: true} with a blank {@code required-advancement}, which warns
+ *       about neither half because each half is legitimate on its own (#92).</li>
  * </ul>
  *
- * <p>Both are #92 and are fixed there, not here; this class covers the unresolvable key and the
- * self-emptying list. A third exemption is deliberate and stays: a gate whose {@code enabled} flag
- * is {@code false} claims nothing, so an unresolvable key inside it is a warning rather than a
- * refusal to boot — see {@code ConfigReader#advancementKeys(String, java.util.List, boolean)}.
+ * <h2>What this deliberately does not cover</h2>
+ *
+ * <p>Two exemptions, both for the same reason: neither describes gating this server would fail to
+ * enforce, and refusing a boot over a configuration that is still enforceable is a false refusal.
+ *
+ * <ul>
+ *   <li>A gate whose {@code enabled} flag is {@code false} claims nothing, so a bad key inside it
+ *       is a warning rather than a refusal to boot — see
+ *       {@code ConfigReader#advancementKeys(String, java.util.List, boolean)}.</li>
+ *   <li>A scalar {@code require-advancements} under a <em>dimension</em> gate, where the shipped
+ *       default is non-empty: the gate falls back to requiring the shipped advancements rather than
+ *       what the file says, which is worth the wrong-type warning it already gets, but it is still
+ *       requiring something.</li>
+ * </ul>
  */
 public class UnenforceableGateException extends ConfigLoadException {
 

@@ -26,6 +26,26 @@ import java.util.Objects;
  * Both are reported on the {@link EligibilityResult} so the caller can surface a hint rather than
  * letting a misconfiguration pass silently. A requirement that is simply <em>unmet</em> — an
  * advancement not yet earned, hours not yet played — blocks normally.
+ *
+ * <h2>The whole list of deliberate fail-open paths</h2>
+ *
+ * <p>Kept here, in one place, because they were repeatedly rediscovered as bugs (#92). These two
+ * are all that remain, and they are properties of the <em>server</em> rather than of
+ * {@code config.yml}:
+ *
+ * <ul>
+ *   <li>a well-formed advancement key that names no advancement on this server — a datapack or
+ *       version difference, not a typo, and refusing to start over a datapack change is the failure
+ *       mode #79 rejected;</li>
+ *   <li>an account age the server never recorded.</li>
+ * </ul>
+ *
+ * <p>Everything on the configuration side now fails <em>closed</em>, and does so at the read site
+ * rather than here: a key the resolver cannot parse, a requirement list that empties itself, a
+ * {@code require-advancements} not written as a list, and a blank single key beside the flag that
+ * switches its gate on are each refused, so no requirement can go missing between the file and this
+ * evaluator. {@code ConfigReader} documents that rule and the one exemption to it — a gate that is
+ * switched off, which admits everyone and says so.
  */
 public final class MilestoneEvaluator {
 

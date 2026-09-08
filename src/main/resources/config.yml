@@ -14,19 +14,24 @@ profile: SMP_STANDARD
 # at runtime rather than enforced, so a gate naming one would report itself armed and let
 # every player through. To require no advancement, write an empty list: [].
 #
-# Two qualifications, so this does not read as a wider promise than it is:
+# Two more ways of losing a requirement are the same ERROR, for the same reason:
 #
-#   * It applies to gates that are switched ON. A bad key inside a section whose "enabled"
-#     is false -- or under item-progression when that is false, or under
-#     villager-progression when gate-mending-trade is false -- is a WARNING. A gate that
-#     is off admits everyone and says so, so it is not gating the plugin fails to apply,
-#     and a stale key in a section you have already turned off must not stop your server.
-#     Turning that section back on with the key unchanged is what then fails, at the next
-#     start.
-#   * It does not yet catch every way a requirement can go missing. Writing
-#     require-advancements as a single value instead of a list still warns rather than
-#     errors, and gate-mending-trade: true with a blank required-advancement is a gate
-#     that is on and requires nothing, with no warning at all. Both are issue #92.
+#   - a require-advancements under an ITEM TIER written on one line as a plain value
+#     instead of as a list of "- " entries. There is no built-in default for a tier, so
+#     falling back leaves the tier switched on and requiring nothing at all. Written the
+#     same way under a dimension gate it stays a WARNING: those ship a default, so the
+#     gate goes on requiring the shipped advancements -- not what you wrote, which is
+#     worth telling you about, but it is still a gate that gates something;
+#   - gate-mending-trade: true with required-advancement left blank. Each half is fine on
+#     its own; together they gate the trade on nothing.
+#
+# One qualification, so this does not read as a wider promise than it is: it applies to
+# gates that are switched ON. A bad key inside a section whose "enabled" is false -- or
+# under item-progression when that is false, or under villager-progression when
+# gate-mending-trade is false -- is a WARNING. A gate that is off admits everyone and says
+# so, so it is not gating the plugin fails to apply, and a stale key in a section you have
+# already turned off must not stop your server. Turning that section back on with the key
+# unchanged is what then fails, at the next start.
 #
 # What a rejected file costs depends on WHEN it is rejected, so check the log:
 #
@@ -35,8 +40,10 @@ profile: SMP_STANDARD
 #   server start - there is no previous configuration to keep, so what happens depends on
 #                  how the file is wrong, and the SEVERE line above the outcome says which:
 #
-#                  * A bad advancement key under a gate that is switched on, or a
-#                    require-advancements list whose entries all name nothing under one,
+#                  * Any of the four cases above under a gate that is switched on -- a bad
+#                    advancement key, a require-advancements list whose entries all name
+#                    nothing, an item tier's require-advancements written as a plain
+#                    value, a blank required-advancement beside gate-mending-trade: true --
 #                    STOPS THE PLUGIN. So does a file that parses but whose gated-items
 #                    cannot be turned into a gate table at all. It does not start on defaults,
 #                    because those defaults declare NO gated item tiers -- so booting on
