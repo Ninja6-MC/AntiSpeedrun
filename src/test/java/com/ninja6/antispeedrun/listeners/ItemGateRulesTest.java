@@ -71,6 +71,24 @@ class ItemGateRulesTest {
         }
 
         /**
+         * The gesture the test above could not reach, and the gap that let a real defect through:
+         * every case there starts in the player's own half, so none of them is the ordinary way a
+         * player fills a chest — cursor loaded, click a slot in the top half.
+         *
+         * <p>That click lands on the container, so a rule keyed on the clicked half alone answered
+         * {@code CLICKED_SLOT} and the caller tested whatever the slot held. Onto an empty slot that
+         * was harmless; onto a matching stack it refused the deposit on the strength of the stack
+         * already in the chest, so putting ten diamonds onto thirty was blocked while putting them
+         * into the next slot along was not.
+         */
+        @Test
+        @DisplayName("a deposit onto an occupied container slot is still a deposit")
+        void depositOntoAnOccupiedSlot() {
+            assertEquals(Subject.NONE, ItemGateRules.withdrawn(Gesture.DEPOSIT, TOP));
+            assertEquals(Subject.NONE, ItemGateRules.withdrawn(Gesture.DEPOSIT, BOTTOM));
+        }
+
+        /**
          * The one gesture that ignores where the click landed. A double-click gathers matching
          * stacks from the whole view, so keying it on the clicked slot would leave the simplest
          * siphon in the game open: double-click a stack in your own inventory, and the chest empties
@@ -102,27 +120,24 @@ class ItemGateRulesTest {
     class Waivers {
 
         @Test
-        @DisplayName("with the gate on and no exemption, the player is gated")
+        @DisplayName("with no exemption, the player is gated")
         void gatedByDefault() {
-            assertFalse(ItemGateRules.waived(true, false, false));
+            assertFalse(ItemGateRules.waived(false, false));
         }
 
         /**
-         * The master switch is a waiver rather than a separate branch on purpose: an operator who
-         * sets {@code item-progression.enabled: false} wants no item gating, and expressing that as
-         * "everyone is waived" keeps the listener down to one question.
+         * There is no third argument for {@code item-progression.enabled}, and its absence is the
+         * point. The master switch is read once, in {@code ItemProgressionListener.gatedTier},
+         * which reports every material as ungated while it is off — so a copy of it here could
+         * never be the check that fired, and a dead argument in a pure rule is a rule that looks
+         * tested and is not.
          */
-        @Test
-        @DisplayName("item-progression.enabled false waives everyone")
-        void masterSwitchWaives() {
-            assertTrue(ItemGateRules.waived(false, false, false));
-        }
-
         @Test
         @DisplayName("the permission and a bypass grant each waive independently")
         void eitherExemptionIsEnough() {
-            assertTrue(ItemGateRules.waived(true, true, false));
-            assertTrue(ItemGateRules.waived(true, false, true));
+            assertTrue(ItemGateRules.waived(true, false));
+            assertTrue(ItemGateRules.waived(false, true));
+            assertTrue(ItemGateRules.waived(true, true));
         }
     }
 

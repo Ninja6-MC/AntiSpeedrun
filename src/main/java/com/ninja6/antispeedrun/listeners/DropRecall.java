@@ -79,9 +79,9 @@ public final class DropRecall {
      *
      * <p>Concurrent because on Folia a death and an item spawn are ordinary region-thread events
      * and two players in different regions can die in the same tick. It stays small by
-     * construction — entries live for {@link #DEATH_WINDOW_MILLIS} — and is pruned on every read
-     * and every write, so no scheduled sweep is needed and nothing accumulates if the server is
-     * idle.
+     * construction — entries live for {@link #DEATH_WINDOW_MILLIS} — and every method that consults
+     * it drops what has expired, so no scheduled sweep is needed and nothing accumulates if the
+     * server is idle.
      */
     private final Queue<DeathMark> deaths = new ConcurrentLinkedQueue<>();
 
@@ -124,6 +124,22 @@ public final class DropRecall {
                 && stored[1] == player.getLeastSignificantBits();
     }
 
+    /**
+     * Whether this item entity already carries an owner, whoever it is.
+     *
+     * <p>The first writer wins, and that ordering is the point. {@code PlayerDropItemEvent} is
+     * raised before the entity is added to the world and therefore before {@code ItemSpawnEvent},
+     * so a player who throws a gated item down beside a fresh corpse is stamped as its owner first
+     * and would then be overwritten by the death claim — taking away the recall of the player who
+     * actually parted with the item, in favour of one who did not. Asking this before claiming
+     * costs one PDC read on a path already narrowed to a gated material spawning inside a death
+     * window.
+     */
+    public boolean isStamped(Item item) {
+        Objects.requireNonNull(item, "item");
+        return item.getPersistentDataContainer().has(dropOwner, PersistentDataType.LONG_ARRAY);
+    }
+
     // -------------------------------------------------------------------------------------------
     // Deaths, which have no entity to stamp yet
     // -------------------------------------------------------------------------------------------
@@ -151,15 +167,32 @@ public final class DropRecall {
     }
 
     /**
-     * Whether any death is currently inside its window.
+     * Whether any death is currently inside its window, dropping the ones that are not.
      *
      * <p>Exists so {@link ItemProgressionListener#onItemSpawn} can answer the common case without
      * calling {@code Entity#getLocation()}, which allocates. That handler runs for every item
      * entity created anywhere on the server — mob farms and block breaks included — while this is
      * false except in the second after somebody dies, so the allocation would be pure waste on the
      * overwhelming majority of calls.
+     *
+     * <p>Which is exactly why this has to prune rather than merely report. {@link #claim} only
+     * removes the marks it walks past on its way to an answer, and the caller reaches it solely for
+     * a gated material — so a death whose drops were all ungated used to leave a mark that nothing
+     * would clear until the next death anywhere on the server. This method then answered
+     * {@code true} indefinitely and the guard whose whole purpose is to make the common case cheap
+     * made it permanently expensive instead.
+     *
+     * <p>The empty check comes first so that the common case stays one field read: {@code removeIf}
+     * allocates an iterator, and paying that per item entity would reintroduce the cost in a
+     * different currency.
+     *
+     * @param now the caller's timestamp, which it needs anyway for {@link #claim}
      */
-    public boolean hasPendingDeaths() {
+    public boolean hasPendingDeaths(long now) {
+        if (deaths.isEmpty()) {
+            return false;
+        }
+        prune(now);
         return !deaths.isEmpty();
     }
 
@@ -195,7 +228,7 @@ public final class DropRecall {
         return Optional.empty();
     }
 
-    /** Drops marks whose window has closed. Called on every record and every claim. */
+    /** Drops marks whose window has closed. Called on every record and every consultation. */
     private void prune(long now) {
         deaths.removeIf(mark -> now - mark.at() > DEATH_WINDOW_MILLIS);
     }

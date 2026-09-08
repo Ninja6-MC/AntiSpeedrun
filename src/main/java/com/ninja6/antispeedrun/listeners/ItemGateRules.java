@@ -40,13 +40,24 @@ public final class ItemGateRules {
      *
      * <p>Bukkit's {@code ClickType} and {@code InventoryAction} between them enumerate around
      * thirty combinations, most of which differ only in how much of a stack moves. The gate does
-     * not care about quantity, so {@link ItemProgressionListener} folds them into these six on the
-     * way in and the rule below is stated once per distinction that actually exists.
+     * not care about quantity, so {@link ItemProgressionListener} folds them into these seven on
+     * the way in and the rule below is stated once per distinction that actually exists.
      */
     public enum Gesture {
 
         /** A plain click on a slot: take the stack onto the cursor, or swap it with what is held. */
         DIRECT,
+
+        /**
+         * A click that only puts the cursor down: all of it, some of it, or one item, into the
+         * clicked slot.
+         *
+         * <p>Separate from {@link #DIRECT} because the two are the same button on the same slot and
+         * only {@code InventoryAction} tells them apart. The destination cannot: a deposit onto an
+         * empty slot and a deposit onto a matching stack are the same gesture, and neither moves
+         * what is already sitting there.
+         */
+        DEPOSIT,
 
         /** Shift-click. The server moves the stack to the <em>other</em> inventory of the view. */
         QUICK_MOVE,
@@ -60,7 +71,7 @@ public final class ItemGateRules {
         /** Q or Ctrl-Q on a slot: the stack leaves the view for the floor. */
         DROP,
 
-        /** Anything that only puts items down, or moves nothing at all. */
+        /** Anything that moves nothing at all. */
         INERT
     }
 
@@ -89,21 +100,28 @@ public final class ItemGateRules {
      *
      * <h2>Why this is not simply "did they click the top inventory"</h2>
      *
-     * Because the same click on the same slot is a withdrawal or a deposit depending on what is
-     * already there. Clicking a top-inventory slot with an empty cursor takes the stack; clicking
-     * it with a full cursor puts one down. Answering with the <em>subject</em> rather than a
-     * boolean resolves that without this method needing to know anything about cursors: the caller
-     * tests the stack that is named, and a pure deposit names an empty slot, which is gated by
-     * nothing.
+     * Because the same button on the same slot is a withdrawal or a deposit depending on what is on
+     * the cursor. Clicking a top-inventory slot with an empty cursor takes the stack; clicking it
+     * with a loaded one puts items down. Which of the two it was is carried in the
+     * {@link Gesture}, because it cannot be recovered afterwards from the slot: an earlier revision
+     * answered {@code CLICKED_SLOT} for every direct click on the top half and left the caller to
+     * test whatever was in the slot, which read correctly for a pickup and wrongly for a merge —
+     * putting diamonds into a chest slot that already held diamonds was refused on the strength of
+     * the diamonds already in the chest. {@link Gesture#DEPOSIT} exists to state that difference
+     * once, where it can be tested.
      *
-     * <p>Two cases are not about the clicked slot at all:
+     * <p>Answering with the <em>subject</em> rather than a boolean is what lets the two cases below
+     * name a stack that is not the clicked one:
      *
      * <ul>
      *   <li><strong>{@link Gesture#COLLECT_TO_CURSOR}</strong> ignores {@code clickedTopInventory}
      *       entirely. A double-click gathers matching stacks from the <em>whole view</em>, so a
      *       double-click on a stack in the player's own inventory still empties the chest's
      *       matching stacks onto the cursor. Keying this on where the click landed would leave the
-     *       simplest siphon in the game open.</li>
+     *       simplest siphon in the game open. The cost is that a player cannot consolidate their
+     *       own above-tier stacks by double-clicking while any container is open — a gather that
+     *       would have taken nothing out of the chest is still refused, because this rule cannot
+     *       see what the view holds. Closing the container makes it work again.</li>
      *   <li><strong>{@link Gesture#DROP}</strong> from a container slot counts as a withdrawal even
      *       though the item lands on the floor rather than in the player's inventory. It is a
      *       withdrawal in one move and a pickup in the next, and while #12 would refuse that
@@ -129,7 +147,7 @@ public final class ItemGateRules {
         }
         return switch (gesture) {
             case DIRECT, QUICK_MOVE, HOTBAR_SWAP, DROP -> Subject.CLICKED_SLOT;
-            case COLLECT_TO_CURSOR, INERT -> Subject.NONE;
+            case COLLECT_TO_CURSOR, DEPOSIT, INERT -> Subject.NONE;
         };
     }
 
@@ -141,18 +159,20 @@ public final class ItemGateRules {
      * Whether the item gate does not apply to this player at all, before any progression is looked
      * at.
      *
-     * <p>Deliberately a different shape from {@link DimensionGateRules#waived}. There is no
-     * server-wide item unlock — {@code /asr unlock} opens dimensions, and nothing opens a tier —
-     * so the third waiver there is replaced here by the master switch, which is the only way an
-     * operator turns item gating off.
+     * <p>{@link DimensionGateRules#waived} minus its third waiver: there is no server-wide item
+     * unlock, because {@code /asr unlock} opens dimensions and nothing opens a tier.
      *
-     * @param progressionEnabled  {@code item-progression.enabled}
+     * <p>The master switch is deliberately not a fourth argument. {@code item-progression.enabled}
+     * is read in {@code ItemProgressionListener.gatedTier}, which reports every material as ungated
+     * when it is off, and every caller of this method has already been past it — so threading it in
+     * here as well would be a second off switch that no test could ever see fail, which is what it
+     * had become.
+     *
      * @param hasBypassPermission {@code player.hasPermission(antispeedrun.bypass.items)}
      * @param hasBypassGrant      {@code plugin.bypasses().hasBypass(player, now)}
      */
-    public static boolean waived(boolean progressionEnabled, boolean hasBypassPermission,
-                                 boolean hasBypassGrant) {
-        return !progressionEnabled || hasBypassPermission || hasBypassGrant;
+    public static boolean waived(boolean hasBypassPermission, boolean hasBypassGrant) {
+        return hasBypassPermission || hasBypassGrant;
     }
 
     /** What a tier demands, in the shape {@code ProgressionManager} evaluates. */

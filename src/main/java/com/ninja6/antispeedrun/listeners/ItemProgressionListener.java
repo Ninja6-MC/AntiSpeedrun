@@ -113,17 +113,39 @@ public final class ItemProgressionListener implements Listener {
     private static final int REFUSED_PICKUP_DELAY_TICKS = 40;
 
     /**
-     * Inventory views whose top half is a crafting grid rather than storage.
+     * Inventory views whose top half hands a player's own item straight back rather than keeping
+     * it.
      *
-     * <p>Excluded because they are not a transfer channel and no Epic 4 issue claims them.
-     * {@code CRAFTING} is the player's own inventory screen, whose "top inventory" is their 2x2
-     * grid — gating it would refuse a player their own items mid-craft, which is the one thing the
-     * gate must never do. {@code WORKBENCH} is the same argument one block larger. Furnaces,
-     * Crafters, brewing stands and every storage block remain gated: those are containers, and #9
-     * names them.
+     * <p>Excluded because the top-versus-bottom rule {@link #onInventoryClick} applies reads any
+     * click on the top half as a withdrawal from a container, and in these views there is no
+     * container. The player puts their own item into an input slot — a deposit, allowed — and the
+     * only way to get it out again is a click on that same slot, which the rule would refuse.
+     * Refusing it gates nothing: the item was already theirs, and every view listed here ejects its
+     * contents to the floor when the window closes, so the gate would achieve no more than making
+     * them close it.
+     *
+     * <p>{@code CRAFTING} is the player's own inventory screen, whose "top inventory" is their 2x2
+     * grid, and {@code WORKBENCH} is the same argument one block larger. The rest are the
+     * single-block workstations. None of them mints a material the player was not already holding:
+     * an anvil repairs, an enchanting table enchants, a grindstone and a stonecutter reduce, a loom
+     * and a cartography table decorate, and a smithing table upgrades gear from parts that had to
+     * come through a gated channel first.
+     *
+     * <p>The line is drawn at whether the block <em>keeps</em> what is put into it. Furnaces, blast
+     * furnaces, smokers, brewing stands, Crafters and every storage type are deliberately absent:
+     * they hold their contents, a hopper can pull those contents into somebody else's inventory,
+     * and #9 names them as containers. A furnace input slot is a chest slot that happens to smelt.
      */
-    private static final List<InventoryType> CRAFTING_VIEWS =
-            List.of(InventoryType.CRAFTING, InventoryType.WORKBENCH);
+    private static final List<InventoryType> PASS_THROUGH_VIEWS = List.of(
+            InventoryType.CRAFTING,
+            InventoryType.WORKBENCH,
+            InventoryType.ANVIL,
+            InventoryType.SMITHING,
+            InventoryType.GRINDSTONE,
+            InventoryType.ENCHANTING,
+            InventoryType.CARTOGRAPHY,
+            InventoryType.LOOM,
+            InventoryType.STONECUTTER);
 
     private final AntiSpeedrunPlugin plugin;
 
@@ -174,7 +196,7 @@ public final class ItemProgressionListener implements Listener {
         Material material = entity.getItemStack().getType();
 
         ItemTier tier = gatedTier(material, config);
-        if (tier == null || waived(player, config)) {
+        if (tier == null || waived(player)) {
             return;
         }
         // Before the eligibility check, because it is a definitive exemption: this is the player's
@@ -216,7 +238,7 @@ public final class ItemProgressionListener implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) {
             return;
         }
-        if (CRAFTING_VIEWS.contains(event.getView().getTopInventory().getType())) {
+        if (PASS_THROUGH_VIEWS.contains(event.getView().getTopInventory().getType())) {
             return;
         }
 
@@ -241,6 +263,14 @@ public final class ItemProgressionListener implements Listener {
     /**
      * Folds Bukkit's click taxonomy down to the distinctions the gate cares about.
      *
+     * <p>The action is consulted before the click type, and only for the deposits, because the
+     * click type cannot tell a deposit from a pickup: both are a left button on one slot, and which
+     * one happened is decided by what the cursor was carrying. The three {@code PLACE_*} actions
+     * are the whole set — all of the cursor, part of it, or one item — and {@code NOTHING} is a
+     * click the server resolved to no movement at all. Everything else falls through to the click
+     * type, which keeps the bundle actions and any action a future version adds on the conservative
+     * side rather than granting them a deposit's exemption by default.
+     *
      * <p>{@code default} is {@link ItemGateRules.Gesture#DIRECT} rather than {@code INERT}, which
      * is the conservative direction: an unrecognised or future click type on a container slot
      * holding a gated stack is treated as a withdrawal and refused, rather than waved through. It
@@ -249,6 +279,17 @@ public final class ItemProgressionListener implements Listener {
      * top inventory and never reaches this classification.
      */
     private static ItemGateRules.Gesture gestureOf(InventoryClickEvent event) {
+        switch (event.getAction()) {
+            case PLACE_ALL, PLACE_SOME, PLACE_ONE -> {
+                return ItemGateRules.Gesture.DEPOSIT;
+            }
+            case NOTHING -> {
+                return ItemGateRules.Gesture.INERT;
+            }
+            default -> {
+                // Not a deposit; the click type decides.
+            }
+        }
         return switch (event.getClick()) {
             case NUMBER_KEY, SWAP_OFFHAND -> ItemGateRules.Gesture.HOTBAR_SWAP;
             case DOUBLE_CLICK -> ItemGateRules.Gesture.COLLECT_TO_CURSOR;
@@ -274,20 +315,36 @@ public final class ItemProgressionListener implements Listener {
      * <p>{@link ItemGateRules.Gesture#COLLECT_TO_CURSOR} already refuses that first half, so this
      * handler is the backstop for a cursor that should never have been loaded.
      *
-     * <p>It is a backstop, though, and not a blanket refusal, because the two exemptions the click
-     * path grants have to hold here too or the gate starts confiscating rather than gating. A drag
-     * is only refused when it puts items into the player's own half of the view: dragging entirely
-     * within the container is a deposit, which {@link ItemGateRules#withdrawn} is built to permit,
-     * and a crafting view is excluded for the same reason it is in {@link #onInventoryClick}.
-     * Without both, a player holding above-tier gear by administrative grant — precisely the
-     * population §4 recall exists for — could not split their own stack or put it away.
+     * <p>It is a backstop, though, and not a blanket refusal, because the exemptions the click path
+     * grants have to hold here too or the gate starts confiscating rather than gating. A
+     * pass-through view is excluded for the same reason it is in {@link #onInventoryClick}, and a
+     * drag is only refused when its slots span <em>both</em> halves of the view. The two halves
+     * are two separate exemptions and both are needed:
+     *
+     * <ul>
+     *   <li>A drag entirely within the container is a deposit, which
+     *       {@link ItemGateRules#withdrawn} is built to permit.</li>
+     *   <li>A drag entirely within the player's own inventory never touched the container at all.
+     *       Splitting your own stack across your own hotbar is the same action with or without a
+     *       chest open, and refusing it because a chest happens to be open would stop a player
+     *       holding above-tier gear by administrative grant — precisely the population §4 recall
+     *       exists for — from tidying their own inventory.</li>
+     * </ul>
+     *
+     * <p>What that leaves uncovered is the drag that scatters a container-loaded cursor entirely
+     * into the player's own half, and it is worth being plain that this handler no longer catches
+     * it. It never could distinguish a cursor loaded from the container from one the player picked
+     * up themselves, so the choice was between refusing both and refusing neither, and refusing an
+     * ordinary stack split is the worse of the two errors. The gather that would have loaded such a
+     * cursor is refused by {@link ItemGateRules.Gesture#COLLECT_TO_CURSOR} in
+     * {@link #onInventoryClick}, which is where the siphon is actually closed.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInventoryDrag(InventoryDragEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) {
             return;
         }
-        if (CRAFTING_VIEWS.contains(event.getView().getTopInventory().getType())) {
+        if (PASS_THROUGH_VIEWS.contains(event.getView().getTopInventory().getType())) {
             return;
         }
         ItemStack dragged = event.getOldCursor();
@@ -297,13 +354,15 @@ public final class ItemProgressionListener implements Listener {
 
         int topSize = event.getView().getTopInventory().getSize();
         boolean intoPlayer = false;
+        boolean touchesContainer = false;
         for (int rawSlot : event.getRawSlots()) {
             if (rawSlot >= topSize) {
                 intoPlayer = true;
-                break;
+            } else if (rawSlot >= 0) {
+                touchesContainer = true;
             }
         }
-        if (!intoPlayer) {
+        if (!intoPlayer || !touchesContainer) {
             return;
         }
 
@@ -414,21 +473,28 @@ public final class ItemProgressionListener implements Listener {
      * <p>This fires for every item entity that appears anywhere — mob drops, block breaks, every
      * hopper-fed dispenser — so the cost of the common case is what matters, and the guards below
      * are ordered accordingly: a volatile config read, then
-     * {@link DropRecall#hasPendingDeaths()}, which is false except in the second after somebody
+     * {@link DropRecall#hasPendingDeaths(long)}, which is false except in the second after somebody
      * dies. Only past both does this touch {@code getLocation()}, which allocates.
+     *
+     * <p>An entity that already carries a stamp is left with the one it has. {@code ServerPlayer}
+     * raises {@code PlayerDropItemEvent} before the entity joins the world, so a player throwing a
+     * gated item down beside a fresh corpse is stamped by {@link #onPlayerDropItem} first and would
+     * otherwise be re-stamped for the dead player here — handing recall on their own item to
+     * somebody else. {@link DropRecall#isStamped} is asked only past both guards above and the
+     * material check, so the extra PDC read is confined to a path that is already rare.
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onItemSpawn(ItemSpawnEvent event) {
         PluginConfig config = plugin.configuration();
-        if (!config.itemProgression().dropRecallEnabled() || !recall.hasPendingDeaths()) {
+        long now = System.currentTimeMillis();
+        if (!config.itemProgression().dropRecallEnabled() || !recall.hasPendingDeaths(now)) {
             return;
         }
         Item item = event.getEntity();
-        if (gatedTier(item.getItemStack().getType(), config) == null) {
+        if (gatedTier(item.getItemStack().getType(), config) == null || recall.isStamped(item)) {
             return;
         }
-        recall.claim(item.getLocation(), System.currentTimeMillis())
-                .ifPresent(owner -> recall.stamp(item, owner));
+        recall.claim(item.getLocation(), now).ifPresent(owner -> recall.stamp(item, owner));
     }
 
     // -------------------------------------------------------------------------------------------
@@ -452,7 +518,7 @@ public final class ItemProgressionListener implements Listener {
     private boolean refuse(Player player, Material material) {
         PluginConfig config = plugin.configuration();
         ItemTier tier = gatedTier(material, config);
-        if (tier == null || waived(player, config)) {
+        if (tier == null || waived(player)) {
             return false;
         }
         EligibilityResult result = plugin.progression().evaluate(
@@ -484,10 +550,14 @@ public final class ItemProgressionListener implements Listener {
      *
      * <p>Both reads are in-memory or PDC reads on the player's own region, so this is safe on the
      * event thread; neither touches a file.
+     *
+     * <p>The master switch is not among them. Every caller has already been through
+     * {@link #gatedTier}, which reports nothing as gated while {@code item-progression.enabled} is
+     * false, so asking again here would be a second off switch that could never be the one that
+     * fired.
      */
-    private boolean waived(Player player, PluginConfig config) {
+    private boolean waived(Player player) {
         return ItemGateRules.waived(
-                config.itemProgression().enabled(),
                 player.hasPermission(BYPASS_PERMISSION),
                 plugin.bypasses().hasBypass(player, System.currentTimeMillis()));
     }

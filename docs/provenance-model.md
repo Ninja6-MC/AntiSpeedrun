@@ -134,11 +134,17 @@ stamped inline. `PlayerDeathEvent` does not: `getDrops()` is a list of `ItemStac
 entities carrying them do not exist until the server spawns them immediately afterwards.
 Stamping those stacks instead is the one thing this model forbids, so the death is recorded
 (player, position, timestamp) and `ItemSpawnEvent` attributes items appearing within four
-blocks and one second to it. The bound this leaves is stated rather than hidden: another
-player's item spawning on a fresh corpse inside that second is stamped for the dead player.
-It requires standing on a corpse in the same second, it privileges one player over one stack
-until that stack despawns, and the alternative reopens the laundering vector this whole model
-exists to close.
+blocks and one second to it — unless the entity already carries a stamp, which it does when a
+player threw it there by hand, since `PlayerDropItemEvent` is raised before the entity joins
+the world. Without that check the death claim would overwrite the dropper's own stamp and take
+recall on their own item away from them in favour of somebody who never held it. The first
+writer wins.
+
+The bound this leaves is stated rather than hidden: an *unstamped* item spawning on a fresh
+corpse inside that second — a mob drop, a broken block — is attributed to the dead player. It
+requires standing on a corpse in the same second, it privileges one player over one stack until
+that stack despawns, and the alternative reopens the laundering vector this whole model exists
+to close.
 
 `BlockDropItemEvent` **does not stamp anything.** This is what closes C-02: breaking a
 container confers nothing on the breaker.
