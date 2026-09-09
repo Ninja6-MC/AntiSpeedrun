@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.bukkit.Material;
 import org.bukkit.command.PluginCommand;
@@ -17,9 +18,11 @@ import com.ninja6.antispeedrun.config.ConfigLoadException;
 import com.ninja6.antispeedrun.config.ConfigSnapshotHolder;
 import com.ninja6.antispeedrun.config.ConfigSource;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.config.UnenforceableGateException;
 import com.ninja6.antispeedrun.gating.GateCollisionException;
 import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.gating.MaterialGates;
+import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
@@ -29,6 +32,7 @@ import com.ninja6.antispeedrun.progression.UnlockWatch;
 import com.ninja6.antispeedrun.storage.BypassStore;
 import com.ninja6.antispeedrun.storage.DimensionUnlockStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
+import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
 import com.ninja6.antispeedrun.storage.YamlStateFile;
 
 /**
@@ -111,41 +115,44 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     public void onEnable() {
         saveDefaultConfig();
 
-        // Start on the shipped defaults so a broken file at startup degrades to known-good values
-        // instead of disabling the plugin; the reload below replaces them when the file is valid.
+        // Start on the shipped defaults so a file that cannot be parsed at all degrades to
+        // known-good values instead of disabling the plugin; the reload below replaces them when
+        // the file is valid, and refuses to start when the file describes gating this server could
+        // not enforce. See ReloadOutcome for the whole of the startup policy.
         this.configHolder = new ConfigSnapshotHolder(getLogger(), PluginConfig.defaults());
-        // Runs before anything else is built, so a startup doomed by a tier collision does not
+        // Runs before anything else is built, so a startup doomed by the file does not
         // register listeners it is about to tear down. Progression does not exist yet at this
         // point, which is why applyConfiguration's refresh of it is null-guarded rather than
         // unconditional -- priming online players is done explicitly further down instead.
-        switch (applyConfiguration()) {
-            case APPLIED -> {
-                // Nothing more to do: the snapshot and the gates it compiled to are both live.
-            }
-            case CONFIG_REJECTED -> {
-                getLogger().warning(
-                        "Running on the shipped default configuration until config.yml loads.");
-                // The rejected-reload path logs why the file failed, but nothing has yet said what
-                // the fallback actually leaves running -- notably that the defaults gate no items
-                // at all, which is what the empty table this field starts on already expresses.
-                configHolder.logWarnings(configHolder.get().warnings());
-            }
-            case GATES_REJECTED -> {
-                // An unresolvable tier collision is not a recoverable parse problem. At startup
-                // there is no previous table to keep, and staying up with every item ungated is
-                // precisely the silent failure audit finding R-11 objects to -- so this one
-                // condition does stop the plugin, where a malformed config.yml deliberately
-                // does not.
-                getLogger().severe("AntiSpeedrun will not start while item-progression.gated-items "
-                        + "contains an unresolvable tier collision. Fix config.yml and restart.");
-                getServer().getPluginManager().disablePlugin(this);
-                return;
-            }
+        ReloadOutcome outcome = applyConfiguration();
+        if (outcome.stopsStartup()) {
+            // Whether an outcome is survivable at startup is the enum's to say, not this method's,
+            // so the #91 policy is one table rather than a set of arms that can drift apart.
+            getLogger().severe(outcome.startupRefusal());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        if (outcome == ReloadOutcome.CONFIG_REJECTED) {
+            // The file could not be turned into a document at all, so it describes no gating for
+            // this plugin to fail to enforce. That is audit finding R-11's case and it keeps R-11's
+            // answer: land on the shipped defaults rather than refuse to boot an operator's server
+            // over a stray character.
+            getLogger().warning(
+                    "Running on the shipped default configuration until config.yml loads.");
+            // The rejected-reload path logs why the file failed, but nothing has yet said what the
+            // fallback actually leaves running -- notably that the defaults gate no items at all,
+            // which is what the empty table this field starts on already expresses.
+            configHolder.logWarnings(configHolder.get().warnings());
         }
 
         this.playerState = new PlayerStateRegistry();
+        // The announced-milestone record lives in each player's PDC, so it needs nothing but this
+        // plugin instance and can be built here, ahead of the file-backed stores below. Without it
+        // a gate cleared by require-account-age-days while the player was offline is never
+        // announced to them at all -- see ProgressionManager#announceUnlocksClearedWhileAway (#84).
         this.progression = new ProgressionManager(
-                getLogger(), new BukkitAdvancementLookup(getLogger()), playerState);
+                getLogger(), new BukkitAdvancementLookup(getLogger()), playerState,
+                new PlayerAnnouncedUnlockStore(this));
         this.progressionListener = new ProgressionListener(this, progression);
         getServer().getPluginManager().registerEvents(progressionListener, this);
 
@@ -174,6 +181,12 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // would open a window in which a player walking into a portal during startup NPEs the
         // handler -- narrow, but the kind of window that only ever fires in production.
         getServer().getPluginManager().registerEvents(new ProgressionGateListener(this), this);
+
+        // The item gate, registered here for the same reason and with one of its own: it reads
+        // bypasses() on every pickup and every container click, and it reads itemGates(), which
+        // only holds a compiled table once applyConfiguration() above has run. Both are in place
+        // by this line.
+        getServer().getPluginManager().registerEvents(new ItemProgressionListener(this), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
@@ -323,21 +336,131 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * @return {@code true} if the new snapshot and its compiled gates are live, {@code false} if
      *         either was rejected — in which case <em>nothing</em> was applied and the previous
      *         snapshot, table and progression cache all remain live together. Never disables the
-     *         plugin; only the startup path in {@link #onEnable()} does that, and only for a
-     *         collision.
+     *         plugin: a reload always has a configuration to keep, so every failure is survivable
+     *         here. Only the startup path in {@link #onEnable()} disables, and only for the
+     *         outcomes {@link ReloadOutcome#stopsStartup()} names.
      */
     public boolean reloadConfiguration() {
-        return applyConfiguration() == ReloadOutcome.APPLIED;
+        ReloadOutcome outcome = applyConfiguration();
+        if (outcome.stopsStartup()) {
+            // Survivable here and only here. The running configuration is now the newer of the two
+            // in the sense that matters: it is the one that works, and the file on disk would not
+            // get this server up again. Without this line the refusal is silent until the next
+            // restart, which may be weeks away and will not be connected to this reload.
+            getLogger().warning("config.yml on disk is now in a state AntiSpeedrun refuses to "
+                    + "START on, so this server is running a configuration that would not survive "
+                    + "a restart: the next start would disable the plugin rather than reach the "
+                    + "state it is in now. Fix config.yml before the next restart, not after it.");
+        }
+        return outcome == ReloadOutcome.APPLIED;
     }
 
-    /** Why a reload attempt ended the way it did. The startup path treats the two failures apart. */
-    private enum ReloadOutcome {
+    /**
+     * Why a reload attempt ended the way it did. Every failure is identical on {@code /asr reload}
+     * — nothing is published and the configuration already running stays live — so the distinctions
+     * exist for the startup path alone.
+     *
+     * <p><strong>The startup policy, in one sentence:</strong> the plugin refuses to start when
+     * {@code config.yml} describes gating it could not enforce, and falls back to
+     * {@link PluginConfig#defaults()} only when the file describes no gating at all. #91 settled
+     * that, reconciling audit finding R-11 (a malformed file must not stop an operator's server)
+     * with #83's fail-closed rule (a requirement that cannot be enforced is not a requirement).
+     * They are compatible once "malformed" is read as narrowly as it deserves to be: a file that
+     * will not parse says nothing, and the defaults are a coherent configuration to land on; a file
+     * that parses and then names an unresolvable advancement says something this server will not
+     * do, and landing on defaults that declare no item tiers would turn all item gating off over
+     * one typo — the armed-but-permissive outcome both decisions were written to prevent.
+     */
+    enum ReloadOutcome {
         /** The new snapshot and the gates compiled from it are both live. */
-        APPLIED,
-        /** {@code config.yml} could not be parsed; nothing changed. Recoverable, never fatal. */
-        CONFIG_REJECTED,
-        /** The file parsed but its tiers collide; nothing changed. Fatal at startup only. */
-        GATES_REJECTED
+        APPLIED(null),
+        /**
+         * {@code config.yml} could not be parsed into a document; nothing changed. Never fatal —
+         * this is the arm that keeps R-11's landing zone.
+         */
+        CONFIG_REJECTED(null),
+        /**
+         * The file parsed but named a gate this server could not enforce — an unresolvable
+         * advancement key, or a requirement list that emptied itself. Fatal at startup.
+         */
+        GATE_UNENFORCEABLE("AntiSpeedrun will not start while config.yml names an advancement this "
+                + "server cannot resolve. The rejected key is named in the error above. Starting "
+                + "on the shipped defaults instead would turn item gating off entirely, which is "
+                + "worse than not starting. Fix config.yml and restart."),
+        /** The file parsed but its tiers collide; nothing changed. Fatal at startup. */
+        GATES_REJECTED("AntiSpeedrun will not start while item-progression.gated-items contains an "
+                + "unresolvable tier collision. Fix config.yml and restart."),
+        /**
+         * The file parsed but the item gate table could not be built from it, for a reason that
+         * was not a tier collision; nothing changed. Fatal at startup, for the same reason a
+         * collision is: the file described gating and this server could not produce it.
+         */
+        GATES_UNBUILDABLE("AntiSpeedrun will not start: config.yml parsed, but the item gate table "
+                + "could not be built from it. The failure is logged above. The file describes "
+                + "gating, so starting on the shipped defaults instead would turn item gating off "
+                + "across the whole server while every gate still reported itself armed. Fix "
+                + "config.yml and restart.");
+
+        private final String startupRefusal;
+
+        ReloadOutcome(String startupRefusal) {
+            this.startupRefusal = startupRefusal;
+        }
+
+        /**
+         * Whether {@code onEnable} must disable the plugin rather than keep running on
+         * {@link PluginConfig#defaults()}. Exactly the outcomes that carry a refusal message.
+         */
+        boolean stopsStartup() {
+            return startupRefusal != null;
+        }
+
+        /**
+         * What to tell the operator before disabling. The line says what will not start and why
+         * the alternative is worse, because the {@code SEVERE} naming the offending key is logged
+         * separately and an operator may well read only one of the two.
+         *
+         * @throws IllegalStateException if this outcome does not stop startup
+         */
+        String startupRefusal() {
+            if (startupRefusal == null) {
+                throw new IllegalStateException(this + " does not stop startup");
+            }
+            return startupRefusal;
+        }
+    }
+
+    /**
+     * Classifies a reload that published nothing.
+     *
+     * <p>Separated from {@link #applyConfiguration()} because it is the whole of the #91 decision
+     * and it is pure: a collision reported by the binding, otherwise the type of the rejection the
+     * holder handed back.
+     *
+     * <p>A rejection of {@code null} means the holder never rejected the document — it parsed —
+     * and the binding is what failed, with something other than a collision. That case is fatal
+     * too, and deliberately so. The fallback exists for a file that describes no gating, and the
+     * file having parsed <em>is</em> the establishment that it describes some: it named tiers this
+     * server then could not turn into a gate table. Landing on {@link PluginConfig#defaults()}
+     * there declares no tiers at all, which is item gating off server-wide for a file that asked
+     * for it — the same armed-but-permissive outcome #91 exists to remove, reached through the
+     * least-understood path of the three. An unclassifiable failure is the last place to guess
+     * permissive.
+     *
+     * @param collided  whether the gate compiler rejected the candidate over a tier collision
+     * @param rejection the failure that rejected the document, or {@code null} if the document
+     *                  parsed and the binding is what failed
+     */
+    static ReloadOutcome rejectionOutcome(boolean collided, ConfigLoadException rejection) {
+        if (collided) {
+            return ReloadOutcome.GATES_REJECTED;
+        }
+        if (rejection == null) {
+            return ReloadOutcome.GATES_UNBUILDABLE;
+        }
+        return rejection instanceof UnenforceableGateException
+                ? ReloadOutcome.GATE_UNENFORCEABLE
+                : ReloadOutcome.CONFIG_REJECTED;
     }
 
     /**
@@ -378,6 +501,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         synchronized (configLock) {
             List<String> gateWarnings = new ArrayList<>();
             AtomicBoolean collided = new AtomicBoolean();
+            AtomicReference<ConfigLoadException> rejection = new AtomicReference<>();
 
             Optional<ItemGateTable<Material>> compiled =
                     configHolder.reload(fileSource(), candidate -> {
@@ -387,10 +511,10 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                             collided.set(true);
                             throw collision;
                         }
-                    });
+                    }, rejection::set);
 
             if (compiled.isEmpty()) {
-                return collided.get() ? ReloadOutcome.GATES_REJECTED : ReloadOutcome.CONFIG_REJECTED;
+                return rejectionOutcome(collided.get(), rejection.get());
             }
 
             this.itemGates = compiled.get();

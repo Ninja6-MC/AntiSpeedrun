@@ -372,7 +372,11 @@ class PluginConfigTest {
 
             assertEquals(List.of("minecraft:story/smelt_iron"),
                     config.dimensionGates().nether().requireAdvancements(),
-                    "scalar where a list was expected falls back to the shipped default");
+                    "scalar where a list was expected falls back to the shipped default. #92 made "
+                            + "that fatal only where the default is empty and the fall-back would "
+                            + "therefore arm a gate requiring nothing; a dimension gate ships a "
+                            + "non-empty default, so this stays the wrong-type warning even with "
+                            + "the gate enabled");
             assertEquals(List.of("minecraft:story/mine_diamond"),
                     config.dimensionGates().theEnd().requireAdvancements());
 
@@ -559,6 +563,48 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("reject the document as an unenforceable gate, not as an unreadable file")
+        void anUnresolvableKeyIsNamedAsAnUnenforceableGate() {
+            // #91: the startup path treats the two apart, and the exception type is the only thing
+            // that tells them apart -- a file that will not parse describes no gating and lands on
+            // the defaults, while this one describes gating the server would not enforce and stops
+            // the plugin instead. Asserting the type here is asserting that distinction survives.
+            assertThrows(UnenforceableGateException.class,
+                    () -> withNetherKeys("story/smelt iron"));
+            assertThrows(UnenforceableGateException.class,
+                    () -> PluginConfig.from(yaml("""
+                            villager-progression:
+                              gate-mending-trade: true
+                              required-advancement: "Story/Cure_Zombie_Villager"
+                            """)));
+        }
+
+        @Test
+        @DisplayName("a list that empties itself is an unenforceable gate for the same reason")
+        void anEmptiedListIsNamedAsAnUnenforceableGate() {
+            assertThrows(UnenforceableGateException.class,
+                    () -> PluginConfig.from(yaml("""
+                            dimension-gates:
+                              the_end:
+                                enabled: true
+                                require-advancements:
+                                  - "   "
+                            """)));
+        }
+
+        @Test
+        @DisplayName("a document that will not parse is NOT an unenforceable gate")
+        void aMalformedDocumentIsNotAnUnenforceableGate() {
+            // The other half of the #91 split, and the one that keeps audit finding R-11's landing
+            // zone: a file that says nothing cannot be describing a gate this server would fail to
+            // enforce, so it must not be classified as one. The source used here is the same shape
+            // as the plugin's own -- parse, or fail with the plain named error.
+            ConfigLoadException broken = assertThrows(ConfigLoadException.class,
+                    () -> yaml("profile: HARDCORE\n  bad: indent\n"));
+            assertFalse(broken instanceof UnenforceableGateException, broken.getMessage());
+        }
+
+        @Test
         @DisplayName("are refused under item tiers and the villager gate on the same rule")
         void everySectionIsCoveredByTheSameRule() {
             assertThrows(ConfigLoadException.class, () -> PluginConfig.from(yaml("""
@@ -568,8 +614,12 @@ class PluginConfigTest {
                           require-advancements:
                             - "story/mine stone"
                     """)));
+            // gate-mending-trade is stated rather than left to its default, because its default is
+            // false and a gate that is off is not gating this server fails to enforce -- the key
+            // under it is then a warning by design. The rule under test is the one for a live gate.
             assertThrows(ConfigLoadException.class, () -> PluginConfig.from(yaml("""
                     villager-progression:
+                      gate-mending-trade: true
                       required-advancement: "not a key"
                     """)));
         }
@@ -740,17 +790,138 @@ class PluginConfigTest {
         }
 
         @Test
-        @DisplayName("a cleared villager key still means no advancement, not a malformed one")
-        void aClearedSingleKeyIsNotFatal() throws Exception {
+        @DisplayName("a cleared villager key is fatal while the mending trade is gated")
+        void aClearedSingleKeyIsFatalWhileTheTradeIsGated() {
+            // #92, waiver path 2. Each half is legitimate alone -- clearing the key is how the
+            // requirement is switched off, and gating the trade is what the section is for -- so
+            // together they produced a gate that was on and required nothing, with no warning
+            // about either half. That is the armed-but-permissive gate the fail-closed rule exists
+            // to prevent, reached without a single malformed character.
+            //
+            // The SUBTYPE is the assertion that matters and is pinned deliberately. The supertype
+            // would pass either way, and the two arms are not the same outcome: at onEnable
+            // AntiSpeedrunPlugin refuses to start on an UnenforceableGateException, while a plain
+            // ConfigLoadException falls back to defaults() -- which declare no item tiers, so
+            // throwing the supertype here would turn item gating off server-wide, silently, which
+            // is a worse version of the bug being fixed. See #91.
+            UnenforceableGateException failure = assertThrows(UnenforceableGateException.class,
+                    () -> PluginConfig.from(yaml("""
+                            villager-progression:
+                              gate-mending-trade: true
+                              required-advancement: "   "
+                            """)));
+
+            assertTrue(failure.getMessage()
+                            .contains("villager-progression.required-advancement"),
+                    failure.getMessage());
+            assertTrue(failure.getMessage().contains("gate-mending-trade"), failure.getMessage());
+        }
+
+        @Test
+        @DisplayName("a cleared villager key is fine while the mending trade is not gated")
+        void aClearedSingleKeyIsNotFatalWhileTheTradeIsUngated() throws Exception {
+            // The inverse, and the half that must not regress: gate-mending-trade defaults to
+            // false, so this section is the one most likely to carry a key nothing reads. A gate
+            // that is off admits everyone and says so, so there is no unenforceable gating here to
+            // refuse a boot over.
             PluginConfig config = PluginConfig.from(yaml("""
                     villager-progression:
-                      gate-mending-trade: true
+                      gate-mending-trade: false
                       required-advancement: "   "
                     """));
 
             assertEquals("", config.villagerProgression().requiredAdvancement());
             assertFalse(mentions(config.warnings(), "villager-progression"),
-                    "clearing the key is how the requirement is switched off; it is not a problem");
+                    "clearing the key under a gate that is off is not a problem to report");
+        }
+
+        @Test
+        @DisplayName("a scalar require-advancements is fatal on an armed item tier")
+        void aScalarRequirementListIsFatalOnAnArmedTier() {
+            // #92, waiver path 1. A scalar where a list is expected falls back through stringList
+            // to the default -- List.of() for a tier -- so the tier booted armed and requiring
+            // nothing, on a wrong-type warning nobody has to read. The same operator mistake
+            // written as a malformed key inside a list is already fatal.
+            //
+            // Subtype pinned for the same reason as the villager case above: only
+            // UnenforceableGateException refuses the boot, and falling back to defaults() here
+            // would disarm every item tier on the server.
+            UnenforceableGateException failure = assertThrows(UnenforceableGateException.class,
+                    () -> PluginConfig.from(yaml("""
+                            item-progression:
+                              enabled: true
+                              gated-items:
+                                iron-tier:
+                                  items:
+                                    - "IRON_INGOT"
+                                  require-advancements: "story/mine_diamond"
+                            """)));
+
+            assertTrue(failure.getMessage().contains(
+                            "item-progression.gated-items.iron-tier.require-advancements"),
+                    failure.getMessage());
+            assertTrue(failure.getMessage().contains("list"), failure.getMessage());
+        }
+
+        @Test
+        @DisplayName("a scalar require-advancements only warns while item progression is off")
+        void aScalarRequirementListOnlyWarnsWhenItemProgressionIsOff() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      enabled: false
+                      gated-items:
+                        iron-tier:
+                          items:
+                            - "IRON_INGOT"
+                          require-advancements: "story/mine_diamond"
+                    """));
+
+            assertEquals(List.of(),
+                    config.itemProgression().gatedItems().get(0).requireAdvancements());
+            assertTrue(mentions(config.warnings(),
+                    "item-progression.gated-items.iron-tier.require-advancements"));
+        }
+
+        @Test
+        @DisplayName("a scalar require-advancements only warns on an armed dimension gate")
+        void aScalarRequirementListOnlyWarnsOnAnArmedDimensionGate() throws Exception {
+            // The scope line for #92's first waiver path, stated as a test because it is the half
+            // that is easy to get wrong in the strict direction. The item tier above is fatal
+            // because its default is List.of(), so falling back publishes a tier that is armed and
+            // requires nothing. A dimension gate ships a non-empty default, so falling back leaves
+            // it requiring the shipped advancements -- not what the file asked for, which is worth
+            // a warning, but it is still a gate that gates something and this server can enforce.
+            // Refusing to boot on an enforceable configuration is a false refusal, and false
+            // refusals at startup were the merge blocker on #91.
+            PluginConfig config = PluginConfig.from(yaml("""
+                    dimension-gates:
+                      the_end:
+                        enabled: true
+                        require-advancements: "story/mine_diamond"
+                    """));
+
+            assertEquals(List.of("minecraft:story/mine_diamond",
+                            "minecraft:nether/obtain_blaze_rod",
+                            "minecraft:nether/find_fortress"),
+                    config.dimensionGates().theEnd().requireAdvancements(),
+                    "the shipped default, not the single key the file names");
+            assertTrue(mentions(config.warnings(),
+                    "dimension-gates.the_end.require-advancements"));
+        }
+
+        @Test
+        @DisplayName("a scalar require-advancements only warns while the dimension gate is off")
+        void aScalarRequirementListOnlyWarnsWhenTheGateIsOff() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    dimension-gates:
+                      the_end:
+                        enabled: false
+                        require-advancements: "story/mine_diamond"
+                    """));
+
+            assertFalse(config.dimensionGates().theEnd().enabled());
+            assertTrue(mentions(config.warnings(),
+                    "dimension-gates.the_end.require-advancements"));
         }
 
         @Test
@@ -839,6 +1010,71 @@ class PluginConfigTest {
                     severe.get(0).getMessage());
             assertTrue(severe.get(0).getMessage().contains("has NOT been applied"));
             assertTrue(severe.get(0).getThrown() instanceof ConfigLoadException);
+        }
+
+        @Test
+        @DisplayName("hands the rejection to the listener, keeping the type the startup path needs")
+        void rejectionIsReportedToTheListener() {
+            // #91 needs the caller to tell "the file described gating we cannot enforce" from "the
+            // file did not parse", and an empty Optional cannot say which. The listener is how.
+            CapturingLogger log = new CapturingLogger();
+            ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+            AtomicReference<ConfigLoadException> reported = new AtomicReference<>();
+
+            assertTrue(holder.reload(() -> yaml("""
+                    dimension-gates:
+                      nether:
+                        require-advancements:
+                          - "story/smelt iron"
+                    """), candidate -> "gates", reported::set).isEmpty());
+
+            assertTrue(reported.get() instanceof UnenforceableGateException,
+                    String.valueOf(reported.get()));
+            assertEquals(PluginConfig.defaults(), holder.get(), "nothing may have been published");
+
+            reported.set(null);
+            assertTrue(holder.reload(() -> yaml("profile: HARDCORE\n  bad: indent\n"),
+                    candidate -> "gates", reported::set).isEmpty());
+            assertNotNull(reported.get());
+            assertFalse(reported.get() instanceof UnenforceableGateException,
+                    reported.get().getMessage());
+        }
+
+        @Test
+        @DisplayName("says the plugin does not enable at startup when a gate cannot be enforced")
+        void theSevereLineDistinguishesTheTwoStartupOutcomes() {
+            CapturingLogger log = new CapturingLogger();
+            ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+
+            assertFalse(holder.reload(() -> yaml("""
+                    dimension-gates:
+                      nether:
+                        require-advancements:
+                          - "story/smelt iron"
+                    """)));
+
+            // An operator who reads only this line must not be told the plugin stays enabled, since
+            // at startup it will not: that was the wrong half of the old single-sentence message.
+            String message = log.at(Level.SEVERE).get(0).getMessage();
+            assertTrue(message.contains("At startup the plugin does NOT enable"), message);
+            assertFalse(message.contains("at startup it is the shipped defaults"), message);
+        }
+
+        @Test
+        @DisplayName("a binding rejection is not reported to the listener, being the caller's own")
+        void aBindingRejectionIsNotAConfigRejection() {
+            // The caller already knows -- it threw. Reporting it here would make a tier collision
+            // indistinguishable from a document the reader refused, and those disable the plugin
+            // for different reasons and with different messages.
+            CapturingLogger log = new CapturingLogger();
+            ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+            AtomicReference<ConfigLoadException> reported = new AtomicReference<>();
+
+            assertTrue(holder.reload(() -> yaml("profile: HARDCORE\n"), candidate -> {
+                throw new IllegalStateException("tiers collide over MACE");
+            }, reported::set).isEmpty());
+
+            assertNull(reported.get());
         }
 
         @Test

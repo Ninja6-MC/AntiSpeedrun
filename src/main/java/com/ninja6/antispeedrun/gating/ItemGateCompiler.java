@@ -389,8 +389,16 @@ public final class ItemGateCompiler {
      * <p>Delegating is the point of #83. A tier reaching this compiler from {@code config.yml} has
      * already been through {@link AdvancementKeys#canonical} at the read site, so what is compared
      * here and what {@code BukkitAdvancementLookup} is later handed are the same string by
-     * construction; this call is what keeps that true for a tier built in code, and what stops a
-     * second normalisation rule growing here.
+     * construction, and this call is what stops a second normalisation rule growing here.
+     *
+     * <p><strong>The guarantee rests on the read site, not on this method.</strong> For a tier
+     * built in code rather than read from the file, this call does the opposite of preserving it:
+     * it is normalisation without the read site's rejection, which is exactly the equate-then-waive
+     * shape #79 was reverted for — two keys differing only by padding compare as identical here
+     * while the resolver still waives the survivor's requirement. That is harmless today only
+     * because nothing builds a tier outside {@link com.ninja6.antispeedrun.config.PluginConfig},
+     * where every key is rejected if the resolver cannot parse it. Any code path that ever
+     * constructs a tier directly has to reject unresolvable keys itself before handing it here.
      *
      * <p>The history is worth keeping, because the obvious narrow fix is the wrong one. #79 added
      * trimming <em>only</em> here and was reverted: with the resolver still seeing the padded key,

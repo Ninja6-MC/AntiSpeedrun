@@ -18,9 +18,15 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  * <p>Three events, one job each:
  *
  * <ul>
- *   <li>{@code PlayerJoinEvent} — records which gates the player already satisfies, silently, so
- *       the first advancement of the session does not congratulate them on a gate they cleared
- *       weeks ago, and arms the {@link UnlockWatch} if anything is outstanding on time alone.</li>
+ *   <li>{@code PlayerJoinEvent} — records which gates the player already satisfies, so the first
+ *       advancement of the session does not congratulate them on a gate they cleared weeks ago, and
+ *       arms the {@link UnlockWatch} if anything is outstanding on time alone. It announces exactly
+ *       the gates the player's persisted record says they have not been told about, which is the
+ *       only way a gate cleared by {@code require-account-age-days} while they were offline is ever
+ *       announced at all — see {@link ProgressionManager#announceUnlocksClearedWhileAway} and #84.
+ *       Reading and writing that record is a PDC access, which is region-owned exactly as the
+ *       capture beside it is, so it needs no scheduling of its own on top of what the join handler
+ *       already guarantees.</li>
  *   <li>{@code PlayerAdvancementDoneEvent} — the only moment a player's advancement set changes.
  *       Invalidates the cached snapshot and announces any gate that has just opened. Both happen on
  *       the player's own region thread, which is where the event fires, so no cross-region work is
@@ -85,7 +91,7 @@ public final class ProgressionListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         PluginConfig config = plugin.configuration();
-        progression.primeUnlocks(event.getPlayer(), config);
+        progression.announceUnlocksClearedWhileAway(event.getPlayer(), config);
         watch.refresh(event.getPlayer(), config);
     }
 

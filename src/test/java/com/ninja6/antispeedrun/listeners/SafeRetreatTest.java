@@ -218,18 +218,38 @@ class SafeRetreatTest {
         @DisplayName("stone under two blocks of lava is not somewhere to stand")
         void stoneUnderLava() {
             // 64 is the only y whose floor is solid and whose two body blocks are collision-free.
-            // It is lava. The search must reject it, and must not settle for 65 either.
-            OptionalInt found = SafeRetreat.groundY(LAVA_LAKE, 10, 64, 10, -64, 320);
-            assertTrue(found.isEmpty() || found.getAsInt() >= 66,
-                    "the only candidates below 66 are inside the lava; got " + found);
+            // It is lava, so it is refused; 65 has lava for a floor and 66 has lava under its feet,
+            // so nothing else in range qualifies either. The answer is determinate, not a range.
+            assertEquals(OptionalInt.empty(), SafeRetreat.groundY(LAVA_LAKE, 10, 64, 10, -64, 320));
         }
 
         @Test
-        @DisplayName("the surface above a lava lake is fine, once clear of it")
-        void aboveTheLava() {
-            // From y=68 the nearest standable spot is not 64: 65 is lava (no solid floor anyway),
-            // and 66 has lava at its feet block minus one. Nothing here qualifies at all.
+        @DisplayName("standing above a lava lake with no shore in reach finds nowhere at all")
+        void nothingAboveTheLavaEither() {
+            // From y=68 there is still nothing: 65 is lava (and no solid floor anyway), 66 has lava
+            // under its feet, and above 66 the column is open air with no floor. Searching from
+            // clear of the lava does not conjure a landing that searching from inside it lacked.
             assertEquals(OptionalInt.empty(), SafeRetreat.groundY(LAVA_LAKE, 10, 68, 10, -64, 320));
+        }
+
+        /**
+         * The other half of the pair above: the lava is only disqualifying where it is. Cooled
+         * lava is stone, and a stone shore over the same lake is an ordinary landing — otherwise
+         * the two emptiness assertions would be equally satisfied by a search that refused
+         * everything near a hazard.
+         */
+        @Test
+        @DisplayName("a solid shore over the same lake is a landing like any other")
+        void aboveTheLavaOnSolidGround() {
+            // Lava at 64-65 as before, then a stone crust at 66 and open air above it.
+            SafeRetreat.Terrain crustedLake = terrain(y -> {
+                if (y <= 63 || y == 66) {
+                    return '#';
+                }
+                return y <= 65 ? 'L' : '.';
+            });
+            assertEquals(OptionalInt.of(67),
+                    SafeRetreat.groundY(crustedLake, 10, 68, 10, -64, 320));
         }
 
         @Test
@@ -256,17 +276,41 @@ class SafeRetreatTest {
             assertEquals(OptionalInt.empty(), SafeRetreat.groundY(hotFloor, 10, 64, 10, -64, 320));
         }
 
+        /**
+         * The clause the lake fixtures cannot reach on their own: two blocks of lava are caught by
+         * the head-height check before the feet check is consulted, so removing
+         * {@code !isHazard(x, y, z)} from {@code standable} left every hazard test green. A
+         * one-block puddle is what separates them, and it is the commoner shape in the Nether.
+         */
+        @Test
+        @DisplayName("a hazard at foot height is refused even with clear headroom")
+        void hazardAtFootHeight() {
+            SafeRetreat.Terrain lavaPuddle = terrain(y -> {
+                if (y <= 63) {
+                    return '#';
+                }
+                return y == 64 ? 'L' : '.';
+            });
+            // 64 has a solid floor and clear headroom at 65. Standing in it is still standing in
+            // lava, and there is nothing else within the radius: 65 has a lava floor, and 66 and
+            // up have no floor at all.
+            assertEquals(OptionalInt.empty(), SafeRetreat.groundY(lavaPuddle, 10, 64, 10, -64, 320));
+        }
+
         @Test
         @DisplayName("a hazard at head height is refused even with clear footing")
         void hazardAtHeadHeight() {
-            SafeRetreat.Terrain fireAbove = terrain(y -> {
+            // A single block of lava at head height. The grid has one hazard character and this is
+            // it; fire, powder snow and a cactus are the same three answers to the probe, so
+            // spelling them separately would only restate this case under another letter.
+            SafeRetreat.Terrain lavaAbove = terrain(y -> {
                 if (y <= 63) {
                     return '#';
                 }
                 return y == 65 ? 'L' : '.';
             });
-            // Feet at 64 would put the player's head in the fire at 65.
-            assertEquals(OptionalInt.empty(), SafeRetreat.groundY(fireAbove, 10, 64, 10, -64, 320));
+            // Feet at 64 would put the player's head in the lava at 65.
+            assertEquals(OptionalInt.empty(), SafeRetreat.groundY(lavaAbove, 10, 64, 10, -64, 320));
         }
     }
 

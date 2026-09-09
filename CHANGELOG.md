@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Item tier gates are now enforced. The compiled `item-progression.gated-items` table was
+  previously built on every reload and read by nothing; three channels now consult it. A player who
+  has not met a tier's requirements cannot pick a gated item up off the ground, take one out of a
+  container by an ordinary, shift, hotbar-swap, off-hand-swap, double-click-gather or drop click,
+  or buy one from a villager or wandering trader. The gate is waived by
+  `antispeedrun.bypass.items`, by an unexpired `/asr bypass` grant, or by setting
+  `item-progression.enabled: false`. Putting gated items *into* a container is never blocked,
+  including onto a slot that already holds a matching stack, and neither is moving them around
+  inside your own inventory — dragging included, since a drag only moves items out of the cursor
+  and the clicks that would load the cursor from a container are refused. Views that hand a
+  player's own item straight back — the crafting grid, a crafting table, and the anvil, smithing
+  table, grindstone, enchanting table, cartography table, loom and stonecutter — are untouched;
+  furnaces, brewing stands, Crafters and storage blocks are containers and are gated.
+  Bundle contents are **not** yet gated: an item pulled out of a bundle is not checked, which is
+  tracked separately and is why `gate-nested-bundles` still does nothing.
+- Drop recall, implementing `item-progression.drop-recall-enabled`, which until now was parsed and
+  read by nothing. A player may always re-collect an item entity they dropped or died with,
+  whatever its tier, so that gear held by administrative grant, gear predating installation, and
+  gear held under a since-revoked bypass is gated rather than confiscated. The stamp is written to
+  the item *entity*, never to an `ItemStack`, so it cannot be transferred, stockpiled or merged
+  into a stack — see `docs/provenance-model.md` §4.
 - Dimension gates are now enforced. A player who has not met the configured
   `dimension-gates.<dimension>.require-*` requirements cannot reach the Nether or the End on foot,
   as the passenger of a boat, minecart or camel, or by a cross-dimensional Ender pearl teleport.
@@ -53,8 +74,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `gate-natural-structure-chests`, `gate-player-placed-chests` and `gate-armor-stands` removed — each configured a distinction that no longer exists. `dropper-can-retrieve` and `death-drop-retrieval` collapse into `drop-recall-enabled`.
 - Mob item pickup is no longer intercepted; piglin bartering and Allay sorters are unaffected.
 - Soft-dependency matrix trimmed to Floodgate, the only optional integration the plugin consumes.
+- A `config.yml` that names an advancement key the server cannot resolve — or a
+  `require-advancements` list written with entries that all name nothing — now stops the plugin at
+  startup instead of starting it on the shipped defaults. Those defaults declare no gated item
+  tiers, so the old fallback turned item gating off server-wide over a single typo while every gate
+  still reported itself armed. A file that cannot be parsed at all is unchanged: it still falls back
+  to the defaults and the server still starts, because a file that says nothing describes no gating
+  to enforce. So does a bad key inside a gate that is switched off — `enabled: false`,
+  `item-progression.enabled: false`, or `gate-mending-trade: false` — which is a warning, because a
+  gate that is off admits everyone and says so, and a stale key in a section an operator has already
+  turned off must not stop a server that booted yesterday. A file that parses but whose
+  `gated-items` cannot be turned into a gate table at all now stops the plugin too, for the same
+  reason a tier collision does. `/asr reload` is unchanged in every case — the configuration already
+  running stays live and the plugin is never disabled — and a reload that would not survive a
+  restart now says so in the log rather than waiting for the restart to say it.
+- Two remaining ways to switch a gate on and gate on nothing now take that same startup arm rather than passing in silence. An item tier's `require-advancements` written as a plain value instead of a list used to fall back to the built-in default — which for a tier is no requirement at all — on a warning, so the tier shipped armed and open over a YAML shape mistake that an upper-case letter in the same key was already refused for. And `gate-mending-trade: true` beside a blank `required-advancement` gated the mending trade on nothing with no warning about either half, because each half is legitimate alone. Both now reject `config.yml`. Two limits, both because refusing a boot over a configuration that is still enforceable would be a false refusal: they are errors **only while the gate reading them is switched on** — under `enabled: false`, `item-progression.enabled: false` or `gate-mending-trade: false` they stay warnings — and a plain value under a **dimension gate** stays a warning too, since those ship a non-empty default, so the gate goes on requiring the shipped advancements rather than nothing.
 
 ### Fixed
+- A dimension gate whose last outstanding requirement is `require-account-age-days` is now announced. Tenure advances while the player is offline, so the gate was already open by the time they logged back in, was recorded silently by the join prime, and had no advancement and no online watch left to announce it — the player was never told. The set of gates a player has been congratulated on is now persisted in their `PersistentDataContainer`, and a join announces the difference. A player with no persisted record is primed silently, so installing this on an established server does not congratulate its whole population at once.
 - `DIAMOND` is gated. `DIAMOND_*` has no trailing underscore to match the gem itself, so every tool made from a diamond was gated while the diamond was not.
 - `NETHERITE_UPGRADE_SMITHING_TEMPLATE` is excluded from `netherite-tier`. It matches `NETHERITE_*` but belongs to `trim-progression`, and without the exclusion two systems claimed one material.
 - `antispeedrun.bypass` is no longer a child of `antispeedrun.admin`. Because `antispeedrun.admin` defaults to `op`, every operator was silently exempt from every dimension gate, item lock, and anti-cheese rule.
