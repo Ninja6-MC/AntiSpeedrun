@@ -61,9 +61,18 @@ updates:
       # one the smoke test walks.
       #
       # Matched by prefix rather than by artifact so the guard survives a serializer
-      # being added later.
+      # being added later, and NOT restricted by update-type. Adventure adds API in
+      # MINOR releases, so a major-only guard does not guard anything: 4.18.0 -> 4.26.1
+      # is a minor, and pull request 106 walked straight through this ignore carrying
+      # exactly the failure the paragraph above describes. SessionPulse and
+      # SpiralGenesis both ignore their server-provided coordinates unconditionally;
+      # this repository was the one that narrowed it.
       - dependency-name: "net.kyori:*"
-        update-types: ["version-update:semver-major"]
+      # Server-provided for the same reason: paper-api pins snakeyaml, and paper-api is
+      # also on the test classpath, so a bump here moves BOTH sides of
+      # ConfigSectionConformanceTest. The test keeps passing and stops telling us
+      # anything about the parser the server actually runs.
+      - dependency-name: org.yaml:snakeyaml
     commit-message:
       # `build` rather than `ci`: ci is the Conventional Commits type for workflow
       # actions, build is the one for build-system dependencies.
