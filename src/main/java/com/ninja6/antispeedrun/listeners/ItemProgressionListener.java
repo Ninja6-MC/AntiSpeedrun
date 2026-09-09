@@ -1,6 +1,7 @@
 package com.ninja6.antispeedrun.listeners;
 
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -8,6 +9,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.Material;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -24,6 +26,7 @@ import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Merchant;
 import org.bukkit.inventory.MerchantRecipe;
+import org.bukkit.inventory.meta.EnchantmentStorageMeta;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
@@ -52,6 +55,10 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *   <li><strong>{@link TradeSelectEvent}</strong> (#54) — a villager or wandering trader offering
  *       a gated result.</li>
  * </ul>
+ *
+ * <p>Plus one gate that is not a material check at all: #8's Mending trade gate, which rides on the
+ * last two of those because it has to be refused in the same breath as they are — see
+ * {@link MendingTradeRules} for the rule and {@link #refuseMending} for the wiring.
  *
  * <p>Plus the three handlers that maintain §4 drop recall, which decides nothing and gates nothing;
  * see {@link DropRecall}.
@@ -254,7 +261,8 @@ public final class ItemProgressionListener implements Listener {
 
         event.setCancelled(true);
         entity.setPickupDelay(REFUSED_PICKUP_DELAY_TICKS);
-        reject(player, config, tier, result, material);
+        reject(player, config, tier.id(), ItemGateRules.requirementText(tier, result), result,
+                material);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -284,11 +292,13 @@ public final class ItemProgressionListener implements Listener {
         }
 
         int rawSlot = event.getRawSlot();
+        InventoryType topType = event.getView().getTopInventory().getType();
         int topSize = event.getView().getTopInventory().getSize();
         boolean clickedTop = rawSlot >= 0 && rawSlot < topSize;
 
-        ItemStack moving = switch (ItemGateRules.withdrawn(
-                InventoryGestures.of(event.getAction(), event.getClick()), clickedTop)) {
+        ItemGateRules.Subject subject = ItemGateRules.withdrawn(
+                InventoryGestures.of(event.getAction(), event.getClick()), clickedTop);
+        ItemStack moving = switch (subject) {
             case CLICKED_SLOT -> event.getCurrentItem();
             case CURSOR -> event.getCursor();
             case NONE -> null;
@@ -299,7 +309,48 @@ public final class ItemProgressionListener implements Listener {
 
         if (refuse(player, moving.getType())) {
             event.setCancelled(true);
+            return;
         }
+        // Strictly after the material gate and only when it let the stack through, so a stack that
+        // is both above tier and enchanted with Mending produces one refusal rather than two --
+        // #54's no-double-messaging constraint, which the javadoc on onTradeSelect recorded from the
+        // item-gate side before this gate existed.
+        if (mendingWithdrawal(topType, subject, rawSlot) && refuseMending(player, moving)) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * Whether this click is a route by which a Mending trade result leaves a merchant.
+     *
+     * <p>Task 3.2.2's gate is checked here as well as on selection because
+     * {@link #onTradeSelect} alone does not close it. A merchant window opens with an offer already
+     * selected, and a player who puts the matching ingredients straight into slots 0 and 1 gets a
+     * populated result slot without {@code TradeSelectEvent} ever firing. Cancelling only the
+     * selection would gate the offer list and leave the trade itself executable.
+     *
+     * <p>Scoped to {@link MendingTradeRules#MERCHANT_RESULT_SLOT} rather than to the whole top
+     * inventory, because slots 0 and 1 hold the player's <em>own</em> items: refusing to hand those
+     * back would trap a Mending-enchanted tool that a plugin-supplied merchant takes as an
+     * ingredient, and would gate nothing, since closing the window returns them anyway.
+     *
+     * <p>{@code CURSOR} is included without a slot test, and that is deliberate overreach of the
+     * same shape {@link ItemGateRules#withdrawn} already documents for double-clicks: a
+     * collect-to-cursor gathers matching stacks from the whole view, so keying it on where the click
+     * landed would leave the result slot gatherable. The cost is that a player who already owns a
+     * Mending item cannot consolidate it by double-clicking while a merchant window is open. Closing
+     * the window makes it work again.
+     */
+    private static boolean mendingWithdrawal(InventoryType topType, ItemGateRules.Subject subject,
+                                             int rawSlot) {
+        if (topType != InventoryType.MERCHANT) {
+            return false;
+        }
+        return switch (subject) {
+            case CLICKED_SLOT -> rawSlot == MendingTradeRules.MERCHANT_RESULT_SLOT;
+            case CURSOR -> true;
+            case NONE -> false;
+        };
     }
 
     // -------------------------------------------------------------------------------------------
@@ -323,10 +374,19 @@ public final class ItemProgressionListener implements Listener {
      * <p>Wandering traders need no separate path: both they and villagers present a
      * {@code MerchantInventory}, and this event is raised for both.
      *
-     * <p>One coordination note for whoever writes Task 3.2.2. That task gates the Mending book on
-     * trades, and #54 asks that the two gates not double-message. As of this listener there is no
-     * Epic 3 trade handler in the tree to double-message with, so nothing is done about it here;
-     * the constraint is recorded from this side so it is found rather than rediscovered.
+     * <h2>Task 3.2.2's Mending gate rides on this handler</h2>
+     *
+     * #8 asks that a Mending trade not be executable until the configured advancement is earned,
+     * and #54 asks that the two gates not double-message. Both are satisfied here rather than in a
+     * second listener, because a second {@code TradeSelectEvent} subscriber could not see whether
+     * this one had already spoken. The material gate is asked first and the enchantment gate only
+     * when it let the offer through, so an offer that is both above tier and enchanted with Mending
+     * produces exactly one action bar line.
+     *
+     * <p>This is a deliberate departure from #8's stated target file. That issue names
+     * {@code ProgressionGateListener}, which gates dimensions and holds no trade handler; putting a
+     * second {@code TradeSelectEvent} subscriber there is what would have made the double-message
+     * unavoidable.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onTradeSelect(TradeSelectEvent event) {
@@ -341,10 +401,79 @@ public final class ItemProgressionListener implements Listener {
             // it is left alone rather than refused on a guess.
             return;
         }
-        Material result = recipes.get(index).getResult().getType();
-        if (refuse(player, result)) {
+        ItemStack result = recipes.get(index).getResult();
+        if (refuse(player, result.getType())) {
+            event.setCancelled(true);
+            return;
+        }
+        if (refuseMending(player, result)) {
             event.setCancelled(true);
         }
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // #8 - Task 3.2.2, the one gate keyed on an enchantment rather than a material
+    // -------------------------------------------------------------------------------------------
+
+    /**
+     * Whether this player must be refused this stack because it carries Mending, telling them why
+     * if so.
+     *
+     * <p>Ordered so that a default server pays nothing: {@code gate-mending-trade} is {@code false}
+     * out of the box, and while it is, this returns on a single volatile config read without
+     * copying an {@code ItemMeta} or consulting progression. The bypass check comes next for the
+     * same reason it does in {@link #refuse} — it is cheaper than the eligibility evaluation and
+     * settles the question outright.
+     *
+     * <p>The waiver is {@link #BYPASS_PERMISSION} and the item-gate grant, not a section 8 node of
+     * its own. This gate refuses an item leaving a container, which is what
+     * {@code antispeedrun.bypass.items} describes, and inventing a second node would mean an
+     * operator who had already exempted a builder from the item gate finding they were still refused
+     * an enchanted book. {@code plugin.yml} is not touched by this task.
+     *
+     * @return {@code true} when the caller should cancel its event
+     */
+    private boolean refuseMending(Player player, ItemStack stack) {
+        PluginConfig config = plugin.configuration();
+        if (!MendingTradeRules.armed(config) || waived(player)) {
+            return false;
+        }
+        if (!MendingTradeRules.carriesMending(enchantmentKeys(stack))) {
+            return false;
+        }
+        EligibilityResult result = plugin.progression().evaluate(
+                player, config, MendingTradeRules.requirement(config));
+        if (result.eligible()) {
+            return false;
+        }
+        reject(player, config, MendingTradeRules.FEEDBACK_KEY,
+                ItemGateRules.outstanding(result), result, stack.getType());
+        return true;
+    }
+
+    /**
+     * Every enchantment on a stack, normal and stored alike, as namespaced keys.
+     *
+     * <p>Both halves are needed and reading either alone is wrong. An {@code ENCHANTED_BOOK} — what
+     * a librarian actually sells — reports {@code getEnchantments()} as empty and carries its
+     * enchantments in {@link EnchantmentStorageMeta}; an already-enchanted tool offered by a
+     * datapack or a plugin merchant is the other way round. #8 is about the trade, not about the
+     * book, so the gate is asked about the union.
+     *
+     * <p>Called only past {@link MendingTradeRules#armed}, because {@code getItemMeta()} returns a
+     * defensive copy and this is on the inventory-click path.
+     */
+    private static Set<String> enchantmentKeys(ItemStack stack) {
+        Set<String> keys = new HashSet<>(4);
+        for (Enchantment enchantment : stack.getEnchantments().keySet()) {
+            keys.add(enchantment.getKey().toString());
+        }
+        if (stack.hasItemMeta() && stack.getItemMeta() instanceof EnchantmentStorageMeta stored) {
+            for (Enchantment enchantment : stored.getStoredEnchants().keySet()) {
+                keys.add(enchantment.getKey().toString());
+            }
+        }
+        return keys;
     }
 
     // -------------------------------------------------------------------------------------------
@@ -462,7 +591,8 @@ public final class ItemProgressionListener implements Listener {
         if (result.eligible()) {
             return false;
         }
-        reject(player, config, tier, result, material);
+        reject(player, config, tier.id(), ItemGateRules.requirementText(tier, result), result,
+                material);
         return true;
     }
 
@@ -511,24 +641,34 @@ public final class ItemProgressionListener implements Listener {
      * deserialised as markup. What is interpolated into it is not: the material name and the tier's
      * configured hint both have their tags neutralised first, which is the rule
      * {@code AntiSpeedrunCommand} established and {@link ProgressionGateListener#reject} follows.
+     *
+     * <p>Keyed on a {@code feedbackKey} rather than on an {@code ItemTier} so the Mending gate can
+     * share both the cooldown map and the operator's {@code rejection-message} — see
+     * {@link MendingTradeRules#FEEDBACK_KEY}. Section 8 configures no message and no cooldown of its
+     * own, and giving it either would mean an operator who retuned {@code item-progression} finding
+     * one refusal in their own words and one in the plugin's.
+     *
+     * @param feedbackKey  what to throttle under: an {@code ItemTier} id, or
+     *                     {@link MendingTradeRules#FEEDBACK_KEY}
+     * @param requirement  the text for {@code {REQUIREMENT}}, not yet escaped
      */
-    private void reject(Player player, PluginConfig config, ItemTier tier, EligibilityResult result,
-                        Material material) {
+    private void reject(Player player, PluginConfig config, String feedbackKey, String requirement,
+                        EligibilityResult result, Material material) {
         long now = System.currentTimeMillis();
         Map<String, Long> perTier = lastFeedback.computeIfAbsent(
                 player.getUniqueId(), id -> new ConcurrentHashMap<>(4));
-        long last = perTier.getOrDefault(tier.id(), 0L);
+        long last = perTier.getOrDefault(feedbackKey, 0L);
         long cooldownMillis = config.itemProgression().feedbackCooldownSeconds() * 1_000L;
         if (!ItemGateRules.shouldNotify(now, last, cooldownMillis)) {
             return;
         }
-        perTier.put(tier.id(), now);
+        perTier.put(feedbackKey, now);
 
         MiniMessage mini = MiniMessage.miniMessage();
         String line = ItemGateRules.rejection(
                 config.itemProgression().rejectionMessage(),
                 mini.escapeTags(ItemGateRules.friendlyName(material.name())),
-                mini.escapeTags(ItemGateRules.requirementText(tier, result)));
+                mini.escapeTags(requirement));
         player.sendActionBar(mini.deserialize(line));
         result.fallbackHint().ifPresent(hint ->
                 player.sendMessage(mini.deserialize("<gray>" + mini.escapeTags(hint))));

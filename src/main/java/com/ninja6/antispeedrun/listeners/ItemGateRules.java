@@ -226,6 +226,27 @@ public final class ItemGateRules {
         if (!hint.isBlank()) {
             return hint;
         }
+        return outstanding(result);
+    }
+
+    /**
+     * What is still outstanding, composed from the evaluation alone.
+     *
+     * <p>Extracted from {@link #requirementText} so that {@link MendingTradeRules}'s gate can share
+     * it. Section 8 configures no {@code hint} — it has no tier to hang one on — so the composed
+     * line is all that gate ever has, and duplicating this arithmetic there would be two
+     * descriptions of a refusal that can drift apart.
+     *
+     * <p>Names only what the player can still go and do:
+     * {@link EligibilityResult#unresolvableAdvancements()} is excluded because the evaluator has
+     * already waived those, and repeating them here would tell a player to go and earn something
+     * this server does not define.
+     *
+     * @return never blank; falls back to a generic line when the result carries nothing actionable,
+     *         which happens when the only outstanding requirement was waived
+     */
+    public static String outstanding(EligibilityResult result) {
+        Objects.requireNonNull(result, "result");
 
         List<String> parts = new ArrayList<>(3);
         if (!result.missingAdvancements().isEmpty()) {
