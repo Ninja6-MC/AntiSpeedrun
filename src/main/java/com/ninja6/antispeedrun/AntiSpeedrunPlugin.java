@@ -23,8 +23,10 @@ import com.ninja6.antispeedrun.gating.GateCollisionException;
 import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.gating.MaterialGates;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
+import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
+import com.ninja6.antispeedrun.progression.IdleReminderEngine;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
 import com.ninja6.antispeedrun.progression.ProgressionListener;
 import com.ninja6.antispeedrun.progression.ProgressionManager;
@@ -76,6 +78,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * anything watched them. Volatile for the same reason as {@link #configHolder}.
      */
     private volatile ProgressionListener progressionListener;
+
+    /**
+     * The idle reminder engine (#4). Held rather than registered and discarded for the same reason
+     * {@link #progressionListener} is: {@link #primeOnlinePlayers} has to be able to arm it, and
+     * {@code idle-reminder.enabled} is a key an {@code /asr reload} can flip in either direction
+     * under a live session. Volatile for the same reason as {@link #configHolder}.
+     */
+    private volatile IdleReminderEngine idleReminders;
 
     /**
      * The compiled item-gate lookup, rebuilt from whichever snapshot is live. Volatile for the same
@@ -155,6 +165,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 new PlayerAnnouncedUnlockStore(this));
         this.progressionListener = new ProgressionListener(this, progression);
         getServer().getPluginManager().registerEvents(progressionListener, this);
+
+        // The idle reminder (#4). It needs nothing but progression and the live snapshot -- no store,
+        // and no file -- so it is built here beside the listener that drives it rather than after the
+        // persistence below. Its own listener does join and quit; players already online are armed by
+        // primeOnlinePlayers further down, on the same task that primes them.
+        this.idleReminders = new IdleReminderEngine(this, this::configuration, progression);
+        getServer().getPluginManager().registerEvents(
+                new PlayerIdleListener(this, idleReminders), this);
 
         // Durable state (#57). Writes go to the AsyncScheduler because file I/O must never sit on a
         // region thread; the read below is deliberately synchronous, since a store that filled in
@@ -282,6 +300,15 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     public PlayerStateRegistry playerState() {
         return playerState;
+    }
+
+    /**
+     * The idle reminder engine (#4), so {@code /asr inspect} can report how many polls are armed.
+     *
+     * <p>Null before {@code onEnable} has assigned it, on the same terms as {@link #progression()}.
+     */
+    public IdleReminderEngine idleReminders() {
+        return idleReminders;
     }
 
     /**
@@ -566,15 +593,28 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * on. {@code refresh} is idempotent and disarms as readily as it arms, so a reload that goes the
      * other way — a time-driven gate becoming advancement-driven — cancels the now-pointless task
      * here too.
+     *
+     * <p>The idle reminder (#4) is refreshed in the same task and for the same two reasons, with one
+     * of its own: {@code idle-reminder.enabled} is a key a reload can flip in either direction, and
+     * nothing else in the plugin would notice that it had.
      */
     private void primeOnlinePlayers(PluginConfig config) {
         ProgressionListener listener = progressionListener;
+        IdleReminderEngine reminders = idleReminders;
         for (Player player : getServer().getOnlinePlayers()) {
             player.getScheduler().run(this, task -> {
                 if (!player.isOnline()) {
                     return;
                 }
                 progression.primeUnlocks(player, config);
+                if (reminders != null) {
+                    // Both callers need this and for the same reason the watch below does. At
+                    // onEnable these players never fire PlayerJoinEvent for PlayerIdleListener, so
+                    // nothing else would arm them all session; after an /asr reload this is what
+                    // turns idle-reminder.enabled on or off under players who are already here.
+                    // refresh is idempotent and disarms as readily as it arms.
+                    reminders.refresh(player, config);
+                }
                 if (listener != null) {
                     // Null only on the startup path, where applyConfiguration runs before the
                     // listener exists -- and that call is itself skipped, because progression is
