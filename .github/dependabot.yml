@@ -25,3 +25,51 @@ updates:
     labels:
       - dependencies
     open-pull-requests-limit: 5
+
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Majors are split from minors and patches so a jump that needs its release notes
+    # read never rides along with routine patches.
+    groups:
+      gradle:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+      gradle-major:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - major
+    ignore:
+      # The compile target is a compatibility decision, not a security one: paper-api
+      # decides the OLDEST server this plugin runs on, and `api-version: '1.21'` in
+      # plugin.yml has to move in the same commit. A bot raising it narrows the
+      # supported range silently and nothing fails to tell us.
+      - dependency-name: io.papermc.paper:paper-api
+      # Adventure is compileOnly here because PAPER SHIPS IT -- these coordinates are
+      # compiled against and then provided by the server at runtime. So the version
+      # declared here must not exceed what the target Paper bundles, or the plugin
+      # compiles, enables, and dies on the first message with NoSuchMethodError. Only
+      # `Folia Boot Smoke Test` would catch that, and only if the path it breaks on is
+      # one the smoke test walks.
+      #
+      # Matched by prefix rather than by artifact so the guard survives a serializer
+      # being added later.
+      - dependency-name: "net.kyori:*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      # `build` rather than `ci`: ci is the Conventional Commits type for workflow
+      # actions, build is the one for build-system dependencies.
+      prefix: build
+    labels:
+      - dependencies
+    # The Gradle wrapper version is not covered by package-ecosystem: gradle. It stays a
+    # manual bump.
+    open-pull-requests-limit: 5
