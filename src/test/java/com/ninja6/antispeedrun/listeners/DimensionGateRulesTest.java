@@ -270,6 +270,72 @@ class DimensionGateRulesTest {
     }
 
     @Nested
+    @DisplayName("the arrival backstop -- #100")
+    class ArrivalBackstop {
+
+        @Test
+        @DisplayName("ineligible, unwaived and undecided is the bypass, and the only rejection")
+        void nothingCoversTheArrival() {
+            assertEquals(DimensionGateRules.Arrival.REJECTED,
+                    DimensionGateRules.arrival(false, false, false));
+        }
+
+        @Test
+        @DisplayName("each of the three covers of a legitimate arrival is sufficient on its own")
+        void anyOneAllows() {
+            assertEquals(DimensionGateRules.Arrival.ALLOWED,
+                    DimensionGateRules.arrival(true, false, false),
+                    "an exemption an upstream handler already recorded");
+            assertEquals(DimensionGateRules.Arrival.ALLOWED,
+                    DimensionGateRules.arrival(false, true, false),
+                    "a waiver: the permission, a bypass grant or an unlock");
+            assertEquals(DimensionGateRules.Arrival.ALLOWED,
+                    DimensionGateRules.arrival(false, false, true),
+                    "the player meeting the requirement -- the ordinary case");
+        }
+
+        @Test
+        @DisplayName("a player the gate just let through is never bounced by the backstop")
+        void eligibilityAloneIsEnough() {
+            // #100's second acceptance criterion, stated as its own case because it is the one a
+            // future change would break: on Paper an eligible player's transit is not intercepted
+            // at all, so nothing records anything, and eligible-but-undecided has to be ALLOWED.
+            assertEquals(DimensionGateRules.Arrival.ALLOWED,
+                    DimensionGateRules.arrival(false, false, true));
+        }
+
+        @Test
+        @DisplayName("a recorded decision covers the arrival that follows it")
+        void decisionHoldsWithinTheWindow() {
+            long recordedAt = 1_000_000L;
+            assertTrue(DimensionGateRules.decisionHolds(recordedAt, recordedAt),
+                    "the same instant");
+            assertTrue(DimensionGateRules.decisionHolds(recordedAt, recordedAt + 50L),
+                    "a tick later, which is when the arrival actually lands");
+            assertTrue(DimensionGateRules.decisionHolds(
+                    recordedAt, recordedAt + DimensionGateRules.DECISION_WINDOW_MILLIS - 1L));
+        }
+
+        @Test
+        @DisplayName("a decision nothing consumed expires rather than covering a later arrival")
+        void decisionExpires() {
+            long recordedAt = 1_000_000L;
+            assertFalse(DimensionGateRules.decisionHolds(
+                    recordedAt, recordedAt + DimensionGateRules.DECISION_WINDOW_MILLIS));
+            assertFalse(DimensionGateRules.decisionHolds(recordedAt, recordedAt + 60_000L));
+        }
+
+        @Test
+        @DisplayName("a decision timestamped in the future is a clock artefact, not a free pass")
+        void decisionFromTheFutureIsStale() {
+            // The two timestamps can be taken on different Folia region threads and
+            // currentTimeMillis is not monotonic. Reading a negative age as "very fresh" would turn
+            // a clock adjustment into an open gate; reading it as stale costs a bounce instead.
+            assertFalse(DimensionGateRules.decisionHolds(1_000_000L, 999_000L));
+        }
+    }
+
+    @Nested
     @DisplayName("the rejection a player is shown")
     class Rejection {
 

@@ -20,6 +20,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPortalEvent;
+import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.util.Vector;
@@ -35,7 +36,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 /**
  * The dimension gate: the first thing in this plugin that actually stops a player.
  *
- * <p>Three routes into the Nether or the End, one rule behind all of them.
+ * <p>Three routes into the Nether or the End, a backstop behind them, and one rule behind all four.
  *
  * <ul>
  *   <li><strong>{@link PlayerPortalEvent}</strong> (#34) — a player walking into a portal. Cancelled
@@ -45,6 +46,9 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *   <li><strong>{@link PlayerTeleportEvent}</strong> (#6) — an Ender pearl thrown through a portal
  *       and pulled from a stasis chamber, and the other player-driven teleport causes that can
  *       cross a dimension boundary.</li>
+ *   <li><strong>{@link PlayerChangedWorldEvent}</strong> (#100) — the backstop. Not a route in at
+ *       all but the arrival itself, checked after the fact because Folia has a route in that fires
+ *       none of the three above. See {@link #onPlayerChangedWorld}.</li>
  * </ul>
  *
  * <p>Everything that decides anything lives in {@link DimensionGateRules}, {@link VehicleTransit}
@@ -55,20 +59,26 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * <h2>Folia</h2>
  *
  * <ul>
- *   <li>All three events are single-entity events, so Folia calls them on the region owning that
+ *   <li>All four events are single-entity events, so Folia calls them on the region owning that
  *       entity. Evaluating progression for a player, reading their bypass grant from their PDC and
  *       nudging their velocity are therefore all legal inline.</li>
  *   <li>A vehicle's passengers are in the vehicle's region by construction, so
  *       {@link #onEntityPortal} may evaluate them without hopping.</li>
  *   <li><strong>The dismount is not inline.</strong> Audit finding R-09: mutating the passenger
  *       list while the portal transfer is still resolving is a known source of ghost entities, so
- *       {@link #ejectAndReposition} runs on the <em>vehicle's</em> {@code EntityScheduler}, which
- *       is next tick on the vehicle's region.</li>
+ *       {@link #scheduleEjection} defers it a tick. It runs on the <strong>rider's</strong>
+ *       {@code EntityScheduler}, not the vehicle's — #93 moved the anchor, because a vehicle that
+ *       crosses a dimension boundary is retired in the source dimension and an {@code
+ *       EntityScheduler} answers a retired entity by silently dropping the task. The reasoning is
+ *       set out in full on {@link #ejectAndReposition}; this list is where a reader checks which
+ *       entity owns the task, so it must not say otherwise.</li>
  *   <li><strong>Repositioning uses {@code teleportAsync}</strong> and continues in the returned
  *       future. {@code Entity#teleport} throws on Folia the moment the destination leaves the
- *       current region, and a two-block retreat can cross a region boundary.</li>
+ *       current region, and both a two-block retreat and a return to another world can cross a
+ *       region boundary.</li>
  *   <li>Nothing here opens a file or touches a store on a region thread. The dimension-unlock
- *       override is an in-memory read, and the bypass grant is a PDC read on the owning region.</li>
+ *       override is an in-memory read, the bypass grant is a PDC read on the owning region, and the
+ *       decision ledger behind the backstop is an in-memory {@link PlayerStateMap}.</li>
  * </ul>
  *
  * <h2>Thresholds — audit finding R-02</h2>
@@ -176,9 +186,30 @@ public final class ProgressionGateListener implements Listener {
      */
     private final PlayerStateMap<Map<DimensionUnlock, Long>> lastFeedback;
 
+    /**
+     * When a handler last decided to let a player into a gated dimension they have <em>not</em>
+     * earned and are <em>not</em> waived for, per gate.
+     *
+     * <p>This is the memory {@link #onPlayerChangedWorld} needs and nothing else reads. A world
+     * change carries no cause and no history, so on its own it cannot tell the three deliberate
+     * exemptions — an operator's {@code /tp}, #92's unresolved-destination fail-open, and a rider
+     * the vehicle path is already repositioning — apart from the Folia transit that reports
+     * nothing. Each of those three leaves a note here on its way past; the backstop consumes it.
+     *
+     * <p>Notes are written only where they are actually needed, which keeps the map near-empty in
+     * ordinary play: an eligible or waived player never gets one, because the backstop re-reads
+     * both rather than trusting a note. Registered with
+     * {@link com.ninja6.antispeedrun.progression.PlayerStateRegistry} for quit cleanup — finding
+     * R-08 — and every note also expires on its own after
+     * {@link DimensionGateRules#DECISION_WINDOW_MILLIS}, so one that is never consumed (the transit
+     * was cancelled downstream after all) cannot sit there covering a later arrival.
+     */
+    private final PlayerStateMap<Map<DimensionUnlock, Long>> decisions;
+
     public ProgressionGateListener(AntiSpeedrunPlugin plugin) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.lastFeedback = plugin.playerState().register("dimension-gate-feedback");
+        this.decisions = plugin.playerState().register("dimension-gate-decisions");
     }
 
     // -------------------------------------------------------------------------------------------
@@ -223,11 +254,10 @@ public final class ProgressionGateListener implements Listener {
      * harmless: the vehicle path is what actually separates a mounted rider from the portal, and a
      * velocity nudge on a passenger would be inert even if it tried.
      *
-     * <p>One upstream caveat, recorded so it is not rediscovered as a defect here: Folia's
-     * asynchronous portal path is reported not to fire <em>either</em> event for a vehicle carrying
-     * a passenger (PaperMC/Folia#453). That is a gap in the server, not in this listener — nothing
-     * this class could do differently would see a transit it is never told about — and it closes
-     * when upstream closes it.
+     * <p>One upstream caveat, which is what {@link #onPlayerChangedWorld} exists for: Folia's
+     * asynchronous portal path fires <em>neither</em> event for a vehicle carrying a passenger
+     * (PaperMC/Folia#453). Nothing this handler could do differently would see a transit it is never
+     * told about, so #100 stopped trying to intercept that case and checks the arrival instead.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerPortal(PlayerPortalEvent event) {
@@ -235,7 +265,10 @@ public final class ProgressionGateListener implements Listener {
         if (to == null) {
             // Paper allows a null destination, which means the server has not resolved where this
             // portal goes. There is nothing to attribute to a gate, so the transit is left alone.
-            // A deliberate fail-open, and a known silent-waiver path -- see #92.
+            // A deliberate fail-open, and a known silent-waiver path -- see #92. It is noted rather
+            // than merely returned from, so that the backstop honours the same fail-open when the
+            // player turns up somewhere gated a tick later instead of overturning it.
+            noteDecisionForEveryGate(event.getPlayer());
             return;
         }
         Player player = event.getPlayer();
@@ -275,13 +308,15 @@ public final class ProgressionGateListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEntityPortal(EntityPortalEvent event) {
         Location to = event.getTo();
-        if (to == null) {
-            // As in onPlayerPortal: no resolved destination, so no gate to apply. See #92.
-            return;
-        }
         Entity vehicle = event.getEntity();
         List<Player> riders = ridersOf(vehicle);
         if (riders.isEmpty()) {
+            return;
+        }
+        if (to == null) {
+            // As in onPlayerPortal: no resolved destination, so no gate to apply. See #92, and see
+            // noteDecisionForEveryGate for why the fail-open has to be written down.
+            riders.forEach(this::noteDecisionForEveryGate);
             return;
         }
 
@@ -312,7 +347,7 @@ public final class ProgressionGateListener implements Listener {
         if (plan.cancelTransit()) {
             event.setCancelled(true);
         }
-        ejectAndReposition(vehicle, plan);
+        ejectAndReposition(vehicle, plan, dimension);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -329,20 +364,32 @@ public final class ProgressionGateListener implements Listener {
      *
      * <p>Nothing is pushed back here. A cancelled pearl simply does not move the player, and there
      * is no portal to climb out of.
+     *
+     * <p>A cause <em>outside</em> {@link #GATED_CAUSES} is not simply returned from any more. The
+     * exemption is deliberate and has to survive {@link #onPlayerChangedWorld}, which sees the
+     * resulting arrival with no idea what caused it, so an admin's {@code /tp} into the Nether is
+     * written down on the way past. Only cross-dimension teleports are noted, so the ordinary
+     * intra-world plugin teleport still costs nothing but the {@link #kindOf} pair.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
-        if (!GATED_CAUSES.contains(event.getCause())) {
-            return;
-        }
         Location to = event.getTo();
         if (to == null) {
             return;
         }
         Player player = event.getPlayer();
+        EnvironmentKind from = kindOf(event.getFrom());
+        EnvironmentKind arriving = kindOf(to);
         PluginConfig config = plugin.configuration();
+        if (!GATED_CAUSES.contains(event.getCause())) {
+            if (from != arriving) {
+                DimensionGateRules.gatedDestination(from, arriving, config)
+                        .ifPresent(gate -> noteDecision(player, gate));
+            }
+            return;
+        }
         Optional<DimensionUnlock> destination =
-                DimensionGateRules.gatedDestination(kindOf(event.getFrom()), kindOf(to), config);
+                DimensionGateRules.gatedDestination(from, arriving, config);
         if (destination.isEmpty()) {
             return;
         }
@@ -360,15 +407,155 @@ public final class ProgressionGateListener implements Listener {
     }
 
     // -------------------------------------------------------------------------------------------
+    // #100 - the backstop, for the transit Folia never reports
+    // -------------------------------------------------------------------------------------------
+
+    /**
+     * A player who is already standing in another dimension — the gate's last line, and the only
+     * one that runs after the fact.
+     *
+     * <h2>Why a fourth handler exists at all</h2>
+     *
+     * On Folia a player riding a boat, minecart or camel through a portal is carried across by an
+     * asynchronous transit that fires <em>neither</em> {@link EntityPortalEvent} nor
+     * {@link PlayerPortalEvent} (PaperMC/Folia#453). There is no event to cancel, no vehicle to
+     * triage and no destination to inspect: the first and only thing this plugin is told is that the
+     * player's world changed. That is a live bypass of a P0 gate on one of the two supported
+     * platforms, so #100 closes it here rather than waiting on the server.
+     *
+     * <p>Paper does not have the hole — a passenger cannot start a portal transit of its own, so the
+     * vehicle's transit produces both events and {@link #onEntityPortal} handles it — but this
+     * handler is registered on both platforms deliberately. A backstop that only armed itself on
+     * Folia would need to detect Folia, and the detection would be the thing that broke.
+     *
+     * <h2>Not double-handling what Paper already caught</h2>
+     *
+     * The requirement that makes this delicate is the second acceptance criterion on #100: a player
+     * the gate legitimately let through must not then be bounced by the gate. Four kinds of arrival
+     * are legitimate, and the verdict in {@link DimensionGateRules#arrival} turns on telling them
+     * from the fifth:
+     *
+     * <ul>
+     *   <li>The player <strong>meets the requirement</strong>. Re-evaluated here, not remembered, so
+     *       a transit approved a tick ago is approved again for the same reason.</li>
+     *   <li>The player is <strong>waived</strong> — permission, {@code /asr bypass},
+     *       {@code /asr unlock}. Also re-read.</li>
+     *   <li>An <strong>exemption was recorded</strong> in {@link #decisions}: an ungated teleport
+     *       cause, #92's unresolved destination, or a rider {@link #onEntityPortal} has already
+     *       ejected and is repositioning. That last one is the Paper double-handling case exactly —
+     *       a mixed crew's transit is not cancelled, so a blocked rider really does arrive in the
+     *       Nether for a tick before the deferred ejection puts them back, and without the note this
+     *       handler would teleport them somewhere else first.</li>
+     *   <li>The arrival is <strong>not gated</strong> — leaving the Nether, an Overworld-to-Overworld
+     *       multiverse hop, a datapack dimension. {@link DimensionGateRules#gatedDestination}
+     *       answers that, on kinds rather than worlds, as everywhere else in this class.</li>
+     * </ul>
+     *
+     * <p>Anything else is a player standing somewhere nothing ever cleared them for, which is the
+     * bypass. They are told why, on the same per-gate cooldown as every other refusal, and returned.
+     *
+     * <h2>Folia region threading</h2>
+     *
+     * {@code PlayerChangedWorldEvent} is a single-entity event, so Folia calls it on the region that
+     * now owns the player, in the destination world. Legal inline, and all of it done inline: the
+     * progression evaluation (a cache read), the bypass grant (this player's own PDC), the
+     * dimension-unlock override (in memory), the ledger (in memory), and the message. Illegal, and
+     * therefore not done: reading a block in the world they came from — the source world belongs to
+     * another region and this thread may not touch it, which is why the return point is the source
+     * world's spawn and not a {@link SafeRetreat} probe behind the portal.
+     *
+     * <p>The return itself is deferred to the player's own {@code EntityScheduler} and performed
+     * with {@code teleportAsync}, by way of {@link #scheduleEjection}. Deferred because moving a
+     * player from inside the notification that they have just been moved is the same hazard R-09
+     * describes; {@code teleportAsync} because the destination is in another world, and
+     * {@code Entity#teleport} throws on Folia the moment it leaves the region.
+     *
+     * <p>{@code HIGHEST} rather than {@code MONITOR}: this handler acts, and {@code MONITOR} is for
+     * observers. It is nonetheless the last priority that acts, so a hub or spawn plugin with its
+     * own world-change handling has already had its say. The event is not cancellable, so the
+     * priority buys ordering and nothing else.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
+        Player player = event.getPlayer();
+        World arrivedIn = player.getWorld();
+        World cameFrom = event.getFrom();
+        PluginConfig config = plugin.configuration();
+        Optional<DimensionUnlock> destination = DimensionGateRules.gatedDestination(
+                kindOf(cameFrom), kindOf(arrivedIn), config);
+        if (destination.isEmpty()) {
+            return;
+        }
+        DimensionUnlock dimension = destination.get();
+
+        boolean decided = consumeDecision(player, dimension);
+        boolean waived = waived(player, dimension);
+        // Evaluated even when the answer is already settled, so that the verdict is composed in one
+        // place rather than short-circuited here in a second, silently divergent order. It is a
+        // ProgressionCache lookup, and only for arrivals in a gated dimension.
+        EligibilityResult result = evaluate(player, config, dimension);
+        if (DimensionGateRules.arrival(decided, waived, result.eligible())
+                == DimensionGateRules.Arrival.ALLOWED) {
+            return;
+        }
+
+        reject(player, config, dimension, result);
+        plugin.getLogger().fine(() -> "Returning " + player.getName() + " from " + arrivedIn.getName()
+                + ": they arrived without passing the " + dimension + " gate, which on Folia means a"
+                + " vehicle carried them through a portal the server reported no event for.");
+        scheduleEjection(player, cameFrom.getSpawnLocation());
+    }
+
+    /**
+     * Records that this player has been let into {@code dimension} without earning it, so that
+     * {@link #onPlayerChangedWorld} does not overturn the decision a moment later.
+     */
+    private void noteDecision(Player player, DimensionUnlock dimension) {
+        decisions.computeIfAbsent(player.getUniqueId(), id -> new ConcurrentHashMap<>(2))
+                .put(dimension, System.currentTimeMillis());
+    }
+
+    /**
+     * As {@link #noteDecision}, for both gates at once.
+     *
+     * <p>Used only where the destination is genuinely unknown: a portal event whose {@code getTo()}
+     * is {@code null} has not been resolved by the server yet, so the fail-open #92 documents cannot
+     * name which dimension it is failing open into. Noting both is what makes the backstop agree
+     * with that fail-open instead of quietly closing it, which would be a behaviour change smuggled
+     * in behind a bug fix. The note still expires on its own.
+     */
+    private void noteDecisionForEveryGate(Player player) {
+        for (DimensionUnlock dimension : DimensionUnlock.values()) {
+            noteDecision(player, dimension);
+        }
+    }
+
+    /**
+     * Takes any live note for this player and gate, and removes it.
+     *
+     * <p>Consumed rather than merely read: a note covers <em>one</em> arrival. Leaving it in place
+     * would have a single admin {@code /tp} clear every unreported transit for the next ten seconds.
+     */
+    private boolean consumeDecision(Player player, DimensionUnlock dimension) {
+        Map<DimensionUnlock, Long> notes = decisions.get(player.getUniqueId()).orElse(null);
+        if (notes == null) {
+            return false;
+        }
+        Long recordedAt = notes.remove(dimension);
+        return recordedAt != null
+                && DimensionGateRules.decisionHolds(recordedAt, System.currentTimeMillis());
+    }
+
+    // -------------------------------------------------------------------------------------------
     // Shared decision plumbing
     // -------------------------------------------------------------------------------------------
 
-    private static EnvironmentKind kindOf(Location location) {
-        if (location == null) {
-            return EnvironmentKind.CUSTOM;
-        }
-        World world = location.getWorld();
+    private static EnvironmentKind kindOf(World world) {
         return world == null ? EnvironmentKind.CUSTOM : EnvironmentKind.of(world.getEnvironment().name());
+    }
+
+    private static EnvironmentKind kindOf(Location location) {
+        return location == null ? EnvironmentKind.CUSTOM : kindOf(location.getWorld());
     }
 
     /**
@@ -526,13 +713,22 @@ public final class ProgressionGateListener implements Listener {
      * VehicleTransitTest.Outcome#returnPointIsCapturedEagerly} is the part that does bear on real
      * code, pinning {@link VehicleTransit#orders}' eagerness against the actual API.
      */
-    private void ejectAndReposition(Entity vehicle, VehicleTransit.Plan<Player> plan) {
+    private void ejectAndReposition(Entity vehicle, VehicleTransit.Plan<Player> plan,
+                                    DimensionUnlock dimension) {
         Vector velocity = vehicle.getVelocity();
         double headingX = velocity.getX();
         double headingZ = velocity.getZ();
 
         for (VehicleTransit.Ejection<Player, Location> order :
                 VehicleTransit.orders(plan, rider -> returnPointFor(rider, headingX, headingZ))) {
+            if (!plan.cancelTransit()) {
+                // The transit is going ahead, so this rider will arrive in the gated dimension for a
+                // tick before the ejection below puts them back. The backstop must let that stand;
+                // the ejection is already handling them and a second return would fight it. Noted
+                // only when the vehicle really moves -- a cancelled transit produces no arrival, so
+                // a note there would be a live exemption nothing ever consumes.
+                noteDecision(order.rider(), dimension);
+            }
             scheduleEjection(order.rider(), order.returnTo());
         }
     }
@@ -572,7 +768,11 @@ public final class ProgressionGateListener implements Listener {
     }
 
     /**
-     * Dismounts one rider and returns them to the position captured before the transit.
+     * Dismounts one player and returns them to a position decided by the caller.
+     *
+     * <p>Two callers, one shape of problem. {@link #ejectAndReposition} hands over a point captured
+     * before the transit resolved; {@link #onPlayerChangedWorld} hands over the spawn of the world
+     * the player came from, having no captured point to offer. Neither computes anything here.
      *
      * <p>Runs next tick on the <strong>rider's</strong> region — see
      * {@link #ejectAndReposition} for why not the vehicle's — with a retired callback that logs,

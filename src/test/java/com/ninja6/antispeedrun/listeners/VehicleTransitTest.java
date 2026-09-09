@@ -1,6 +1,7 @@
 package com.ninja6.antispeedrun.listeners;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -117,8 +119,15 @@ class VehicleTransitTest {
      * <p>The plan tests above were all green while a blocked rider in a mixed crew was in fact
      * carried into the Nether: the triage was right and the deferred work asked "where is this
      * rider?" after the transit had already answered "the Nether". A test of the plan cannot see
-     * that. These run the whole sequence — triage, capture, transit, ejection — against a rider
-     * that records the dimension it is in, and assert where each one finishes.
+     * that. These run the whole sequence — triage, capture, transit, the arrival backstop, then the
+     * deferred ejection — against a rider that records the dimension it is in, and assert where each
+     * one finishes.
+     *
+     * <p>#100 added the backstop to that sequence, and it belongs here rather than only in
+     * {@code DimensionGateRulesTest}: what is worth asserting is not what the verdict is but that
+     * the two mechanisms do not fight. A blocked rider in a mixed crew really is in the Nether when
+     * the world change fires, so a backstop that did not know the vehicle path already had them
+     * would move them a second time, somewhere else.
      */
     @Nested
     @DisplayName("the outcome of a portal transit")
@@ -127,11 +136,38 @@ class VehicleTransitTest {
         private static final String OVERWORLD = "OVERWORLD";
         private static final String NETHER = "NETHER";
 
+        /**
+         * Where {@code ProgressionGateListener}'s backstop puts a player it has to send back: the
+         * spawn of the world they came from. Distinct from {@link #OVERWORLD} on purpose — a rider
+         * the vehicle path already handled must finish where <em>it</em> put them, so a test can
+         * tell "not double-handled" from "handled twice and happened to end up nearby".
+         */
+        private static final String OVERWORLD_SPAWN = "OVERWORLD_SPAWN";
+
+        /**
+         * The listener's decision ledger, standing in for {@code ProgressionGateListener#decisions}.
+         *
+         * <p>An instance field rather than a local, because its lifetime is the point: a note
+         * written by one transit and not consumed is still there when the next one arrives, which is
+         * exactly what {@link #cancelledTransitRecordsNoExemption} is about. JUnit builds a fresh
+         * {@code Outcome} per test, so nothing leaks between them.
+         */
+        private final Set<Rider> decided = new HashSet<>();
+
         /** A rider that knows which dimension it is in, and can be moved between them. */
         private static final class Rider {
             private final String name;
             private final boolean qualified;
             private String dimension = OVERWORLD;
+
+            /**
+             * Whether the backstop acted on this rider. Recorded separately from
+             * {@link #dimension} because the deferred ejection runs <em>after</em> the world change
+             * and would overwrite the position: without this, a rider moved twice and a rider moved
+             * once finish in the same place, and the double-handling #100 forbids would be
+             * invisible.
+             */
+            private boolean backstopped;
 
             Rider(String name, boolean qualified) {
                 this.name = name;
@@ -164,13 +200,57 @@ class VehicleTransitTest {
                     VehicleTransit.orders(plan, rider -> rider.dimension);
 
             if (!plan.cancelTransit()) {
+                // Every ejected rider is about to be carried into the Nether for a tick before the
+                // deferred ejection puts them back, so the listener notes an exemption for each --
+                // and only when the vehicle actually moves. #100.
+                for (VehicleTransit.Ejection<Rider, String> order : orders) {
+                    decided.add(order.rider());
+                }
                 for (Rider rider : riders) {
                     rider.dimension = NETHER;
+                    arrive(rider);
                 }
             }
             // Next tick, on each rider's own region.
             for (VehicleTransit.Ejection<Rider, String> order : orders) {
                 order.rider().dimension = order.returnTo();
+            }
+        }
+
+        /**
+         * The Folia transit nothing reports — #100.
+         *
+         * <p>PaperMC/Folia#453: a vehicle carrying a passenger through a portal fires neither
+         * {@code EntityPortalEvent} nor {@code PlayerPortalEvent}, so there is no triage, no
+         * capture, no cancellation and no ejection. Everyone simply arrives, and the world-change
+         * backstop is the only thing that runs.
+         */
+        private void runUnreportedTransit(List<Rider> riders) {
+            for (Rider rider : riders) {
+                rider.dimension = NETHER;
+                arrive(rider);
+            }
+        }
+
+        /**
+         * {@code ProgressionGateListener#onPlayerChangedWorld}, re-enacted over a rider double.
+         *
+         * <p>The same mirror caveat as {@link #runTransit} applies, and for the same reason: a
+         * {@code Player} cannot be constructed off a server. What is <em>not</em> a mirror is the
+         * verdict itself — that is the real {@link DimensionGateRules#arrival}, so the part of the
+         * backstop that decides anything is the production code. This method contributes the
+         * bookkeeping around it: the note is consumed rather than merely read, and the return puts
+         * the player at the source world's spawn.
+         */
+        private void arrive(Rider rider) {
+            if (!NETHER.equals(rider.dimension)) {
+                return;
+            }
+            DimensionGateRules.Arrival verdict =
+                    DimensionGateRules.arrival(decided.remove(rider), false, rider.qualified);
+            if (verdict == DimensionGateRules.Arrival.REJECTED) {
+                rider.backstopped = true;
+                rider.dimension = OVERWORLD_SPAWN;
             }
         }
 
@@ -217,6 +297,66 @@ class VehicleTransitTest {
             runTransit(List.of(one, two));
             assertEquals(NETHER, one.dimension);
             assertEquals(NETHER, two.dimension);
+        }
+
+        /**
+         * #100's first acceptance criterion. On Folia the vehicle carries the crew across and the
+         * server tells the plugin nothing until the world has already changed, so every step above
+         * is skipped and the backstop is the only thing between a blocked rider and the Nether.
+         */
+        @Test
+        @DisplayName("a transit no portal event reported is still caught on arrival")
+        void unreportedTransitIsBackstopped() {
+            Rider veteran = new Rider("veteran", true);
+            Rider newbie = new Rider("newbie", false);
+
+            runUnreportedTransit(List.of(veteran, newbie));
+
+            assertEquals(NETHER, veteran.dimension,
+                    "the qualified rider earned this and must not be bounced");
+            assertFalse(veteran.backstopped, "and must not even be considered for a return");
+            assertEquals(OVERWORLD_SPAWN, newbie.dimension,
+                    "nothing cleared this rider for the Nether, so the backstop returns them");
+            assertTrue(newbie.backstopped);
+        }
+
+        /**
+         * #100's second acceptance criterion, and the case the backstop is most likely to get wrong.
+         * On Paper the mixed crew's transit is not cancelled, so the blocked rider is genuinely in
+         * the Nether when the world change fires — the exemption {@code onEntityPortal} recorded is
+         * the only thing that stops the backstop repositioning them on top of the ejection.
+         */
+        @Test
+        @DisplayName("a rider the vehicle path already ejected is not handled twice")
+        void ejectedRiderIsNotDoubleHandled() {
+            Rider veteran = new Rider("veteran", true);
+            Rider newbie = new Rider("newbie", false);
+
+            runTransit(List.of(veteran, newbie));
+
+            assertFalse(newbie.backstopped,
+                    "the backstop must not touch a rider the vehicle path is already returning");
+            assertEquals(OVERWORLD, newbie.dimension,
+                    "the ejection's captured return point, not the backstop's world spawn");
+            assertNotEquals(OVERWORLD_SPAWN, newbie.dimension);
+        }
+
+        /**
+         * The other half of "only when the vehicle really moves": an all-blocked crew's transit is
+         * cancelled, nobody arrives anywhere, and so no exemption is recorded. One that was would
+         * sit there covering the next unreported transit for the rest of its window.
+         */
+        @Test
+        @DisplayName("a cancelled transit leaves no exemption behind for a later arrival")
+        void cancelledTransitRecordsNoExemption() {
+            Rider newbie = new Rider("newbie", false);
+            runTransit(List.of(newbie));
+            assertEquals(OVERWORLD, newbie.dimension);
+
+            // The Folia transit the plugin is never told about, moments later. If the cancelled
+            // transit above had left a note, this would sail through.
+            runUnreportedTransit(List.of(newbie));
+            assertEquals(OVERWORLD_SPAWN, newbie.dimension);
         }
 
         /**

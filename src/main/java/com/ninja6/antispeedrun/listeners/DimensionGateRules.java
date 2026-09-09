@@ -115,6 +115,83 @@ public final class DimensionGateRules {
     }
 
     /**
+     * How long a gate decision taken on the way in stays good for the arrival it belongs to.
+     *
+     * <p>The arrival follows the decision by a tick or two — the portal event, then the world
+     * change. Ten seconds is far longer than that gap and far shorter than a session, so a note
+     * that is never consumed (the transit was cancelled after all, or the server dropped it) has
+     * expired long before the player's next portal. Nothing about the gate depends on the exact
+     * number: it is a staleness bound on a hand-off, not a threshold on a requirement, so R-02 does
+     * not apply to it.
+     */
+    public static final long DECISION_WINDOW_MILLIS = 10_000L;
+
+    /** What {@link #arrival} says to do about a player who has just landed in another dimension. */
+    public enum Arrival {
+
+        /** Nothing to do: the arrival was either ungated, decided already, waived, or earned. */
+        ALLOWED,
+
+        /** The player is standing in a dimension nothing ever cleared them for. Send them back. */
+        REJECTED
+    }
+
+    /**
+     * The backstop's verdict on a player who is <em>already</em> in a gated dimension — #100.
+     *
+     * <p>Every other method here decides a transit before it happens. This one runs after the fact,
+     * because on Folia one route does not announce itself at all: a vehicle carrying a passenger
+     * through a portal fires neither {@code EntityPortalEvent} nor {@code PlayerPortalEvent}
+     * (PaperMC/Folia#453), so there is no transit to cancel and the only evidence the gate ever gets
+     * is the player turning up on the other side.
+     *
+     * <p>The whole difficulty is telling that arrival apart from the several legitimate ways an
+     * ineligible player reaches the Nether, and the answer is that each of those leaves a trace:
+     *
+     * <p>Gatedness is not one of the arguments: the caller has already asked
+     * {@link #gatedDestination(EnvironmentKind, EnvironmentKind, PluginConfig)} which gate applies,
+     * because it needs the answer to look the other three up. Reaching this method at all means one
+     * does.
+     *
+     * <ul>
+     *   <li><strong>{@code eligible}</strong> — the player earned it. This is the ordinary case and
+     *       it is checked fresh rather than remembered, so a player let through the gate a moment
+     *       ago is never bounced by the backstop.</li>
+     *   <li><strong>{@code waived}</strong> — the permission, a {@code /asr bypass} grant or an
+     *       {@code /asr unlock}. Also re-read rather than remembered, for the same reason.</li>
+     *   <li><strong>{@code decided}</strong> — a handler upstream already looked at this arrival and
+     *       let it stand even though the player is neither eligible nor waived. There are exactly
+     *       three of those, all deliberate: a teleport whose cause this plugin does not regulate
+     *       (an operator's {@code /tp}, a warp plugin — see {@code GATED_CAUSES}), a portal event
+     *       with no resolved destination (#92's fail-open), and a rider the vehicle path has already
+     *       ejected and is repositioning. Without this the backstop would overturn all three.</li>
+     * </ul>
+     *
+     * <p>What is left over — ineligible, unwaived, and nobody decided anything — is the transit no
+     * event reported. That is the bypass, and it fails closed.
+     *
+     * @param decided  whether an upstream handler already dealt with this arrival
+     * @param waived   as {@link #waived(boolean, boolean, boolean)}
+     * @param eligible whether the player meets the gate's requirement right now
+     */
+    public static Arrival arrival(boolean decided, boolean waived, boolean eligible) {
+        return decided || waived || eligible ? Arrival.ALLOWED : Arrival.REJECTED;
+    }
+
+    /**
+     * Whether a decision recorded at {@code recordedAt} still covers an arrival seen at {@code now}.
+     *
+     * <p>A negative age is treated as stale rather than fresh. The two timestamps can come from
+     * different Folia region threads, and {@code System.currentTimeMillis()} is not monotonic, so
+     * "recorded in the future" is a clock artefact and the safe reading of it is that there is no
+     * usable decision — which costs an ineligible player a bounce, not a bypass.
+     */
+    public static boolean decisionHolds(long recordedAt, long now) {
+        long age = now - recordedAt;
+        return age >= 0L && age < DECISION_WINDOW_MILLIS;
+    }
+
+    /**
      * The line a blocked player is shown: the operator's {@code rejection-message} verbatim, with
      * the fail-open hint appended when the evaluation could not be trusted.
      *
