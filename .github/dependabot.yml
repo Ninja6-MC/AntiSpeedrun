@@ -61,9 +61,37 @@ updates:
       # one the smoke test walks.
       #
       # Matched by prefix rather than by artifact so the guard survives a serializer
-      # being added later.
+      # being added later, and with NO update-types qualifier: the ceiling is whatever
+      # Paper bundles, Adventure adds API in MINOR releases, and a major-only ignore
+      # therefore guards nothing that matters here. Pull request 106 was a minor --
+      # 4.18.0 -> 4.26.1 -- and walked straight through exactly that.
+      #
+      # This does NOT give up CVE coverage, and an earlier revision of this branch was
+      # wrong to claim it did. dependabot-core's `ignored_versions` returns `versions`
+      # and nothing else once `security_updates_only` is set, so an entry carrying only
+      # a dependency-name contributes nothing to a security update; only an explicit
+      # `versions:` range can suppress one. The "update-types only affects version
+      # updates, not security updates" sentence in GitHub's reference sits under
+      # `allow`, not under `ignore`. A bare dependency-name and a fully enumerated
+      # update-types list behave identically for security updates, so the short form is
+      # used here.
+      #
+      # SessionPulse scopes its identical wildcard to majors and is right to, for two
+      # reasons that both fail here: it SHADES and relocates net.kyori into its own jar,
+      # so it owns Adventure at runtime, and its ceiling is adventure-platform-bukkit
+      # 4.4.1 rather than a server's. This plugin shades nothing and takes Adventure
+      # from the server, so a minor is exactly what breaks it.
       - dependency-name: "net.kyori:*"
-        update-types: ["version-update:semver-major"]
+      # Test scope only, and pinned to match what paper-api resolves. paper-api is on the
+      # test classpath too, so raising this literal moves BOTH sides of
+      # ConfigSectionConformanceTest: it would compare 2.7 against 2.7, keep passing, and
+      # stop saying anything about the parser the server actually runs.
+      #
+      # The literal in build.gradle.kts is inert today -- paper-api already brings
+      # snakeyaml 2.2 transitively and Gradle resolves highest-wins -- so the durable fix
+      # is to drop the version there and let it track paper-api. This ignore stops a bot
+      # raising it in the meantime.
+      - dependency-name: org.yaml:snakeyaml
     commit-message:
       # `build` rather than `ci`: ci is the Conventional Commits type for workflow
       # actions, build is the one for build-system dependencies.
