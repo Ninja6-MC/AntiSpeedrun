@@ -61,17 +61,32 @@ updates:
       # one the smoke test walks.
       #
       # Matched by prefix rather than by artifact so the guard survives a serializer
-      # being added later, and NOT restricted by update-type. Adventure adds API in
-      # MINOR releases, so a major-only guard does not guard anything: 4.18.0 -> 4.26.1
-      # is a minor, and pull request 106 walked straight through this ignore carrying
-      # exactly the failure the paragraph above describes. SessionPulse and
-      # SpiralGenesis both ignore their server-provided coordinates unconditionally;
-      # this repository was the one that narrowed it.
+      # being added later, and NOT restricted by update-type. The ceiling here is
+      # whatever Paper bundles, and Adventure adds API in MINOR releases - so a
+      # major-only guard does not guard the thing described above. Pull request 106 was
+      # a minor, 4.18.0 -> 4.26.1, and walked straight through a major-only ignore.
+      #
+      # SessionPulse scopes its identical wildcard to majors, and that is correct THERE
+      # for a different reason: its messages go through BukkitAudiences, adventure-
+      # platform stops at 4.4.1, and the break it guards is an adventure 5.x. This
+      # plugin has no adventure-platform at all, so do not copy that scoping back here.
+      #
+      # COST, recorded rather than discovered later: an ignore suppresses Dependabot
+      # SECURITY updates as well as version updates. No CVE-driven bump will be raised
+      # for these coordinates again. That is accepted because the classes come from the
+      # server jar at runtime - a fix has to arrive as a Paper upgrade, and raising the
+      # literal here would not deliver it. The one case this is wrong for is a net.kyori
+      # dependency the plugin SHADES into its own jar, which it would then own at
+      # runtime - none exists today, and adding one means revisiting this line.
       - dependency-name: "net.kyori:*"
-      # Server-provided for the same reason: paper-api pins snakeyaml, and paper-api is
-      # also on the test classpath, so a bump here moves BOTH sides of
-      # ConfigSectionConformanceTest. The test keeps passing and stops telling us
-      # anything about the parser the server actually runs.
+      # Test scope only, and pinned to match what paper-api resolves. paper-api is on the
+      # test classpath too, so raising this literal moves BOTH sides of
+      # ConfigSectionConformanceTest: it would compare 2.7 against 2.7, keep passing, and
+      # stop saying anything about the parser the server actually runs.
+      #
+      # The exposure this ignore accepts is narrower than the one above but it is NOT
+      # zero and it is not Paper's: a snakeyaml advisory would go unproposed on the CI
+      # test classpath. Nothing ships it, so the trade is accepted.
       - dependency-name: org.yaml:snakeyaml
     commit-message:
       # `build` rather than `ci`: ci is the Conventional Commits type for workflow
