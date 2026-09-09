@@ -61,33 +61,45 @@ updates:
       # one the smoke test walks.
       #
       # Matched by prefix rather than by artifact so the guard survives a serializer
-      # being added later, and NOT restricted by update-type. The ceiling here is
-      # whatever Paper bundles, and Adventure adds API in MINOR releases - so a
-      # major-only guard does not guard the thing described above. Pull request 106 was
-      # a minor, 4.18.0 -> 4.26.1, and walked straight through a major-only ignore.
+      # being added later. ALL THREE semver types are listed, not just major: the
+      # ceiling is whatever Paper bundles, Adventure adds API in MINOR releases, and a
+      # major-only ignore therefore guards nothing that matters. Pull request 106 was a
+      # minor - 4.18.0 -> 4.26.1 - and walked straight through exactly that.
       #
-      # SessionPulse scopes its identical wildcard to majors, and that is correct THERE
-      # for a different reason: its messages go through BukkitAudiences, adventure-
-      # platform stops at 4.4.1, and the break it guards is an adventure 5.x. This
-      # plugin has no adventure-platform at all, so do not copy that scoping back here.
+      # Listing update-types rather than naming the dependency alone is deliberate and
+      # is the difference between two behaviours GitHub documents: an ignore carrying
+      # `update-types` filters VERSION updates only, and "security updates will always
+      # be created regardless"; an ignore naming the dependency with no qualifier
+      # suppresses security updates too. Blanket-ignoring would silently give up every
+      # future CVE-driven pull request for these coordinates, which is not a trade this
+      # repository needs to make. A security bump may still land above Paper's ceiling -
+      # that is a decision for whoever reads it, and being told beats not being told.
       #
-      # COST, recorded rather than discovered later: an ignore suppresses Dependabot
-      # SECURITY updates as well as version updates. No CVE-driven bump will be raised
-      # for these coordinates again. That is accepted because the classes come from the
-      # server jar at runtime - a fix has to arrive as a Paper upgrade, and raising the
-      # literal here would not deliver it. The one case this is wrong for is a net.kyori
-      # dependency the plugin SHADES into its own jar, which it would then own at
-      # runtime - none exists today, and adding one means revisiting this line.
+      # SessionPulse scopes its identical wildcard to majors and is right to, for a
+      # reason that does NOT hold here: it SHADES and relocates net.kyori into its own
+      # jar, so it owns Adventure at runtime and minors cannot break it. This plugin
+      # shades nothing and takes Adventure from the server. Do not copy that scoping
+      # back here without first checking which side of that line the build sits on.
       - dependency-name: "net.kyori:*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
       # Test scope only, and pinned to match what paper-api resolves. paper-api is on the
       # test classpath too, so raising this literal moves BOTH sides of
       # ConfigSectionConformanceTest: it would compare 2.7 against 2.7, keep passing, and
       # stop saying anything about the parser the server actually runs.
       #
-      # The exposure this ignore accepts is narrower than the one above but it is NOT
-      # zero and it is not Paper's: a snakeyaml advisory would go unproposed on the CI
-      # test classpath. Nothing ships it, so the trade is accepted.
+      # Same update-types construction as above, and for the same reason: this blocks the
+      # routine bump that quietly desynchronises the test from production, while leaving
+      # a snakeyaml advisory free to raise a pull request. That matters here even though
+      # nothing ships this jar - the exposure is the CI test classpath, which is ours
+      # rather than Paper's.
       - dependency-name: org.yaml:snakeyaml
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
     commit-message:
       # `build` rather than `ci`: ci is the Conventional Commits type for workflow
       # actions, build is the one for build-system dependencies.
