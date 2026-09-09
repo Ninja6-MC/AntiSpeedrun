@@ -19,8 +19,8 @@ repositories {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
-    compileOnly("net.kyori:adventure-api:4.18.0")
-    compileOnly("net.kyori:adventure-text-minimessage:4.18.0")
+    compileOnly("net.kyori:adventure-api:4.26.1")
+    compileOnly("net.kyori:adventure-text-minimessage:4.26.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -29,7 +29,7 @@ dependencies {
     // PluginConfig therefore parses from com.ninja6.antispeedrun.config.ConfigSection rather than
     // from FileConfiguration, and the tests drive that seam with real YAML through SnakeYAML --
     // the same parser Bukkit itself uses. Test scope only: nothing in src/main imports it.
-    testImplementation("org.yaml:snakeyaml:2.2")
+    testImplementation("org.yaml:snakeyaml:2.7")
 
     // Test scope only, and only so ConfigSectionConformanceTest can run one set of assertions
     // against BukkitConfigSection as well as MapConfigSection. org.bukkit.configuration is plain
