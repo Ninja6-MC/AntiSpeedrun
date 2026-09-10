@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.logging.Level;
 
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -168,15 +169,22 @@ public final class IdleReminderEngine {
         // is retiring, and Folia wants the callback before it hands the handle back, so the holder
         // closes the circle. Removing only while the row still holds *this* task means a retirement
         // landing after the player has rejoined cannot drop the new handle.
+        //
+        // The still-clock is dropped under the *same* guard, and not unconditionally. Both rows
+        // belong to one session, so a retirement arriving after a fast quit-and-rejoin must either
+        // clear both of the old session's rows or neither of the new session's; clearing tracked
+        // regardless would wipe the anchor the rejoin has already started standing on and cost that
+        // player a whole stand-still window. A retirement that finds the row already replaced has
+        // nothing of its own left to drop -- the rejoin's refresh took the row -- and quit cleanup
+        // is the registry's anyway (R-08), so declining to remove leaks nothing.
         AtomicReference<ScheduledTask> retiring = new AtomicReference<>();
         ScheduledTask task = player.getScheduler().runAtFixedRate(plugin,
                 scheduled -> tick(player, scheduled),
                 () -> {
                     ScheduledTask retired = retiring.get();
-                    if (retired != null) {
-                        armed.remove(id, retired);
+                    if (retired != null && armed.remove(id, retired)) {
+                        tracked.remove(id);
                     }
-                    tracked.remove(id);
                 },
                 INITIAL_DELAY_TICKS, periodTicks);
         retiring.set(task);
@@ -224,9 +232,7 @@ public final class IdleReminderEngine {
     private void tick(Player player, ScheduledTask self) {
         UUID id = player.getUniqueId();
         if (!player.isOnline()) {
-            armed.remove(id, self);
-            tracked.remove(id);
-            self.cancel();
+            standDown(id, self);
             return;
         }
 
@@ -236,9 +242,7 @@ public final class IdleReminderEngine {
             // Switched off by a reload under a task that was armed when it was on. Stand down rather
             // than poll a disabled feature for the rest of the session; the reload's own re-prime
             // re-arms every online player if it is switched back on.
-            armed.remove(id, self);
-            tracked.remove(id);
-            self.cancel();
+            standDown(id, self);
             return;
         }
 
@@ -247,19 +251,44 @@ public final class IdleReminderEngine {
         IdleReminderRules.State previous = tracked.get(id)
                 .orElseGet(() -> IdleReminderRules.begin(where, now));
 
-        IdleReminderRules.Decision decision =
-                IdleReminderRules.poll(previous, where, now, settings);
-        IdleReminderRules.State next = decision.state();
-
-        if (decision.remind()) {
-            // Stamped whether or not anything is said. The cooldown then governs how often this
-            // player is looked at as well as how often they are spoken to, which keeps a player who
-            // has cleared every gate -- nextStep empty, nothing to deliver -- from being re-evaluated
-            // on every poll for as long as they stand there.
-            next = IdleReminderRules.reminded(next, now);
-            IdleReminderRules.nextStep(progressOf(player, config)).ifPresent(step -> deliver(player, settings, step));
-        }
+        // The stamp-before-delivery ordering, and the fact that a throwing delivery cannot end the
+        // poll, are both IdleReminderRules#advance's -- they are decisions about when the cooldown
+        // is earned, not wiring, and they are unit-tested there without a Bukkit type in sight.
+        IdleReminderRules.State next = IdleReminderRules.advance(previous, where, now, settings,
+                () -> IdleReminderRules.nextStep(progressOf(player, config))
+                        .ifPresent(step -> deliver(player, settings, step)),
+                thrown -> reportDeliveryFailure(player, thrown));
         tracked.put(id, next);
+    }
+
+    /**
+     * Cancels this poll and drops the rows it owns.
+     *
+     * <p>The still-clock goes only if the task row was still {@code self}, for the reason
+     * {@link #refresh}'s retired callback gives: a poll that finds its own row already replaced is
+     * looking at a session that has ended, and the anchor in {@code tracked} now belongs to the
+     * rejoin. The cancel is unconditional either way — {@code self} has no business running on.
+     */
+    private void standDown(UUID id, ScheduledTask self) {
+        if (armed.remove(id, self)) {
+            tracked.remove(id);
+        }
+        self.cancel();
+    }
+
+    /**
+     * Logs a delivery that threw, once per {@code cooldown-minutes} per player rather than per poll.
+     *
+     * <p>The rate is what {@link IdleReminderRules#advance} buys: the cooldown is stamped before the
+     * delivery is attempted, so a template that throws produces one line per cooldown window and not
+     * one per second. {@code idle-reminder.message} is validated at config load, so reaching here at
+     * all means either a MiniMessage failure mode the validation does not model or a fault in the
+     * send itself; both are worth a line, and neither is worth the player's poll.
+     */
+    private void reportDeliveryFailure(Player player, RuntimeException thrown) {
+        plugin.getLogger().log(Level.WARNING,
+                "idle-reminder: could not deliver the reminder to " + player.getName()
+                        + "; check idle-reminder.message in config.yml", thrown);
     }
 
     /** The player's position, in the Bukkit-free terms {@link IdleReminderRules} compares. */

@@ -26,6 +26,22 @@ import org.junit.jupiter.api.Test;
  * {@code IdleReminderEngine} polls the player's own {@code EntityScheduler}, and finding R-07 records
  * that Task 7.2.1 (#26) was amended to do the same rather than have this criterion concede.
  *
+ * <h2>What this sweep does not cover, and why that is not a hole</h2>
+ *
+ * <p>It matches one type name. {@code PlayerTeleportEvent} and {@code PlayerPortalEvent} both
+ * <em>extend</em> {@code PlayerMoveEvent}, so a handler on either is, by Java's reckoning, a handler
+ * that takes a {@code PlayerMoveEvent} — and this scanner will not see it. That is deliberate rather
+ * than overlooked: {@code ProgressionGateListener} handles both on purpose (#34, #6), and each has
+ * its own {@code HandlerList}, so registering one does not register for move events. The criterion is
+ * about the <em>firehose</em> — an event raised several times per player per tick, whose cost is paid
+ * whether or not the handler does anything. A teleport fires when a player teleports and a portal
+ * event when they enter a portal; neither is that, and banning them would ban the dimension gates.
+ *
+ * <p>So read this sweep as exactly what it is: a ban on the base type by name. It is not a proof that
+ * nothing in the plugin observes movement, and the next author reaching for a movement hook does not
+ * get to conclude from a green build that any subclass is fair game. {@link ScannerTest} pins the
+ * boundary in both directions so it cannot be misread as wider than it is.
+ *
  * <p>The check bans the type name outright, not merely {@code @EventHandler} on it. A handler can be
  * registered without the annotation being adjacent to the name — a dynamic registration, a
  * {@code Bukkit.getPluginManager().registerEvent} call, a lambda — and a production source that
@@ -122,6 +138,21 @@ class PlayerMoveEventSweepTest {
         void reportsLineNumber() {
             assertEquals(List.of("3: PlayerMoveEvent e;"),
                     findOffenders("class A {\n  void go() {\n    PlayerMoveEvent e;\n"));
+        }
+
+        @Test
+        @DisplayName("does not flag PlayerTeleportEvent or PlayerPortalEvent, though both extend it")
+        void subclassesAreNotFlagged() {
+            assertEquals(List.of(),
+                    findOffenders("import org.bukkit.event.player.PlayerTeleportEvent;\n"));
+            assertEquals(List.of(),
+                    findOffenders("public void onPortal(PlayerPortalEvent event) {\n"));
+
+            // Pinned rather than merely observed, because the sweep is easy to read as a proof that
+            // nothing here observes movement and it is not one. ProgressionGateListener handles both
+            // of these on purpose (#34, #6); each has its own HandlerList, so neither registers for
+            // move events, and neither is the several-times-per-tick firehose the criterion is
+            // about. Widening the scanner to the subclasses would ban the dimension gates.
         }
     }
 }

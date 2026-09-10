@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -149,8 +150,8 @@ class IdleReminderRulesTest {
         }
 
         @Test
-        @DisplayName("a disabled reminder still tracks position but never speaks")
-        void disabledTracksButIsSilent() {
+        @DisplayName("polled with the feature off, the decision is silence — unreachable from the engine")
+        void disabledIsSilent() {
             State previous = new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED);
 
             Decision decision = IdleReminderRules.poll(previous, ORIGIN, 600_000L, settings(false, 15, 10));
@@ -210,6 +211,103 @@ class IdleReminderRulesTest {
             assertFalse(IdleReminderRules.poll(stamped, ORIGIN, 615_000L - 1L, settings(true, 15, 10))
                     .remind());
             assertTrue(IdleReminderRules.poll(stamped, ORIGIN, 615_000L, settings(true, 15, 10)).remind());
+        }
+    }
+
+    /**
+     * The ordering the whole of PR #110's review turned on: the cooldown stamp is earned by the
+     * attempt at delivery, not by its success, and a delivery that throws is contained rather than
+     * allowed out of the poll.
+     *
+     * <p>These run the loop the engine runs, one poll at a time, with a delivery that throws exactly
+     * the way a malformed {@code idle-reminder.message} makes MiniMessage throw. That the subject is
+     * a pure function is what makes that possible without a Bukkit harness.
+     */
+    @Nested
+    @DisplayName("one whole poll")
+    class Advance {
+
+        private final List<Long> delivered = new ArrayList<>();
+        private final List<RuntimeException> failures = new ArrayList<>();
+
+        private State advance(State previous, Position where, long nowMillis, IdleReminder settings,
+                              boolean deliveryThrows) {
+            return IdleReminderRules.advance(previous, where, nowMillis, settings,
+                    () -> {
+                        delivered.add(nowMillis);
+                        if (deliveryThrows) {
+                            throw new IllegalStateException("malformed template");
+                        }
+                    },
+                    failures::add);
+        }
+
+        @Test
+        @DisplayName("a poll that earns nothing does not deliver and returns the poll's own state")
+        void silentPollDeliversNothing() {
+            State previous = new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED);
+
+            State next = advance(previous, ORIGIN, 1_000L, settings(true, 15, 10), false);
+
+            assertEquals(List.of(), delivered);
+            assertEquals(List.of(), failures);
+            assertSame(previous, next);
+        }
+
+        @Test
+        @DisplayName("an earned poll delivers and returns a state stamped at that instant")
+        void earnedPollStamps() {
+            State next = advance(new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED),
+                    ORIGIN, 15_000L, settings(true, 15, 10), false);
+
+            assertEquals(List.of(15_000L), delivered);
+            assertEquals(List.of(), failures);
+            assertEquals(15_000L, next.lastReminderMillis());
+            assertEquals(15_000L, next.stillSinceMillis());
+        }
+
+        @Test
+        @DisplayName("a delivery that throws does not escape the poll, and the failure is reported")
+        void throwingDeliveryIsContained() {
+            State next = advance(new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED),
+                    ORIGIN, 15_000L, settings(true, 15, 10), true);
+
+            assertEquals(1, failures.size(), "the thrown exception is handed to onFailure");
+            assertEquals("malformed template", failures.get(0).getMessage());
+            assertEquals(15_000L, next.lastReminderMillis(), "and the stamp still lands");
+        }
+
+        @Test
+        @DisplayName("a delivery that throws is still charged the cooldown, so the next poll is silent")
+        void throwingDeliveryPaysTheCooldown() {
+            IdleReminder settings = settings(true, 15, 10);
+            State state = new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED);
+
+            // The engine's loop, once a second, with a template that cannot be rendered. Before the
+            // fix the stamp was written after delivery, so it never landed: every one of these polls
+            // recomputed the same decision and threw again.
+            for (long nowMillis = 15_000L; nowMillis <= 60_000L; nowMillis += 1_000L) {
+                state = advance(state, ORIGIN, nowMillis, settings, true);
+            }
+
+            assertEquals(List.of(15_000L), delivered,
+                    "one attempt in the first 45 seconds of standing still, not forty-six");
+            assertEquals(1, failures.size(), "and one reported failure, not one per second");
+
+            // The cooldown really is a cooldown: the next attempt is a full window later.
+            assertFalse(IdleReminderRules.poll(state, ORIGIN, 615_000L - 1L, settings).remind());
+            assertTrue(IdleReminderRules.poll(state, ORIGIN, 615_000L, settings).remind());
+        }
+
+        @Test
+        @DisplayName("a delivery that says nothing is charged the cooldown just the same")
+        void silentDeliveryStillStamps() {
+            State next = IdleReminderRules.advance(
+                    new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED), ORIGIN, 15_000L,
+                    settings(true, 15, 10), () -> { }, failures::add);
+
+            assertEquals(15_000L, next.lastReminderMillis(),
+                    "a player who has cleared every gate is not re-evaluated on every poll");
         }
     }
 

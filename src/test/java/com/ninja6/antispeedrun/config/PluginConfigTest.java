@@ -27,6 +27,8 @@ import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.error.YAMLException;
 
+import net.kyori.adventure.text.minimessage.MiniMessage;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -489,6 +491,109 @@ class PluginConfigTest {
 
             assertFalse(first.isEmpty());
             assertEquals(first, again, "the same document must always warn in the same order");
+        }
+    }
+
+    /**
+     * {@code idle-reminder.message} is deserialised as MiniMessage on a region thread, once per
+     * reminder, so a template that will not parse has to be caught at load rather than there.
+     *
+     * <p>The blocking finding on PR #110: nothing validated it, and a throw out of the send landed
+     * between the reminder and the cooldown stamp. The ordering is fixed in
+     * {@code IdleReminderRules#advance}; this is the half that stops the operator finding out from a
+     * log file instead of from the reload they just ran.
+     *
+     * <p>These tests pin <em>which</em> templates the shipped MiniMessage rejects, because it is
+     * much less than a reader would guess and the answer belongs somewhere a version bump will
+     * disturb it. Against 4.20.0 the lenient instance swallows an unknown tag and a known tag with a
+     * bad argument alike; a legacy formatting code is what it refuses.
+     */
+    @Nested
+    @DisplayName("idle-reminder.message as MiniMessage")
+    class IdleReminderMessage {
+
+        @Test
+        @DisplayName("the shipped template really does parse")
+        void shippedTemplateParses() throws Exception {
+            String message = shipped().idleReminder().message();
+
+            assertNotNull(MiniMessage.miniMessage().deserialize(message),
+                    "the default is the fallback, so it has to be one that works");
+        }
+
+        @Test
+        @DisplayName("an operator template that parses is kept exactly as written")
+        void validTemplateSurvives() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      message: "<red><bold>Go: <white>{NEXT_STEP}"
+                    """));
+
+            assertEquals("<red><bold>Go: <white>{NEXT_STEP}", config.idleReminder().message());
+            assertFalse(mentions(config.warnings(), "idle-reminder.message"),
+                    "nothing to say about a template that parses: " + config.warnings());
+        }
+
+        @Test
+        @DisplayName("a legacy formatting code warns and falls back to the shipped default")
+        void malformedTemplateFallsBack() throws Exception {
+            // The template an operator migrating from a pre-Adventure config actually writes.
+            // MiniMessage refuses a section sign outright, and this is the only operator mistake
+            // measured to throw on the lenient instance the engine uses.
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      message: "§eNext Goal: {NEXT_STEP}"
+                    """));
+
+            assertEquals(PluginConfig.defaults().idleReminder().message(),
+                    config.idleReminder().message(),
+                    "the reminder is cosmetic, so this warns and falls back rather than refusing "
+                            + "the document the way an unenforceable gate does");
+            assertTrue(mentions(config.warnings(), "idle-reminder.message"),
+                    "the warning names the full key path: " + config.warnings());
+            assertTrue(mentions(config.warnings(), "is not valid MiniMessage"),
+                    "and says what is wrong with it: " + config.warnings());
+
+            // The point of the whole exercise: whatever comes back is safe to hand to the engine.
+            assertNotNull(MiniMessage.miniMessage().deserialize(config.idleReminder().message()));
+        }
+
+        @Test
+        @DisplayName("MiniMessage's leniency is what it is, and the reader does not second-guess it")
+        void lenientInputsAreKept() throws Exception {
+            // Measured against adventure-text-minimessage 4.20.0: an unknown tag survives as literal
+            // text -- which is what lets <next_step> through -- and so does a known tag with a bad
+            // argument, because MiniMessageParser catches what the resolver raises and emits the tag
+            // as text. Rejecting either here would reject templates the engine renders perfectly
+            // well, so the reader asks MiniMessage rather than pattern-matching for bad tags.
+            for (String template : List.of(
+                    "<next_step> and <not_a_tag_anyone_knows>",
+                    "<color:nosuchcolour>{NEXT_STEP}",
+                    "<click:not_an_action:x>{NEXT_STEP}",
+                    "<yellow>an unclosed tag")) {
+                PluginConfig config = PluginConfig.from(yaml("""
+                        idle-reminder:
+                          message: "%s"
+                        """.formatted(template)));
+
+                assertEquals(template, config.idleReminder().message(), template);
+                assertFalse(mentions(config.warnings(), "idle-reminder.message"), template);
+            }
+        }
+
+        @Test
+        @DisplayName("a rejected template is fatal to nothing else in the document")
+        void malformedTemplateDoesNotRejectTheDocument() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      enabled: true
+                      stand-still-seconds: 30
+                      message: "§cStand up: {NEXT_STEP}"
+                    """));
+
+            assertTrue(config.idleReminder().enabled());
+            assertEquals(30, config.idleReminder().standStillSeconds(),
+                    "the rest of the section is read normally");
         }
     }
 

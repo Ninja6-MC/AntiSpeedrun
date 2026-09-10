@@ -6,6 +6,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import com.ninja6.antispeedrun.config.PluginConfig.IdleReminder;
 
@@ -168,8 +169,13 @@ public final class IdleReminderRules {
      *       {@link Decision#remind()} is true.</li>
      * </ol>
      *
-     * <p>A disabled reminder still tracks position, so that re-enabling it at reload does not credit
-     * the player with a stand-still window they spent walking. It simply never returns true.
+     * <p>{@code settings.enabled()} is tested here as well, so that this function is total over the
+     * settings it is handed rather than carrying an unstated precondition. It is <em>not</em>
+     * reachable with {@code false} from production: {@link IdleReminderEngine#refresh} never arms a
+     * disabled reminder, and a poll that finds the feature switched off under an already-armed task
+     * cancels itself and drops the row before it gets here. So the engine does not track position
+     * while disabled — it disarms and forgets, and a re-enable starts a fresh stand-still window
+     * from {@link #begin}. The branch exists for a caller that polls a disabled section anyway.
      *
      * @param previous what the last poll left behind
      * @param now      where the player is at this poll
@@ -193,6 +199,90 @@ public final class IdleReminderRules {
                 && nowMillis - previous.stillSinceMillis() >= seconds(settings.standStillSeconds())
                 && cooldownElapsed(previous.lastReminderMillis(), nowMillis, settings);
         return new Decision(previous, earned);
+    }
+
+    /**
+     * The side of one poll that needs a player: look the next step up and say it.
+     *
+     * <p>Separated from {@link #advance} so that the ordering rule below — the cooldown stamp is
+     * earned by the <em>attempt</em>, not by its success — is testable without a Bukkit type
+     * anywhere near it. {@link IdleReminderEngine} supplies the one implementation.
+     */
+    @FunctionalInterface
+    public interface Delivery {
+
+        /** Delivers the reminder, if there is one to deliver. May throw; {@link #advance} expects it. */
+        void deliver();
+    }
+
+    /**
+     * One whole poll: decide, deliver if earned, and return the state the caller must store.
+     *
+     * <p>The ordering here is the point, and it is a decision rather than wiring, so it lives in
+     * this class rather than in the engine.
+     *
+     * <p><strong>The cooldown stamp is earned by the attempt.</strong> {@link #reminded} is applied
+     * before {@code delivery} runs, and the returned state carries the stamp whether the delivery
+     * succeeded, said nothing, or threw. Stamping afterwards is what a straightforward reading of
+     * this code would do, and it is wrong in a way that only shows up when something goes wrong: a
+     * delivery that throws would leave {@code lastReminderMillis} at {@link #NEVER_REMINDED} and
+     * {@code stillSinceMillis} untouched, so the very next poll — one second later — would recompute
+     * the identical decision and throw again, every second for as long as the player stood there,
+     * instead of once per {@code cooldown-minutes}. The cooldown is the only thing keeping the
+     * expensive half of the poll off the hot path, and stamping late bypasses it in exactly the case
+     * where the poll is already failing.
+     *
+     * <p><strong>A throwing delivery cannot end the poll.</strong> Whatever {@code delivery} throws
+     * is handed to {@code onFailure} and not rethrown.
+     *
+     * <p>It was worth settling what the scheduler actually does here rather than guessing, because
+     * the two answers have very different costs. Read from the implementation —
+     * {@code paper-server/src/main/java/io/papermc/paper/threadedregions/scheduler/FoliaEntityScheduler.java},
+     * {@code EntityScheduledTask#accept} — a repeating entity task whose body throws is
+     * <em>not</em> cancelled: the call is wrapped in {@code try}, {@link Throwable} is caught and
+     * logged as "Entity task for &lt;plugin&gt; generated an exception", and the {@code finally}
+     * block reschedules unless the task was cancelled or the entity retired. So the armed row never
+     * holds a dead handle and a player is not silently dropped for the session. What the task does
+     * not survive intact is the log: one stack trace per poll, which at a one-second period is once
+     * a second for as long as the player stands there. Catching here is therefore about the rate and
+     * about not depending on a scheduler internal, not about rescuing a task that would otherwise
+     * die.
+     *
+     * <p>Both halves are belt to the braces of validating {@code idle-reminder.message} at config
+     * load, which is where a template MiniMessage refuses is reported to the operator. That
+     * validation is narrower than it sounds — the lenient MiniMessage instance swallows most bad
+     * markup and renders it as text — so this is what covers everything it does not model, the send
+     * itself included.
+     *
+     * @param previous  what the last poll left behind
+     * @param now       where the player is at this poll
+     * @param nowMillis wall clock at this poll
+     * @param settings  the {@code idle-reminder} section of the snapshot the caller is holding
+     * @param delivery  runs only when the poll earns a reminder
+     * @param onFailure told what {@code delivery} threw, if it threw
+     * @return the state to store, stamped if a reminder was attempted
+     */
+    public static State advance(State previous, Position now, long nowMillis, IdleReminder settings,
+                                Delivery delivery, Consumer<RuntimeException> onFailure) {
+        Objects.requireNonNull(delivery, "delivery");
+        Objects.requireNonNull(onFailure, "onFailure");
+
+        Decision decision = poll(previous, now, nowMillis, settings);
+        if (!decision.remind()) {
+            return decision.state();
+        }
+
+        // Stamped whether or not anything is said, and before anything is said. The cooldown then
+        // governs how often this player is looked at as well as how often they are spoken to, which
+        // keeps a player who has cleared every gate -- nextStep empty, nothing to deliver -- from
+        // being re-evaluated on every poll for as long as they stand there.
+        State next = reminded(decision.state(), nowMillis);
+        try {
+            delivery.deliver();
+        } catch (RuntimeException thrown) {
+            onFailure.accept(thrown);
+        }
+        return next;
     }
 
     /**
