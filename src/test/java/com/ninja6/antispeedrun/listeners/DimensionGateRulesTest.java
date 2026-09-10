@@ -6,10 +6,12 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -266,6 +268,193 @@ class DimensionGateRulesTest {
             assertTrue(DimensionGateRules.waived(true, false, false), "the bypass permission");
             assertTrue(DimensionGateRules.waived(false, true, false), "a timed /asr bypass grant");
             assertTrue(DimensionGateRules.waived(false, false, true), "an /asr unlock override");
+        }
+    }
+
+    @Nested
+    @DisplayName("the arrival backstop -- #100")
+    class ArrivalBackstop {
+
+        @Test
+        @DisplayName("ineligible, unwaived and undecided is the bypass, and the only rejection")
+        void nothingCoversTheArrival() {
+            assertEquals(DimensionGateRules.Arrival.REJECTED,
+                    DimensionGateRules.arrival(false, false, false));
+        }
+
+        @Test
+        @DisplayName("each of the three covers of a legitimate arrival is sufficient on its own")
+        void anyOneAllows() {
+            assertEquals(DimensionGateRules.Arrival.ALLOWED,
+                    DimensionGateRules.arrival(true, false, false),
+                    "an exemption an upstream handler already recorded");
+            assertEquals(DimensionGateRules.Arrival.ALLOWED,
+                    DimensionGateRules.arrival(false, true, false),
+                    "a waiver: the permission, a bypass grant or an unlock");
+            assertEquals(DimensionGateRules.Arrival.ALLOWED,
+                    DimensionGateRules.arrival(false, false, true),
+                    "the player meeting the requirement -- the ordinary case");
+        }
+
+        @Test
+        @DisplayName("a player the gate just let through is never bounced by the backstop")
+        void eligibilityAloneIsEnough() {
+            // #100's second acceptance criterion, stated as its own case because it is the one a
+            // future change would break: on Paper an eligible player's transit is not intercepted
+            // at all, so nothing records anything, and eligible-but-undecided has to be ALLOWED.
+            assertEquals(DimensionGateRules.Arrival.ALLOWED,
+                    DimensionGateRules.arrival(false, false, true));
+        }
+
+        @Test
+        @DisplayName("a recorded decision covers the arrival that follows it")
+        void decisionHoldsWithinTheWindow() {
+            long recordedAt = 1_000_000L;
+            assertTrue(DimensionGateRules.decisionHolds(recordedAt, recordedAt),
+                    "the same instant");
+            assertTrue(DimensionGateRules.decisionHolds(recordedAt, recordedAt + 50L),
+                    "a tick later, which is when the arrival actually lands");
+            assertTrue(DimensionGateRules.decisionHolds(
+                    recordedAt, recordedAt + DimensionGateRules.DECISION_WINDOW_MILLIS - 1L));
+        }
+
+        @Test
+        @DisplayName("a decision nothing consumed expires rather than covering a later arrival")
+        void decisionExpires() {
+            long recordedAt = 1_000_000L;
+            assertFalse(DimensionGateRules.decisionHolds(
+                    recordedAt, recordedAt + DimensionGateRules.DECISION_WINDOW_MILLIS));
+            assertFalse(DimensionGateRules.decisionHolds(recordedAt, recordedAt + 60_000L));
+        }
+
+        @Test
+        @DisplayName("a decision timestamped in the future is a clock artefact, not a free pass")
+        void decisionFromTheFutureIsStale() {
+            // The two timestamps can be taken on different Folia region threads and
+            // currentTimeMillis is not monotonic. Reading a negative age as "very fresh" would turn
+            // a clock adjustment into an open gate; reading it as stale costs a bounce instead.
+            assertFalse(DimensionGateRules.decisionHolds(1_000_000L, 999_000L));
+        }
+
+        /**
+         * A world change that is not a transit, decided deliberately rather than by omission.
+         *
+         * <p>CraftBukkit fires {@code PlayerChangedWorldEvent} from {@code PlayerList#respawn} when
+         * the respawn world differs from the death world, and that path fires no
+         * {@code PlayerTeleportEvent}, so it can leave no note. A player respawning at a Nether
+         * anchor they set while waived therefore arrives undecided, and the gate returns them. This
+         * pins that as the intended answer: the anchor is a standing re-entry into a dimension the
+         * gate currently closes, and re-reading eligibility and the waiver is what lets a player who
+         * still qualifies keep using it.
+         */
+        @Test
+        @DisplayName("a respawn at an anchor in a gated dimension is judged like any other arrival")
+        void crossWorldRespawnIsNotExempt() {
+            assertEquals(DimensionGateRules.Arrival.REJECTED,
+                    DimensionGateRules.arrival(false, false, false),
+                    "no note can exist for a respawn, so an ineligible unwaived player is returned");
+            assertEquals(DimensionGateRules.Arrival.ALLOWED,
+                    DimensionGateRules.arrival(false, true, false),
+                    "a player still waived keeps the anchor and the arrival");
+            assertEquals(DimensionGateRules.Arrival.ALLOWED,
+                    DimensionGateRules.arrival(false, false, true),
+                    "and so does one who has since earned the gate");
+        }
+    }
+
+    /**
+     * The ledger behind {@code decided} — #100, and the two ways a note escaped its own transit.
+     *
+     * <p>{@link DimensionGateRules#arrival} being right about a {@code boolean} says nothing about
+     * where that {@code boolean} came from. These are the rules that produce it: a note names the
+     * world it was taken about, it is spent once, and it expires. An earlier revision keyed notes on
+     * the gate alone, which made every note a bearer token — written by one transit, spendable on
+     * any other, including the unreported Folia vehicle transit the backstop exists to catch.
+     */
+    @Nested
+    @DisplayName("the decision ledger -- #100")
+    class DecisionLedger {
+
+        private static final UUID NETHER_WORLD = UUID.randomUUID();
+
+        /** A second Nether world, as a multiverse server has. One gate, two destinations. */
+        private static final UUID OTHER_NETHER_WORLD = UUID.randomUUID();
+
+        private static final long NOW = 1_000_000L;
+
+        private final Map<DimensionUnlock, DimensionGateRules.Decision> notes = new HashMap<>();
+
+        @Test
+        @DisplayName("a note covers the arrival it was written for")
+        void coversItsOwnArrival() {
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW);
+            assertTrue(DimensionGateRules.consume(notes, DimensionUnlock.NETHER, NETHER_WORLD,
+                    NOW + 50L));
+        }
+
+        @Test
+        @DisplayName("and no other: a note for one world is not spendable on an arrival elsewhere")
+        void doesNotCoverAnotherWorld() {
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, OTHER_NETHER_WORLD, NOW);
+            assertFalse(DimensionGateRules.consume(notes, DimensionUnlock.NETHER, NETHER_WORLD,
+                    NOW + 50L),
+                    "the same gate, a different destination, and nothing decided this arrival");
+        }
+
+        @Test
+        @DisplayName("nor another gate: a NETHER note does nothing for an END arrival")
+        void doesNotCoverAnotherGate() {
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW);
+            assertFalse(DimensionGateRules.consume(notes, DimensionUnlock.THE_END, NETHER_WORLD,
+                    NOW + 50L));
+        }
+
+        @Test
+        @DisplayName("a note is spent once, so one /tp does not clear a run of arrivals")
+        void isSpentOnce() {
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW);
+            assertTrue(DimensionGateRules.consume(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW));
+            assertFalse(DimensionGateRules.consume(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW),
+                    "the second arrival has nothing covering it");
+        }
+
+        /**
+         * A mismatched note is removed as well as refused. Leaving it would let a player bounced at
+         * one destination keep arriving until they found the one it fits.
+         */
+        @Test
+        @DisplayName("a note that does not fit is discarded rather than left to be retried against")
+        void mismatchIsStillConsumed() {
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, OTHER_NETHER_WORLD, NOW);
+            assertFalse(DimensionGateRules.consume(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW));
+            assertFalse(DimensionGateRules.consume(notes, DimensionUnlock.NETHER,
+                    OTHER_NETHER_WORLD, NOW),
+                    "and is gone even for the arrival it did name");
+        }
+
+        @Test
+        @DisplayName("a note nothing consumed expires rather than covering a later arrival")
+        void expires() {
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW);
+            assertFalse(DimensionGateRules.consume(notes, DimensionUnlock.NETHER, NETHER_WORLD,
+                    NOW + DimensionGateRules.DECISION_WINDOW_MILLIS));
+        }
+
+        @Test
+        @DisplayName("a player with no ledger at all has decided nothing")
+        void noLedgerIsNoCover() {
+            assertFalse(DimensionGateRules.consume(null, DimensionUnlock.NETHER, NETHER_WORLD, NOW));
+            assertFalse(DimensionGateRules.consume(Map.of(), DimensionUnlock.NETHER, NETHER_WORLD,
+                    NOW));
+        }
+
+        @Test
+        @DisplayName("a note replaces the one it supersedes rather than stacking behind it")
+        void oneNotePerGate() {
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, OTHER_NETHER_WORLD, NOW);
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW);
+            assertEquals(1, notes.size());
+            assertTrue(DimensionGateRules.consume(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW));
         }
     }
 
