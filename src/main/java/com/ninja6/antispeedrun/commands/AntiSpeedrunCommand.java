@@ -34,11 +34,16 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 /**
  * {@code /antispeedrun} (alias {@code /asr}) — the administrative dispatcher, Task 8.1.1 (#40).
  *
- * <p>Five subcommands: {@code reload}, {@code profile apply}, {@code unlock}, {@code bypass} and
- * {@code inspect}. Each is gated on its own {@code antispeedrun.admin.*} node from
+ * <p>Five administrative subcommands — {@code reload}, {@code profile apply}, {@code unlock},
+ * {@code bypass} and {@code inspect} — each gated on its own {@code antispeedrun.admin.*} node from
  * {@code plugin.yml}, mapped once in {@link Subcommand}; the parsing and the completion grammar
  * live in {@link Subcommand}, {@link BypassDuration} and {@link CommandCompletion}, which are
  * Bukkit-free and unit tested. What is left here is dispatch, threading and message rendering.
+ *
+ * <p>And one that is not administration: {@code progress} (#3), which delegates to
+ * {@link ProgressCommand} and is gated on {@code antispeedrun.progress}, the same node the
+ * standalone {@code /progress} uses. It is here because {@code plugin.yml} advertised it before it
+ * existed, which #73 had to withdraw; this is the delegate that line was promising.
  *
  * <h2>Threading — the part that is easy to get wrong on Folia</h2>
  *
@@ -75,8 +80,12 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
 
     private final AntiSpeedrunPlugin plugin;
 
+    /** What {@code /asr progress} delegates to. Stateless; one instance is enough. */
+    private final ProgressCommand progress;
+
     public AntiSpeedrunCommand(AntiSpeedrunPlugin plugin) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.progress = new ProgressCommand(plugin);
     }
 
     // -----------------------------------------------------------------------------------------
@@ -112,6 +121,10 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
             case UNLOCK -> unlock(sender, args);
             case BYPASS -> bypass(sender, args);
             case INSPECT -> inspect(sender, config, args);
+            // Delegated rather than reimplemented, and with the snapshot already read at the top of
+            // this method carried in: /asr progress and /progress are the same command reached two
+            // ways, so a second rendering here is a second thing to keep in step (#3, #73).
+            case PROGRESS -> progress.show(sender, config);
         }
         return true;
     }
