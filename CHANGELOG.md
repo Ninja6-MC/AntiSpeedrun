@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Brand vector master (`docs/assets/icon-master.svg`) and automated multi-resolution icon suite
   (`scripts/export-icons.mjs`) featuring the Progression Crown and Tri-Realm Apex, with CI drift
   gate enforcement (`.github/workflows/icons.yml`).
+- `/progress`, and `/asr progress` which delegates to it, both gated on `antispeedrun.progress`
+  (default `true`). It draws the player their own progression card: every dimension gate in
+  configured order with a completed, in-progress or locked mark, what each one is still waiting on,
+  and a highlighted `NEXT STEP` line. That next step is the same string the idle reminder puts in
+  `{NEXT_STEP}` — one implementation, so the two cannot drift apart and tell a player different
+  things. The new `progress-card.simple-card` setting chooses the shape: `AUTO` (the default) draws
+  a plain-ASCII card for a Bedrock client and the full one for a Java client, and `ALWAYS` and
+  `NEVER` force one or the other. Bedrock's font carries none of the marks the full card uses, so
+  without this a Geyser player saw a column of replacement boxes; the plain card is asserted
+  character by character rather than described as "renders cleanly". `AUTO` recognises a Bedrock
+  client only on a server actually running Floodgate, which stays a `softdepend` — nothing here
+  compiles against it. Milestone display names and advancement keys read from `config.yml` reach
+  the player as text, never as markup.
 - Idle reminders, implementing the `idle-reminder` section, which until now was parsed and read by
   nothing. A player who stands still for `stand-still-seconds` is shown their next progression goal
   on the action bar, as a title, or in chat, at most once per `cooldown-minutes`. Standing still is
