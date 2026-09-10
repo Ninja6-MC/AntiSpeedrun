@@ -23,6 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   furnaces, brewing stands, Crafters and storage blocks are containers and are gated.
   Bundle contents are **not** yet gated: an item pulled out of a bundle is not checked, which is
   tracked separately and is why `gate-nested-bundles` still does nothing.
+- `villager-progression.gate-mending-trade` is now enforced. With it switched on, a player who has
+  not earned `villager-progression.required-advancement` (Zombie Doctor by default) cannot select a
+  villager or wandering trader offer whose result carries Mending, and cannot take that result out
+  of the merchant window if an offer was already selected when they filled the ingredient slots.
+  The gate is keyed on the *enchantment*, so a Mending book is told apart from any other enchanted
+  book — something the material-keyed item tier table cannot do — and it reads both an item's
+  ordinary and its stored enchantments, so an already-enchanted tool offered by a datapack or a
+  plugin merchant is covered as well as a librarian's book. It is off by default, costs nothing on
+  the trade path while it is off, and is waived by `antispeedrun.bypass.items` or an unexpired
+  `/asr bypass` grant. A result that is both above its item tier and enchanted with Mending is
+  refused once, not twice.
 - Drop recall, implementing `item-progression.drop-recall-enabled`, which until now was parsed and
   read by nothing. A player may always re-collect an item entity they dropped or died with,
   whatever its tier, so that gear held by administrative grant, gear predating installation, and
