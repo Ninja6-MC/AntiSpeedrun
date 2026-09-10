@@ -1,7 +1,9 @@
 package com.ninja6.antispeedrun.listeners;
 
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.PluginConfig.DimensionGate;
@@ -159,16 +161,27 @@ public final class DimensionGateRules {
      *       ago is never bounced by the backstop.</li>
      *   <li><strong>{@code waived}</strong> — the permission, a {@code /asr bypass} grant or an
      *       {@code /asr unlock}. Also re-read rather than remembered, for the same reason.</li>
-     *   <li><strong>{@code decided}</strong> — a handler upstream already looked at this arrival and
-     *       let it stand even though the player is neither eligible nor waived. There are exactly
-     *       three of those, all deliberate: a teleport whose cause this plugin does not regulate
-     *       (an operator's {@code /tp}, a warp plugin — see {@code GATED_CAUSES}), a portal event
-     *       with no resolved destination (#92's fail-open), and a rider the vehicle path has already
-     *       ejected and is repositioning. Without this the backstop would overturn all three.</li>
+     *   <li><strong>{@code decided}</strong> — a handler upstream already let this player into this
+     *       dimension even though they are neither eligible nor waived. There are exactly two of
+     *       those, both deliberate: a teleport whose cause this plugin does not regulate (an
+     *       operator's {@code /tp}, a warp plugin — see {@code GATED_CAUSES}), and a rider the
+     *       vehicle path has already ejected and is repositioning. Without this the backstop would
+     *       overturn both. A note is only ever good for the arrival it was written against — see
+     *       {@link Decision}, which is what {@code decided} has to be derived through.</li>
      * </ul>
      *
      * <p>What is left over — ineligible, unwaived, and nobody decided anything — is the transit no
      * event reported. That is the bypass, and it fails closed.
+     *
+     * <p><strong>A cross-world respawn lands here too, and is meant to.</strong> CraftBukkit fires
+     * {@code PlayerChangedWorldEvent} from {@code PlayerList#respawn} when the respawn world differs
+     * from the death world, and that path fires no {@code PlayerTeleportEvent}, so it leaves no
+     * note. A player who dies in the Overworld and respawns at a Nether anchor therefore arrives
+     * {@code decided == false} and, if ineligible and unwaived, is returned. That is the intended
+     * answer rather than an oversight: a respawn anchor set while the player was waived — under an
+     * {@code /asr bypass} grant that has since lapsed, or before an {@code /asr lock} — is a
+     * standing re-entry into a dimension the gate currently closes to them, and the gate is not a
+     * one-time toll. They keep the anchor; only the arrival is undone.
      *
      * @param decided  whether an upstream handler already dealt with this arrival
      * @param waived   as {@link #waived(boolean, boolean, boolean)}
@@ -189,6 +202,85 @@ public final class DimensionGateRules {
     public static boolean decisionHolds(long recordedAt, long now) {
         long age = now - recordedAt;
         return age >= 0L && age < DECISION_WINDOW_MILLIS;
+    }
+
+    /**
+     * One handler's record that it let a player into a gated dimension they neither earned nor were
+     * waived for, so that {@link #arrival} does not overturn it a tick later.
+     *
+     * <h2>Why the destination is part of the note</h2>
+     *
+     * An earlier revision recorded only a gate and a timestamp, and that is not a record of a
+     * decision — it is a bearer token. A note written by one transit was indistinguishable from a
+     * note written by any other, so it could be spent on an arrival nobody had decided anything
+     * about, which on Folia is precisely the unreported vehicle transit this whole backstop exists
+     * to catch. Naming the world the decision was taken <em>about</em> is what ties a note to its
+     * own transit: an arrival somewhere else is not the arrival that was cleared, and is judged on
+     * its own merits.
+     *
+     * <p>The world rather than the gate, because the gate is a kind and several worlds can share
+     * one — a multiverse server with two Nether worlds has one {@code NETHER} gate across both, and
+     * a teleport cleared into one of them says nothing about the other.
+     *
+     * @param destinationWorld the world the deciding handler saw the player going to
+     * @param recordedAt       {@code System.currentTimeMillis()} at the moment of the decision
+     */
+    public record Decision(UUID destinationWorld, long recordedAt) {
+
+        public Decision {
+            Objects.requireNonNull(destinationWorld, "destinationWorld");
+        }
+    }
+
+    /**
+     * Whether {@code note} covers an arrival in {@code arrivedIn} seen at {@code now}.
+     *
+     * <p>Both halves have to hold: the note must be for this world, and it must still be inside
+     * {@link #DECISION_WINDOW_MILLIS}. A missing note is not a cover.
+     */
+    public static boolean decisionCovers(Decision note, UUID arrivedIn, long now) {
+        Objects.requireNonNull(arrivedIn, "arrivedIn");
+        return note != null
+                && note.destinationWorld().equals(arrivedIn)
+                && decisionHolds(note.recordedAt(), now);
+    }
+
+    /**
+     * Writes a note into one player's ledger, replacing anything held for that gate.
+     *
+     * <p>The ledger is {@code Map<DimensionUnlock, Decision>} rather than a type of its own so that
+     * the listener can hand over the concurrent map it already holds per player, and so that every
+     * rule about a note stays here where a test can reach it without a server.
+     */
+    public static void note(Map<DimensionUnlock, Decision> notes, DimensionUnlock gate,
+                            UUID destinationWorld, long now) {
+        Objects.requireNonNull(notes, "notes");
+        Objects.requireNonNull(gate, "gate");
+        notes.put(gate, new Decision(destinationWorld, now));
+    }
+
+    /**
+     * Takes this gate's note out of the ledger and says whether it covers an arrival in
+     * {@code arrivedIn}.
+     *
+     * <p>Removed rather than merely read, and removed even when it does <em>not</em> cover. A note
+     * covers one arrival: leaving a matching one in place would have a single admin {@code /tp}
+     * clear every unreported transit for the rest of its window, and leaving a mismatched one in
+     * place would let a player who has just been bounced retry until they land somewhere it fits.
+     * The cost is a note that a genuinely pending transit would have used, which is a bounce for an
+     * ineligible player rather than a way past the gate.
+     *
+     * @return whether the player's arrival was already decided
+     */
+    public static boolean consume(Map<DimensionUnlock, Decision> notes, DimensionUnlock gate,
+                                  UUID arrivedIn, long now) {
+        Objects.requireNonNull(gate, "gate");
+        if (notes == null || notes.isEmpty()) {
+            // The ordinary case: nothing was ever noted for this player. Answered without touching
+            // the map, so an arrival costs nothing when there is nothing to spend.
+            return false;
+        }
+        return decisionCovers(notes.remove(gate), arrivedIn, now);
     }
 
     /**
