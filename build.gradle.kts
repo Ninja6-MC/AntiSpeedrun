@@ -22,7 +22,7 @@ dependencies {
     compileOnly("net.kyori:adventure-api:4.18.0")
     compileOnly("net.kyori:adventure-text-minimessage:4.18.0")
 
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     // paper-api is compileOnly, so Bukkit's YamlConfiguration is not on the test classpath.
