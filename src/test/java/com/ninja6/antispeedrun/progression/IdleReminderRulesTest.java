@@ -300,6 +300,55 @@ class IdleReminderRulesTest {
         }
 
         @Test
+        @DisplayName("a reporter that throws does not escape the poll either, and the stamp lands")
+        void throwingReporterIsContainedToo() {
+            // #115, finding 1. onFailure used to be invoked from the catch block, outside the
+            // guarded region, so a logger that threw propagated out of advance -- and the engine's
+            // tick then never stored the state below, which is exactly the once-a-second loop the
+            // stamp ordering exists to close. Asserted through the real five-argument advance,
+            // because the helper above cannot supply a throwing reporter.
+            State next = IdleReminderRules.advance(
+                    new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED), ORIGIN, 15_000L,
+                    settings(true, 15, 10),
+                    () -> {
+                        throw new IllegalStateException("malformed template");
+                    },
+                    thrown -> {
+                        throw new IllegalStateException("the logger is broken too");
+                    });
+
+            assertEquals(15_000L, next.lastReminderMillis(),
+                    "advance must return a stamped state even when the reporting channel throws");
+            assertEquals(15_000L, next.stillSinceMillis());
+        }
+
+        @Test
+        @DisplayName("a reporter that throws still leaves the cooldown a cooldown")
+        void throwingReporterStillPaysTheCooldown() {
+            IdleReminder settings = settings(true, 15, 10);
+            State state = new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED);
+            List<Long> attempts = new ArrayList<>();
+
+            // The engine's loop, once a second, with both the delivery and the report failing.
+            for (long nowMillis = 15_000L; nowMillis <= 60_000L; nowMillis += 1_000L) {
+                long at = nowMillis;
+                state = IdleReminderRules.advance(state, ORIGIN, nowMillis, settings,
+                        () -> {
+                            attempts.add(at);
+                            throw new IllegalStateException("malformed template");
+                        },
+                        thrown -> {
+                            throw new IllegalStateException("the logger is broken too");
+                        });
+            }
+
+            assertEquals(List.of(15_000L), attempts,
+                    "one attempt in the first 45 seconds of standing still, not forty-six");
+            assertFalse(IdleReminderRules.poll(state, ORIGIN, 615_000L - 1L, settings).remind());
+            assertTrue(IdleReminderRules.poll(state, ORIGIN, 615_000L, settings).remind());
+        }
+
+        @Test
         @DisplayName("a delivery that says nothing is charged the cooldown just the same")
         void silentDeliveryStillStamps() {
             State next = IdleReminderRules.advance(
