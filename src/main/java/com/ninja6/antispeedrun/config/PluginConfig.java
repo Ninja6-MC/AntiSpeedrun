@@ -277,7 +277,12 @@ public record PluginConfig(
                 r.atLeast("cooldown-minutes", 10, 0),
                 r.atLeast("display-duration-seconds", 5, 1),
                 r.enumValue("display-type", DisplayType.class, DisplayType.ACTIONBAR),
-                r.string("message", DEFAULT_IDLE_MESSAGE));
+                // Not r.string: the engine deserialises this as MiniMessage on a region thread once
+                // per reminder, so a template MiniMessage refuses -- a legacy formatting code is the
+                // one an operator is likely to write -- has to be caught here rather than there. See
+                // ConfigReader#miniMessage for what actually throws, and for why this warns and
+                // falls back instead of refusing the boot the way an unenforceable gate does.
+                r.miniMessage("message", DEFAULT_IDLE_MESSAGE));
     }
 
     private static JourneyBook parseJourneyBook(ConfigReader r) {

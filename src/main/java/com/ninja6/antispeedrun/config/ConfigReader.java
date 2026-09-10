@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
+import net.kyori.adventure.text.minimessage.MiniMessage;
+
 /**
  * Typed reads against one {@link ConfigSection}, with the fallback policy applied in exactly one
  * place.
@@ -18,6 +20,11 @@ import java.util.Set;
  *   <li>an <strong>unknown</strong> key is ignored and records a warning, so a typo in a key name
  *       is visible rather than silently doing nothing.</li>
  * </ul>
+ *
+ * <p>{@link #miniMessage} adds a fourth arm to the same policy rather than a second policy: a value
+ * of the right type that the consumer cannot use falls back to the shipped default and warns. It
+ * exists because a message template is only discovered to be unusable at the moment it is sent,
+ * which for {@code idle-reminder.message} is on a region thread once per reminder.
  *
  * <h2>The one exception: an advancement key the server cannot resolve is fatal</h2>
  *
@@ -129,6 +136,69 @@ final class ConfigReader {
         }
         warn(key, "a string", raw);
         return def;
+    }
+
+    /**
+     * Reads a string that will be handed to MiniMessage, and falls back if it will not parse.
+     *
+     * <p><strong>What actually throws, measured rather than assumed.</strong> Against
+     * adventure-text-minimessage 4.20.0 — the version {@code paper-api} resolves — the lenient
+     * {@code MiniMessage.miniMessage()} instance swallows a great deal. An unknown tag survives as
+     * literal text, which is what lets {@code <next_step>} through, and so does a tag it
+     * <em>does</em> know carrying a bad argument: {@code MiniMessageParser} catches the
+     * {@code ParsingException} a resolver raises and emits the tag as text
+     * ({@code catch (final ParsingException ignored) { return null; }}), so {@code <color:nosuchcolour>}
+     * and {@code <click:not_an_action:x>} both parse cleanly. Strict mode, which would reject an
+     * unclosed tag, is off and is not ours to turn on.
+     *
+     * <p>What is left is the case an operator is most likely to write: a <strong>legacy formatting
+     * code</strong>. {@code TokenParser.parseString} throws {@code ParsingException} — "Legacy
+     * formatting codes have been detected in a MiniMessage string" — on a section sign followed by
+     * anything, so a template pasted from a pre-Adventure config, {@code §eNext Goal: {NEXT_STEP}},
+     * fails to deserialise. Nothing else in the load path can see that: the value is a well-formed
+     * string, so {@link #string} passes it straight through, and the failure surfaces per message on
+     * whatever thread the message was being sent from, arbitrarily far from the operator who typed
+     * it. Which specific inputs throw is a property of the MiniMessage version, so this deserialises
+     * the value rather than pattern-matching for the ones known today.
+     *
+     * <p><strong>This warns and falls back; it does not refuse to boot.</strong> That is the
+     * opposite answer from {@link UnenforceableGateException}, deliberately, and the difference is
+     * what the value does rather than how it failed. A gate the server cannot enforce describes
+     * gating that will not be applied, so booting on the defaults ships a server that reports itself
+     * armed and lets everyone through — the fail-closed rule from #83. A message is cosmetic: it
+     * gates nothing, and the shipped default says the same thing in the same place, so the fallback
+     * leaves no wrong running state for the rule to protect against. #91 drew that line explicitly:
+     * refusal at boot is reserved for a document whose defaults would turn gating off, and stopping
+     * a server over a typo in a cosmetic hint is the failure mode on the other side of it. The
+     * operator learns about it from the warning, at startup and again on every {@code /asr reload},
+     * which is what the finding asked for — the failure is reported at load rather than discovered
+     * as a per-second exception on a region thread.
+     *
+     * <p>The raw configured value is what gets parsed here, not the form the engine hands to
+     * MiniMessage: {@code {NEXT_STEP}} is not MiniMessage syntax and the tag it is rewritten to is
+     * resolved with an unparsed placeholder, so neither the rewrite nor the resolver can turn a
+     * template that parses here into one that throws there. Validating the operator's own markup is
+     * the whole of what is at issue.
+     *
+     * @param key the key under this section
+     * @param def the shipped default, which must itself parse
+     */
+    String miniMessage(String key, String def) {
+        String value = string(key, def);
+        if (value.equals(def)) {
+            return def;
+        }
+        try {
+            MiniMessage.miniMessage().deserialize(value);
+            return value;
+        } catch (RuntimeException malformed) {
+            // MiniMessage's message carries the offending line and a caret under it, so it arrives
+            // with newlines in it. One warning is one line here -- the whole list is logged as such.
+            String because = String.valueOf(malformed.getMessage()).replaceAll("\\s+", " ").trim();
+            warnings.add(qualify(key) + ": \"" + value + "\" is not valid MiniMessage ("
+                    + because + "); using the default");
+            return def;
+        }
     }
 
     boolean bool(String key, boolean def) {

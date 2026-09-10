@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Idle reminders, implementing the `idle-reminder` section, which until now was parsed and read by
+  nothing. A player who stands still for `stand-still-seconds` is shown their next progression goal
+  on the action bar, as a title, or in chat, at most once per `cooldown-minutes`. Standing still is
+  detected by a poll on the player's own region scheduler, one per player and only while the feature
+  is enabled — there is no `PlayerMoveEvent` handler anywhere in the plugin and no global tick loop,
+  and a build that introduces either fails the test suite. An action bar reminder is re-sent while it
+  is up so that `display-duration-seconds` is honoured past the client's own three-second fade. A
+  player who has cleared every gate is told nothing.
 - Item tier gates are now enforced. The compiled `item-progression.gated-items` table was
   previously built on every reload and read by nothing; three channels now consult it. A player who
   has not met a tier's requirements cannot pick a gated item up off the ground, take one out of a
