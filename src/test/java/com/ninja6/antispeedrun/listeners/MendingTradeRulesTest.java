@@ -29,9 +29,9 @@ class MendingTradeRulesTest {
     private static PluginConfig withVillager(boolean gated, String advancement) {
         PluginConfig base = PluginConfig.defaults();
         return new PluginConfig(base.profile(), base.dimensionGates(), base.itemProgression(),
-                base.trimProgression(), base.idleReminder(), base.journeyBook(), base.bossScaling(),
-                base.antiCheese(), new PluginConfig.VillagerProgression(gated, advancement),
-                List.of());
+                base.trimProgression(), base.idleReminder(), base.progressCard(),
+                base.journeyBook(), base.bossScaling(), base.antiCheese(),
+                new PluginConfig.VillagerProgression(gated, advancement), List.of());
     }
 
     @Nested

@@ -136,7 +136,7 @@ class MilestoneTest {
             PluginConfig base = PluginConfig.defaults();
             PluginConfig config = new PluginConfig(base.profile(), base.dimensionGates(),
                     base.itemProgression(), base.trimProgression(), base.idleReminder(),
-                    base.journeyBook(), base.bossScaling(), base.antiCheese(),
+                    base.progressCard(), base.journeyBook(), base.bossScaling(), base.antiCheese(),
                     new PluginConfig.VillagerProgression(true, ""), List.of());
 
             assertTrue(Milestone.villagerTradeAdvancement(config).isEmpty(),

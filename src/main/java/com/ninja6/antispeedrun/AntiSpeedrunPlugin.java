@@ -13,6 +13,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import com.ninja6.antispeedrun.commands.AntiSpeedrunCommand;
+import com.ninja6.antispeedrun.commands.ProgressCommand;
 import com.ninja6.antispeedrun.config.BukkitConfigSection;
 import com.ninja6.antispeedrun.config.ConfigLoadException;
 import com.ninja6.antispeedrun.config.ConfigSnapshotHolder;
@@ -217,6 +218,19 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         } else {
             antispeedrun.setExecutor(admin);
             antispeedrun.setTabCompleter(admin);
+        }
+
+        // /progress (#3). The same executor is reachable as /asr progress, which AntiSpeedrunCommand
+        // delegates rather than reimplements; this registers the standalone spelling, which is the
+        // one config.yml's rejection messages and the idle reminder both tell players to type.
+        ProgressCommand progress = new ProgressCommand(this);
+        PluginCommand progressCommand = getCommand("progress");
+        if (progressCommand == null) {
+            getLogger().severe("plugin.yml declares no \"progress\" command, so /progress is "
+                    + "unavailable. This build is broken; reinstall the plugin jar.");
+        } else {
+            progressCommand.setExecutor(progress);
+            progressCommand.setTabCompleter(progress);
         }
 
         // Players already online -- a hot install, or a /reload -- never fire PlayerJoinEvent for

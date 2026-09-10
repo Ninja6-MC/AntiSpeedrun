@@ -54,6 +54,7 @@ import java.util.Optional;
  * @param itemProgression      section 2, anti-boosting and item progression gating
  * @param trimProgression      section 3, armor trim and smithing template progression
  * @param idleReminder         section 4, idle reminder engine
+ * @param progressCard         section 4a, how {@code /progress} renders its card
  * @param journeyBook          section 5, journey guide book
  * @param bossScaling          section 6, multi-dragon boss combat scaling
  * @param antiCheese           section 7, anti-cheese engine
@@ -77,6 +78,7 @@ public record PluginConfig(
         ItemProgression itemProgression,
         TrimProgression trimProgression,
         IdleReminder idleReminder,
+        ProgressCard progressCard,
         JourneyBook journeyBook,
         BossScaling bossScaling,
         AntiCheese antiCheese,
@@ -90,6 +92,7 @@ public record PluginConfig(
         Objects.requireNonNull(itemProgression, "itemProgression");
         Objects.requireNonNull(trimProgression, "trimProgression");
         Objects.requireNonNull(idleReminder, "idleReminder");
+        Objects.requireNonNull(progressCard, "progressCard");
         Objects.requireNonNull(journeyBook, "journeyBook");
         Objects.requireNonNull(bossScaling, "bossScaling");
         Objects.requireNonNull(antiCheese, "antiCheese");
@@ -126,7 +129,7 @@ public record PluginConfig(
         List<String> warnings = new ArrayList<>();
         ConfigReader r = new ConfigReader(root, "", warnings);
         r.expect("profile", "dimension-gates", "item-progression", "trim-progression",
-                "idle-reminder", "journey-book", "boss-scaling", "anti-cheese",
+                "idle-reminder", "progress-card", "journey-book", "boss-scaling", "anti-cheese",
                 "villager-progression");
 
         return new PluginConfig(
@@ -135,6 +138,7 @@ public record PluginConfig(
                 parseItemProgression(r.child("item-progression")),
                 parseTrimProgression(r.child("trim-progression")),
                 parseIdleReminder(r.child("idle-reminder")),
+                parseProgressCard(r.child("progress-card")),
                 parseJourneyBook(r.child("journey-book")),
                 parseBossScaling(r.child("boss-scaling")),
                 parseAntiCheese(r.child("anti-cheese")),
@@ -285,6 +289,11 @@ public record PluginConfig(
                 r.miniMessage("message", DEFAULT_IDLE_MESSAGE));
     }
 
+    private static ProgressCard parseProgressCard(ConfigReader r) {
+        r.expect("simple-card");
+        return new ProgressCard(r.enumValue("simple-card", SimpleCard.class, SimpleCard.AUTO));
+    }
+
     private static JourneyBook parseJourneyBook(ConfigReader r) {
         r.expect("give-on-first-join", "title", "author");
         return new JourneyBook(
@@ -362,6 +371,27 @@ public record PluginConfig(
 
     /** How an idle reminder reaches the player. Default {@code ACTIONBAR}. */
     public enum DisplayType { ACTIONBAR, TITLE, CHAT }
+
+    /**
+     * When {@code /progress} draws its card in the glyph-safe shape. Default {@link #AUTO}.
+     *
+     * <p>Three states rather than a boolean because the interesting answer is per player, not per
+     * server: audit finding R-21 records that the full card's arrows and status marks are outside
+     * Bedrock's font, and a server running Geyser has both kinds of client connected at once.
+     * {@code AUTO} therefore asks who is looking; the other two are the escape hatches for an
+     * operator whose answer differs from the plugin's.
+     */
+    public enum SimpleCard {
+
+        /** Simple for a Bedrock client, full for a Java one. */
+        AUTO,
+
+        /** Simple for everyone — a resource pack, or a client the detection does not recognise. */
+        ALWAYS,
+
+        /** Full for everyone, Bedrock included. */
+        NEVER
+    }
 
     /** How fractional dragon-scaling results are rounded. Default {@code HALF_UP}. */
     public enum RoundingMode { HALF_UP, CEIL, FLOOR }
@@ -518,6 +548,17 @@ public record PluginConfig(
         public IdleReminder {
             Objects.requireNonNull(displayType, "displayType");
             Objects.requireNonNull(message, "message");
+        }
+    }
+
+    /**
+     * Section 4a.
+     *
+     * @param simpleCard default {@link SimpleCard#AUTO}
+     */
+    public record ProgressCard(SimpleCard simpleCard) {
+        public ProgressCard {
+            Objects.requireNonNull(simpleCard, "simpleCard");
         }
     }
 

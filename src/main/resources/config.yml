@@ -211,6 +211,14 @@ idle-reminder:
   display-type: "ACTIONBAR"            # Options: ACTIONBAR, TITLE, CHAT
   message: "<yellow>💡 Next Goal: <white>{NEXT_STEP} <gray>(Run <gold>/progress<gray>)"
 
+# 4a. The /progress card
+progress-card:
+  # AUTO renders the glyph-safe card for Bedrock clients and the full one for Java clients.
+  # The full card uses status marks and an arrow that Bedrock's font does not carry, so a
+  # Geyser player sees replacement boxes for them; the simple card is plain ASCII throughout.
+  # ALWAYS gives everyone the simple card, NEVER gives everyone the full one.
+  simple-card: "AUTO"                  # Options: AUTO, ALWAYS, NEVER
+
 # 5. Journey Guide Book
 journey-book:
   give-on-first-join: true

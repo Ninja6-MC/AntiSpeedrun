@@ -60,11 +60,13 @@ public final class CommandCompletion {
         }
 
         return switch (subcommand.get()) {
-            case RELOAD -> List.of();
             case PROFILE -> filter(profileArguments(args), partial);
             case UNLOCK -> filter(unlockArguments(args), partial);
             case BYPASS -> filter(bypassArguments(args, playerNames), partial);
             case INSPECT -> args.length == 2 ? filter(playerNames, partial) : List.of();
+            // Takes no arguments, and deliberately does not complete player names: /asr progress
+            // shows the sender their own card, so a name would be an argument it then ignores.
+            case RELOAD, PROGRESS -> List.of();
         };
     }
 

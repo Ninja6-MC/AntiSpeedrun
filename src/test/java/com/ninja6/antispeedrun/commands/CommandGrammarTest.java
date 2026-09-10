@@ -65,10 +65,21 @@ class CommandGrammarTest {
             // The other direction of the same drift: a node added to the admin tree that no
             // branch checks is a permission an operator can grant to no effect, and one removed
             // from it while the dispatcher still checks it is a branch nobody can reach.
+            //
+            // Partitioned on Subcommand#administrative() rather than over every constant, because
+            // PROGRESS (#3) is deliberately gated outside the admin tree -- it delegates to the
+            // standalone /progress and shares its antispeedrun.progress node, which defaults to
+            // true. Comparing the whole set against the tree would fail on it, and widening the
+            // tree to make the comparison pass would make a player's view of their own progression
+            // an operator privilege. The uniqueness check below still runs over every constant.
             Set<String> enforced = new LinkedHashSet<>();
+            Set<String> all = new LinkedHashSet<>();
             for (Subcommand subcommand : Subcommand.values()) {
-                assertTrue(enforced.add(subcommand.permission()),
+                assertTrue(all.add(subcommand.permission()),
                         subcommand + " shares its node with another subcommand");
+                if (subcommand.administrative()) {
+                    enforced.add(subcommand.permission());
+                }
             }
             assertEquals(PluginYml.childrenOf("antispeedrun.admin"), enforced,
                     "the children of antispeedrun.admin and the nodes /asr enforces must be the "
@@ -93,12 +104,39 @@ class CommandGrammarTest {
             }
 
             // And the dispatcher itself never gates a branch on the exemption: granting a bypass
-            // (antispeedrun.admin.bypass) is a different right from holding one.
+            // (antispeedrun.admin.bypass) is a different right from holding one. Every subcommand
+            // is checked, administrative or not -- a non-admin subcommand gated on the standing
+            // exemption would be worse, not better.
             for (Subcommand subcommand : Subcommand.values()) {
-                assertTrue(subcommand.permission().startsWith("antispeedrun.admin."),
-                        subcommand + " must be gated on an antispeedrun.admin.* node");
+                assertEquals(subcommand.permission().startsWith("antispeedrun.admin."),
+                        subcommand.administrative(),
+                        subcommand + " must agree with itself about whether it is administrative");
                 assertFalse(subcommand.permission().equals("antispeedrun.bypass"));
+                assertFalse(subcommand.permission().startsWith("antispeedrun.bypass."));
             }
+        }
+
+        @Test
+        @DisplayName("the one non-administrative subcommand is progress, on the /progress node")
+        void progressIsNotAnAdminSubcommand() {
+            // #3's naming decision, asserted rather than left to a comment. /asr progress is a
+            // delegate to /progress, so it reuses antispeedrun.progress: a node of its own would
+            // be a second thing an operator has to grant before the same capability works under a
+            // second spelling, and brand/COMMAND_NAMING.md §2 is about exactly that class of
+            // silently-broken permission.
+            for (Subcommand subcommand : Subcommand.values()) {
+                if (!subcommand.administrative()) {
+                    assertEquals(Subcommand.PROGRESS, subcommand,
+                            subcommand + " is gated outside antispeedrun.admin; if that is "
+                                    + "deliberate, say so here and in plugin.yml");
+                }
+            }
+            assertEquals("antispeedrun.progress", Subcommand.PROGRESS.permission());
+            assertTrue(PluginYml.declaredPermissions().contains("antispeedrun.progress"));
+            assertFalse(PluginYml.reachableFrom("antispeedrun.admin").contains("antispeedrun.progress"),
+                    "antispeedrun.progress defaults to true; nesting it under the op-default admin "
+                            + "tree would change nothing for players and confuse every operator "
+                            + "reading it in a permissions plugin");
         }
 
         @Test
@@ -143,7 +181,7 @@ class CommandGrammarTest {
             assertTrue(Subcommand.parse("relaod").isEmpty());
             assertTrue(Subcommand.parse("").isEmpty());
             assertTrue(Subcommand.parse(null).isEmpty());
-            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect"),
+            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "progress"),
                     Subcommand.labels());
         }
     }
@@ -155,7 +193,7 @@ class CommandGrammarTest {
         @Test
         @DisplayName("the first argument offers only subcommands the sender may run")
         void firstArgumentIsPermissionFiltered() {
-            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect"),
+            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "progress"),
                     CommandCompletion.complete(new String[] {""}, ADMIN, ONLINE));
             assertEquals(List.of("reload"),
                     CommandCompletion.complete(new String[] {""}, allowing(Subcommand.RELOAD), ONLINE));
@@ -216,6 +254,11 @@ class CommandGrammarTest {
                     CommandCompletion.complete(new String[] {"inspect", "Steve", ""}, ADMIN, ONLINE));
             assertEquals(List.of(),
                     CommandCompletion.complete(new String[] {"reload", ""}, ADMIN, ONLINE));
+            // /asr progress shows the sender their own card, so a player name would be an
+            // argument it ignores -- and offering the online list under a node that defaults to
+            // true would hand it to everyone.
+            assertEquals(List.of(),
+                    CommandCompletion.complete(new String[] {"progress", ""}, ADMIN, ONLINE));
         }
 
         @Test
