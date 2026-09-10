@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `/progress`, and `/asr progress` which delegates to it, both gated on `antispeedrun.progress`
+  (default `true`). It draws the player their own progression card: every dimension gate in
+  configured order with a completed, in-progress or locked mark, what each one is still waiting on,
+  and a highlighted `NEXT STEP` line. That next step is the same string the idle reminder puts in
+  `{NEXT_STEP}` — one implementation, so the two cannot drift apart and tell a player different
+  things. The new `progress-card.simple-card` setting chooses the shape: `AUTO` (the default) draws
+  a plain-ASCII card for a Bedrock client and the full one for a Java client, and `ALWAYS` and
+  `NEVER` force one or the other. Bedrock's font carries none of the marks the full card uses, so
+  without this a Geyser player saw a column of replacement boxes; the plain card is asserted
+  character by character rather than described as "renders cleanly". `AUTO` recognises a Bedrock
+  client only on a server actually running Floodgate, which stays a `softdepend` — nothing here
+  compiles against it. Milestone display names and advancement keys read from `config.yml` reach
+  the player as text, never as markup.
 - Idle reminders, implementing the `idle-reminder` section, which until now was parsed and read by
   nothing. A player who stands still for `stand-still-seconds` is shown their next progression goal
   on the action bar, as a title, or in chat, at most once per `cooldown-minutes`. Standing still is
@@ -110,6 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Two remaining ways to switch a gate on and gate on nothing now take that same startup arm rather than passing in silence. An item tier's `require-advancements` written as a plain value instead of a list used to fall back to the built-in default — which for a tier is no requirement at all — on a warning, so the tier shipped armed and open over a YAML shape mistake that an upper-case letter in the same key was already refused for. And `gate-mending-trade: true` beside a blank `required-advancement` gated the mending trade on nothing with no warning about either half, because each half is legitimate alone. Both now reject `config.yml`. Two limits, both because refusing a boot over a configuration that is still enforceable would be a false refusal: they are errors **only while the gate reading them is switched on** — under `enabled: false`, `item-progression.enabled: false` or `gate-mending-trade: false` they stay warnings — and a plain value under a **dimension gate** stays a warning too, since those ship a non-empty default, so the gate goes on requiring the shipped advancements rather than nothing.
 
 ### Fixed
+- An idle reminder whose delivery *and* whose failure log both threw no longer escapes the poll. The report was made from outside the guarded region, so a broken logger propagated out, the engine never stored the stamped state, and the once-a-second reminder loop the stamp ordering exists to close came back.
 - A dimension gate whose last outstanding requirement is `require-account-age-days` is now announced. Tenure advances while the player is offline, so the gate was already open by the time they logged back in, was recorded silently by the join prime, and had no advancement and no online watch left to announce it — the player was never told. The set of gates a player has been congratulated on is now persisted in their `PersistentDataContainer`, and a join announces the difference. A player with no persisted record is primed silently, so installing this on an established server does not congratulate its whole population at once.
 - `DIAMOND` is gated. `DIAMOND_*` has no trailing underscore to match the gem itself, so every tool made from a diamond was gated while the diamond was not.
 - `NETHERITE_UPGRADE_SMITHING_TEMPLATE` is excluded from `netherite-tier`. It matches `NETHERITE_*` but belongs to `trim-progression`, and without the exclusion two systems claimed one material.
