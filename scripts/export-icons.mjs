@@ -119,12 +119,22 @@ const masterEls = parseElements(master);
     throw new Error(`icon-master.svg viewBox must be "${want}", found "${svg?.attrs.viewBox}"`);
   }
 
-  // Reconcile master preview with palette constants
-  const previewRect = masterEls.find((e) => e.tag === 'rect' && !e.close);
+  // Reconcile master preview with palette constants, scoped strictly to elements outside <defs>
+  let inDefs = false;
+  let previewRect = null;
+  let previewG = null;
+  for (const e of masterEls) {
+    if (e.tag === 'defs' && !e.close) inDefs = true;
+    else if (e.tag === 'defs' && e.close) inDefs = false;
+    else if (!inDefs && !e.close) {
+      if (e.tag === 'rect' && !previewRect) previewRect = e;
+      if (e.tag === 'g' && e.attrs.stroke && !previewG) previewG = e;
+    }
+  }
+
   if (!previewRect || previewRect.attrs.fill !== PLATE) {
     throw new Error(`icon-master.svg preview <rect> must have fill="${PLATE}", found "${previewRect?.attrs.fill}"`);
   }
-  const previewG = masterEls.find((e) => e.tag === 'g' && e.attrs.stroke && !e.close);
   if (!previewG || previewG.attrs.stroke !== VIOLET || previewG.attrs.fill !== AMBER) {
     throw new Error(`icon-master.svg preview <g> must have stroke="${VIOLET}" and fill="${AMBER}", found stroke="${previewG?.attrs.stroke}" fill="${previewG?.attrs.fill}"`);
   }
@@ -157,7 +167,8 @@ function geometryOf(id) {
           break;
         }
       }
-      if (!e.close) {
+      // Collect leaf geometry elements only, flattening <g> container wrappers
+      if (!e.close && e.tag !== 'g') {
         if (e.attrs.transform) {
           throw new Error(`<${e.tag}> inside #${id} has transform="${e.attrs.transform}". `
             + 'The master must bake transforms into its coordinates, not declare them.');
