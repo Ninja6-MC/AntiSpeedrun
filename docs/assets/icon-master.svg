@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    AntiSpeedrun icon — AUTHORING MASTER. Single source of truth.
+
+    Geometry only; no baked colour and no baked plate in definitions.
+    Variants are composed by scripts/export-icons.mjs via inherited presentation attributes.
+    Conforms to the Ninja6-MC Brand Identity System (ICON_PLAN.md).
+
+    METAPHOR:
+    The Progression Crown & Tri-Realm Apex represents server authority over game pacing,
+    the dynamic dimension progression gates across Minecraft's three realms (Overworld,
+    Nether, and The End), and scaled multi-dragon combat mastery. The sovereign Amber core
+    at (512, 460) symbolizes milestone achievement and anti-cheese boss conquest.
+
+    CONVENTIONS:
+    1. Pure geometric vector geometry, stroke-linecap="square", stroke-linejoin="miter".
+    2. Master stroke weight is 48; small-size cut is 118.
+    3. Paint arrives through inherited presentation attributes: polyline leaves stroke
+       unset (fill="none" explicit), circle leaves fill unset (stroke="none" explicit).
+    4. Safe zone: all artwork strictly within r <= 460 of (512,512).
+  -->
+  <defs>
+    <!-- FULL MARK: Stroke 48, Sovereign Amber Core r=50 at (512, 460) -->
+    <g id="geo">
+      <!-- Tri-Realm Progression Crown (Overworld -> Nether -> The End Apex) -->
+      <polyline points="256,720 256,420 384,540 512,280 640,540 768,420 768,720"
+                fill="none" stroke-width="48"
+                stroke-linecap="square" stroke-linejoin="miter" />
+
+      <!-- Gated Milestone Base Stepper -->
+      <polyline points="320,720 320,620 704,620 704,720"
+                fill="none" stroke-width="48"
+                stroke-linecap="square" stroke-linejoin="miter" />
+
+      <!-- Sovereign Amber Milestone Core -->
+      <circle cx="512" cy="460" r="50" stroke="none" />
+    </g>
+
+    <!-- SMALL-SIZE CUT (<=24px): Stroke 118, Dot dropped for clear aperture -->
+    <g id="geo-small">
+      <!-- Tri-Realm Progression Crown -->
+      <polyline points="256,720 256,420 384,540 512,280 640,540 768,420 768,720"
+                fill="none" stroke-width="118"
+                stroke-linecap="square" stroke-linejoin="miter" />
+
+      <!-- Gated Milestone Base Stepper -->
+      <polyline points="320,720 320,620 704,620 704,720"
+                fill="none" stroke-width="118"
+                stroke-linecap="square" stroke-linejoin="miter" />
+    </g>
+  </defs>
+
+  <!-- Default preview on dark plate -->
+  <rect width="1024" height="1024" rx="225" fill="#12161A" />
+  <g stroke="#A855F7" fill="#FFAC1C">
+    <use href="#geo" />
+  </g>
+</svg>
