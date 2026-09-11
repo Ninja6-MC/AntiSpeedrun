@@ -1,0 +1,102 @@
+{
+  "repo": "AntiSpeedrun",
+  "master": "docs/assets/icon-master.svg",
+  "script": "scripts/export-icons.mjs",
+  "palette": {
+    "plate": "#12161A",
+    "structural": {
+      "dark": "#A855F7",
+      "light": "#6B21A8"
+    },
+    "accent": {
+      "dark": "#FFAC1C",
+      "light": "#B8730A"
+    },
+    "monochrome": {
+      "dark": "#E8EDF2",
+      "light": "#12161A"
+    }
+  },
+  "variants": [
+    {
+      "name": "icon",
+      "format": "png",
+      "sizes": [
+        64,
+        128,
+        180,
+        256,
+        400,
+        512,
+        1024
+      ],
+      "path": "docs/assets/icon-{size}.png"
+    },
+    {
+      "name": "icon-rounded",
+      "format": "png",
+      "sizes": [
+        180,
+        256,
+        512,
+        1024
+      ],
+      "path": "docs/assets/icon-rounded-{size}.png"
+    },
+    {
+      "name": "icon-transparent-dark",
+      "format": "png",
+      "sizes": [
+        64,
+        128,
+        256,
+        512
+      ],
+      "path": "docs/assets/icon-transparent-dark-{size}.png"
+    },
+    {
+      "name": "icon-transparent-light",
+      "format": "png",
+      "sizes": [
+        64,
+        128,
+        256,
+        512
+      ],
+      "path": "docs/assets/icon-transparent-light-{size}.png"
+    },
+    {
+      "name": "icon-small-dark",
+      "format": "png",
+      "sizes": [
+        16,
+        24,
+        32,
+        48,
+        64
+      ],
+      "path": "docs/assets/icon-small-dark-{size}.png"
+    },
+    {
+      "name": "icon-small-light",
+      "format": "png",
+      "sizes": [
+        16,
+        24,
+        32,
+        48,
+        64
+      ],
+      "path": "docs/assets/icon-small-light-{size}.png"
+    },
+    {
+      "name": "icon-small-plate",
+      "format": "png",
+      "sizes": [
+        64,
+        128
+      ],
+      "path": "docs/assets/icon-small-plate-{size}.png"
+    }
+  ]
+}

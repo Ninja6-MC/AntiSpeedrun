@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Brand vector master (`docs/assets/icon-master.svg`) and automated multi-resolution icon suite
+  (`scripts/export-icons.mjs`) featuring the Progression Crown and Tri-Realm Apex, with CI drift
+  gate enforcement (`.github/workflows/icons.yml`).
 - Idle reminders, implementing the `idle-reminder` section, which until now was parsed and read by
   nothing. A player who stands still for `stand-still-seconds` is shown their next progression goal
   on the action bar, as a title, or in chat, at most once per `cooldown-minutes`. Standing still is

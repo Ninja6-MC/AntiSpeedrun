@@ -1,6 +1,13 @@
 # AntiSpeedrun
 
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/icon-transparent-dark.svg">
+    <img src="docs/assets/icon-transparent-light.svg" width="128" height="128" alt="AntiSpeedrun Icon">
+  </picture>
+</p>
+
+<p align="center">
   <b>Unified anti-speedrun, dimension progression gates, anti-cheese, and multi-dragon boss combat scaling for PaperMC &amp; Folia.</b>
 </p>
 
