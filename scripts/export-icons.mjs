@@ -167,13 +167,13 @@ function geometryOf(id) {
           break;
         }
       }
-      // Collect leaf geometry elements only, flattening <g> container wrappers
-      if (!e.close && e.tag !== 'g') {
+      if (!e.close) {
         if (e.attrs.transform) {
           throw new Error(`<${e.tag}> inside #${id} has transform="${e.attrs.transform}". `
             + 'The master must bake transforms into its coordinates, not declare them.');
         }
-        els.push(e);
+        // Collect leaf geometry elements only, flattening <g> container wrappers
+        if (e.tag !== 'g') els.push(e);
       }
     }
   }
