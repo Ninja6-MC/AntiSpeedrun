@@ -3,11 +3,13 @@ package com.ninja6.antispeedrun.progression;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
@@ -18,8 +20,10 @@ import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.PluginConfig.DisplayType;
 import com.ninja6.antispeedrun.config.PluginConfig.IdleReminder;
 import com.ninja6.antispeedrun.progression.IdleReminderRules.Decision;
+import com.ninja6.antispeedrun.progression.IdleReminderRules.FailureLogThrottle;
 import com.ninja6.antispeedrun.progression.IdleReminderRules.MilestoneProgress;
 import com.ninja6.antispeedrun.progression.IdleReminderRules.Position;
+import com.ninja6.antispeedrun.progression.IdleReminderRules.Stage;
 import com.ninja6.antispeedrun.progression.IdleReminderRules.State;
 
 /**
@@ -228,18 +232,97 @@ class IdleReminderRulesTest {
     class Advance {
 
         private final List<Long> delivered = new ArrayList<>();
-        private final List<RuntimeException> failures = new ArrayList<>();
+        private final List<Throwable> failures = new ArrayList<>();
+        private final List<Stage> stages = new ArrayList<>();
+
+        private void record(Stage stage, Throwable thrown) {
+            stages.add(stage);
+            failures.add(thrown);
+        }
 
         private State advance(State previous, Position where, long nowMillis, IdleReminder settings,
                               boolean deliveryThrows) {
             return IdleReminderRules.advance(previous, where, nowMillis, settings,
-                    () -> {
+                    () -> Optional.of("step"),
+                    step -> {
                         delivered.add(nowMillis);
                         if (deliveryThrows) {
                             throw new IllegalStateException("malformed template");
                         }
                     },
-                    failures::add);
+                    this::record);
+        }
+
+        private static State earnable() {
+            return new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED);
+        }
+
+        @Test
+        @DisplayName("an evaluation that throws is reported as EVALUATE, and nothing is sent")
+        void throwingEvaluationIsDistinguished() {
+            State next = IdleReminderRules.advance(earnable(), ORIGIN, 15_000L, settings(true, 15, 10),
+                    () -> {
+                        throw new IllegalStateException("evaluate broke");
+                    },
+                    step -> delivered.add(15_000L),
+                    this::record);
+
+            assertEquals(List.of(Stage.EVALUATE), stages,
+                    "a progression fault is not reported as a bad idle-reminder.message");
+            assertEquals(List.of(), delivered);
+            assertEquals(15_000L, next.lastReminderMillis(), "and the attempt still pays the cooldown");
+        }
+
+        @Test
+        @DisplayName("a send that throws is reported as SEND")
+        void throwingSendIsDistinguished() {
+            advance(earnable(), ORIGIN, 15_000L, settings(true, 15, 10), true);
+
+            assertEquals(List.of(Stage.SEND), stages);
+        }
+
+        @Test
+        @DisplayName("a failure report that itself throws cannot carry the stamped state away")
+        void throwingReportIsContained() {
+            State next = IdleReminderRules.advance(earnable(), ORIGIN, 15_000L, settings(true, 15, 10),
+                    () -> Optional.of("step"),
+                    step -> {
+                        throw new IllegalStateException("malformed template");
+                    },
+                    (stage, thrown) -> {
+                        throw new IllegalStateException("the logger broke too");
+                    });
+
+            // Before the report was guarded this threw out of advance, the engine never stored the
+            // stamp, and the next poll a second later tried -- and failed -- all over again.
+            assertEquals(15_000L, next.lastReminderMillis());
+        }
+
+        @Test
+        @DisplayName("a StackOverflowError from the send is contained like any other failure")
+        void stackOverflowIsContained() {
+            State next = IdleReminderRules.advance(earnable(), ORIGIN, 15_000L, settings(true, 15, 10),
+                    () -> Optional.of("step"),
+                    step -> {
+                        throw new StackOverflowError("template nested too deep");
+                    },
+                    this::record);
+
+            assertEquals(List.of(Stage.SEND), stages);
+            assertTrue(failures.get(0) instanceof StackOverflowError);
+            assertEquals(15_000L, next.lastReminderMillis());
+        }
+
+        @Test
+        @DisplayName("any other Error is not the reminder's to swallow")
+        void otherErrorsPropagate() {
+            assertThrows(OutOfMemoryError.class, () -> IdleReminderRules.advance(earnable(), ORIGIN,
+                    15_000L, settings(true, 15, 10),
+                    () -> Optional.of("step"),
+                    step -> {
+                        throw new OutOfMemoryError("not ours");
+                    },
+                    this::record));
         }
 
         @Test
@@ -304,10 +387,80 @@ class IdleReminderRulesTest {
         void silentDeliveryStillStamps() {
             State next = IdleReminderRules.advance(
                     new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED), ORIGIN, 15_000L,
-                    settings(true, 15, 10), () -> { }, failures::add);
+                    settings(true, 15, 10), Optional::empty, step -> delivered.add(15_000L),
+                    this::record);
 
+            assertEquals(List.of(), delivered, "nothing to say, so nothing is sent");
             assertEquals(15_000L, next.lastReminderMillis(),
                     "a player who has cleared every gate is not re-evaluated on every poll");
+        }
+    }
+
+    /**
+     * The floor under the failure log rate. The cooldown stamp alone limits failures to one per
+     * {@code max(cooldown-minutes, stand-still-seconds)}, and {@code cooldown-minutes} may be 0.
+     */
+    @Nested
+    @DisplayName("the failure log throttle")
+    class FailureLog {
+
+        @Test
+        @DisplayName("the first failure is logged, with nothing dropped before it")
+        void firstIsAdmitted() {
+            FailureLogThrottle throttle = new FailureLogThrottle();
+
+            assertEquals(OptionalLong.of(0L), throttle.admit(1_000L));
+        }
+
+        @Test
+        @DisplayName("cooldown-minutes: 0 with stand-still-seconds: 1 logs once a minute, not once a second")
+        void zeroCooldownIsFloored() {
+            FailureLogThrottle throttle = new FailureLogThrottle();
+            IdleReminder settings = settings(true, 1, 0);
+            State state = new State(ORIGIN, 0L, IdleReminderRules.NEVER_REMINDED);
+            List<Long> logged = new ArrayList<>();
+
+            // The engine's loop with a template that always throws, for two minutes.
+            for (long nowMillis = 1_000L; nowMillis <= 120_000L; nowMillis += 1_000L) {
+                long at = nowMillis;
+                state = IdleReminderRules.advance(state, ORIGIN, nowMillis, settings,
+                        () -> Optional.of("step"),
+                        step -> {
+                            throw new IllegalStateException("malformed template");
+                        },
+                        (stage, thrown) -> throttle.admit(at).ifPresent(dropped -> logged.add(at)));
+            }
+
+            assertEquals(List.of(1_000L, 61_000L), logged,
+                    "the cooldown does not limit the rate here, so the throttle has to");
+        }
+
+        @Test
+        @DisplayName("the admitted line counts what was dropped since the last one")
+        void droppedAreCounted() {
+            FailureLogThrottle throttle = new FailureLogThrottle(60_000L);
+
+            throttle.admit(0L);
+            assertEquals(OptionalLong.empty(), throttle.admit(1_000L));
+            assertEquals(OptionalLong.empty(), throttle.admit(59_999L));
+            assertEquals(OptionalLong.of(2L), throttle.admit(60_000L));
+            assertEquals(OptionalLong.empty(), throttle.admit(60_001L));
+            assertEquals(OptionalLong.of(1L), throttle.admit(120_000L));
+        }
+
+        @Test
+        @DisplayName("a wall clock corrected backwards does not silence the log until it catches up")
+        void backwardsClockAdmits() {
+            FailureLogThrottle throttle = new FailureLogThrottle(60_000L);
+
+            throttle.admit(900_000L);
+            assertTrue(throttle.admit(1_000L).isPresent());
+        }
+
+        @Test
+        @DisplayName("an interval below one millisecond is refused")
+        void zeroIntervalRefused() {
+            assertThrows(IllegalArgumentException.class, () -> new FailureLogThrottle(0L));
         }
     }
 

@@ -191,7 +191,12 @@ final class ConfigReader {
         try {
             MiniMessage.miniMessage().deserialize(value);
             return value;
-        } catch (RuntimeException malformed) {
+        } catch (RuntimeException | StackOverflowError malformed) {
+            // StackOverflowError too: MiniMessage parses nested tags recursively, so a template
+            // nested a few thousand deep overflows the stack rather than throwing a parse error.
+            // It is the same verdict -- this template cannot be rendered -- and deserves the same
+            // fallback rather than failing the whole load.
+            //
             // MiniMessage's message carries the offending line and a caret under it, so it arrives
             // with newlines in it. One warning is one line here -- the whole list is logged as such.
             String because = String.valueOf(malformed.getMessage()).replaceAll("\\s+", " ").trim();
