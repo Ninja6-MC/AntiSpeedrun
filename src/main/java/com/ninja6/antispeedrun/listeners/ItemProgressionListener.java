@@ -261,8 +261,7 @@ public final class ItemProgressionListener implements Listener {
 
         event.setCancelled(true);
         entity.setPickupDelay(REFUSED_PICKUP_DELAY_TICKS);
-        reject(player, config, tier.id(), ItemGateRules.requirementText(tier, result), result,
-                material);
+        reject(player, config, tier.id(), tier.hint(), result, material);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -307,7 +306,8 @@ public final class ItemProgressionListener implements Listener {
             return;
         }
 
-        if (refuse(player, moving.getType())) {
+        Verdict verdict = refuse(player, moving.getType());
+        if (verdict == Verdict.REFUSED) {
             event.setCancelled(true);
             return;
         }
@@ -315,7 +315,7 @@ public final class ItemProgressionListener implements Listener {
         // is both above tier and enchanted with Mending produces one refusal rather than two --
         // #54's no-double-messaging constraint, which the javadoc on onTradeSelect recorded from the
         // item-gate side before this gate existed.
-        if (mendingWithdrawal(topType, subject, rawSlot) && refuseMending(player, moving)) {
+        if (mendingWithdrawal(topType, subject, rawSlot) && refuseMending(player, moving, verdict)) {
             event.setCancelled(true);
         }
     }
@@ -402,11 +402,12 @@ public final class ItemProgressionListener implements Listener {
             return;
         }
         ItemStack result = recipes.get(index).getResult();
-        if (refuse(player, result.getType())) {
+        Verdict verdict = refuse(player, result.getType());
+        if (verdict == Verdict.REFUSED) {
             event.setCancelled(true);
             return;
         }
-        if (refuseMending(player, result)) {
+        if (refuseMending(player, result, verdict)) {
             event.setCancelled(true);
         }
     }
@@ -431,11 +432,21 @@ public final class ItemProgressionListener implements Listener {
      * operator who had already exempted a builder from the item gate finding they were still refused
      * an enchanted book. {@code plugin.yml} is not touched by this task.
      *
+     * <p>Because the waiver is the item gate's, the material gate's {@link Verdict} is handed in
+     * and the waiver is only read here when that gate never read it. A stack in a gated tier has
+     * already had {@link #waived} asked about it, and asking again would be a second permission
+     * check and a second bypass PDC read for the same player in the same event.
+     *
+     * @param prior what {@link #refuse} concluded about the same stack; never
+     *              {@link Verdict#REFUSED}, because a refused stack never reaches this gate
      * @return {@code true} when the caller should cancel its event
      */
-    private boolean refuseMending(Player player, ItemStack stack) {
+    private boolean refuseMending(Player player, ItemStack stack, Verdict prior) {
         PluginConfig config = plugin.configuration();
-        if (!MendingTradeRules.armed(config) || waived(player)) {
+        if (!MendingTradeRules.armed(config) || prior == Verdict.WAIVED) {
+            return false;
+        }
+        if (prior == Verdict.UNGATED && waived(player)) {
             return false;
         }
         if (!MendingTradeRules.carriesMending(enchantmentKeys(stack))) {
@@ -447,7 +458,7 @@ public final class ItemProgressionListener implements Listener {
             return false;
         }
         reject(player, config, MendingTradeRules.FEEDBACK_KEY,
-                ItemGateRules.outstanding(result), result, stack.getType());
+                config.villagerProgression().hint(), result, stack.getType());
         return true;
     }
 
@@ -578,22 +589,48 @@ public final class ItemProgressionListener implements Listener {
      * carrying a stamp, and none of these three channels has one — a stack in a chest is a stack,
      * and §4's rule is precisely that provenance does not survive being put down.
      *
-     * @return {@code true} when the caller should cancel its event
+     * @return {@link Verdict#REFUSED} when the caller should cancel its event; any other value
+     *         says how far the check got, so {@link #refuseMending} can reuse the waiver
      */
-    private boolean refuse(Player player, Material material) {
+    private Verdict refuse(Player player, Material material) {
         PluginConfig config = plugin.configuration();
         ItemTier tier = gatedTier(material, config);
-        if (tier == null || waived(player)) {
-            return false;
+        if (tier == null) {
+            return Verdict.UNGATED;
+        }
+        if (waived(player)) {
+            return Verdict.WAIVED;
         }
         EligibilityResult result = plugin.progression().evaluate(
                 player, config, ItemGateRules.requirement(tier));
         if (result.eligible()) {
-            return false;
+            return Verdict.ADMITTED;
         }
-        reject(player, config, tier.id(), ItemGateRules.requirementText(tier, result), result,
-                material);
-        return true;
+        reject(player, config, tier.id(), tier.hint(), result, material);
+        return Verdict.REFUSED;
+    }
+
+    /**
+     * How far {@link #refuse} got with a stack, so the Mending gate that follows it in the same
+     * event does not repeat the waiver read.
+     *
+     * <p>The distinction that matters is whether {@link #waived} was asked. It is asked for any
+     * gated material and never for an ungated one, so {@link #UNGATED} is the only answer that
+     * leaves the Mending gate to ask it for itself.
+     */
+    private enum Verdict {
+
+        /** Not a gated material. The waiver was not consulted. */
+        UNGATED,
+
+        /** A gated material, and the player is waived from the item gate. */
+        WAIVED,
+
+        /** A gated material, not waived, and the player qualifies for its tier. */
+        ADMITTED,
+
+        /** A gated material the player may not have. The caller cancels. */
+        REFUSED
     }
 
     /**
@@ -648,11 +685,16 @@ public final class ItemProgressionListener implements Listener {
      * own, and giving it either would mean an operator who retuned {@code item-progression} finding
      * one refusal in their own words and one in the plugin's.
      *
+     * <p>Takes the configured hint rather than the finished requirement text, and composes the
+     * text only past the throttle. A blank hint falls back to {@link ItemGateRules#outstanding},
+     * which allocates, and most refusals — every retried pickup among them — are suppressed here
+     * without ever needing it.
+     *
      * @param feedbackKey  what to throttle under: an {@code ItemTier} id, or
      *                     {@link MendingTradeRules#FEEDBACK_KEY}
-     * @param requirement  the text for {@code {REQUIREMENT}}, not yet escaped
+     * @param hint         the configured hint for this gate, blank when none was set
      */
-    private void reject(Player player, PluginConfig config, String feedbackKey, String requirement,
+    private void reject(Player player, PluginConfig config, String feedbackKey, String hint,
                         EligibilityResult result, Material material) {
         long now = System.currentTimeMillis();
         Map<String, Long> perTier = lastFeedback.computeIfAbsent(
@@ -668,9 +710,9 @@ public final class ItemProgressionListener implements Listener {
         String line = ItemGateRules.rejection(
                 config.itemProgression().rejectionMessage(),
                 mini.escapeTags(ItemGateRules.friendlyName(material.name())),
-                mini.escapeTags(requirement));
+                mini.escapeTags(ItemGateRules.requirementText(hint, result)));
         player.sendActionBar(mini.deserialize(line));
-        result.fallbackHint().ifPresent(hint ->
-                player.sendMessage(mini.deserialize("<gray>" + mini.escapeTags(hint))));
+        result.fallbackHint().ifPresent(fallback ->
+                player.sendMessage(mini.deserialize("<gray>" + mini.escapeTags(fallback))));
     }
 }

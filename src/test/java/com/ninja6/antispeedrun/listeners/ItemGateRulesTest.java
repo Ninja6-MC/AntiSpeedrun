@@ -234,6 +234,25 @@ class ItemGateRulesTest {
                     new EligibilityResult(false, List.of(), List.of("minecraft:nope"), 0.0D, 0, false));
             assertEquals("further progression", text);
         }
+
+        /**
+         * The form the listener calls past its feedback throttle, and the one section 8's Mending
+         * gate uses with its own {@code hint}. It must agree with the tier form in both branches.
+         */
+        @Test
+        @DisplayName("the hint form agrees with the tier form")
+        void hintFormAgreesWithTierForm() {
+            EligibilityResult result = blocked(List.of("minecraft:story/cure_zombie_villager"),
+                    0.0D, 0);
+            assertEquals("Cure a Zombie Villager",
+                    ItemGateRules.requirementText("Cure a Zombie Villager", result));
+            assertEquals("minecraft:story/cure_zombie_villager",
+                    ItemGateRules.requirementText("", result));
+            assertEquals("minecraft:story/cure_zombie_villager",
+                    ItemGateRules.requirementText("   ", result));
+            assertEquals(ItemGateRules.requirementText(tier("t", ""), result),
+                    ItemGateRules.requirementText("", result));
+        }
     }
 
     @Nested

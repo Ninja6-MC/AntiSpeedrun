@@ -137,7 +137,7 @@ class MilestoneTest {
             PluginConfig config = new PluginConfig(base.profile(), base.dimensionGates(),
                     base.itemProgression(), base.trimProgression(), base.idleReminder(),
                     base.journeyBook(), base.bossScaling(), base.antiCheese(),
-                    new PluginConfig.VillagerProgression(true, ""), List.of());
+                    new PluginConfig.VillagerProgression(true, "", ""), List.of());
 
             assertTrue(Milestone.villagerTradeAdvancement(config).isEmpty(),
                     "an armed gate with no key requires nothing; it must not require \"\"");

@@ -30,7 +30,7 @@ class MendingTradeRulesTest {
         PluginConfig base = PluginConfig.defaults();
         return new PluginConfig(base.profile(), base.dimensionGates(), base.itemProgression(),
                 base.trimProgression(), base.idleReminder(), base.journeyBook(), base.bossScaling(),
-                base.antiCheese(), new PluginConfig.VillagerProgression(gated, advancement),
+                base.antiCheese(), new PluginConfig.VillagerProgression(gated, advancement, ""),
                 List.of());
     }
 
@@ -194,12 +194,12 @@ class MendingTradeRulesTest {
     class Feedback {
 
         /**
-         * Section 8 has no {@code hint} of its own to hang player-facing text on, so the refusal
-         * line is composed from the evaluation. Shared with the item gate rather than duplicated --
-         * two descriptions of the same refusal are two things that can drift.
+         * With section 8's {@code hint} cleared, the refusal line is composed from the evaluation.
+         * Shared with the item gate rather than duplicated -- two descriptions of the same refusal
+         * are two things that can drift.
          */
         @Test
-        @DisplayName("the outstanding advancement is what the player is shown")
+        @DisplayName("with no hint, the outstanding advancement is what the player is shown")
         void outstandingAdvancement() {
             EligibilityResult blocked = new EligibilityResult(false,
                     List.of("minecraft:story/cure_zombie_villager"), List.of(), 0.0D, 0, false);
@@ -239,13 +239,14 @@ class MendingTradeRulesTest {
 
         /**
          * The feedback key shares the item gate's per-tier cooldown map, so it must not be able to
-         * collide with a tier id. Tier ids are YAML mapping keys an operator writes; the colon
-         * keeps this one out of that namespace.
+         * collide with a tier id. Tier ids are YAML mapping keys an operator writes, and the
+         * config reader rejects any containing the reserved character, which this key carries.
+         * That an operator's id is rejected is pinned in {@code PluginConfigTest}.
          */
         @Test
-        @DisplayName("the feedback key cannot collide with a shipped tier id")
+        @DisplayName("the feedback key cannot collide with a tier id")
         void feedbackKeyIsOutsideTheTierNamespace() {
-            assertTrue(MendingTradeRules.FEEDBACK_KEY.indexOf(':') >= 0);
+            assertTrue(MendingTradeRules.FEEDBACK_KEY.indexOf(PluginConfig.RESERVED_TIER_ID_CHAR) >= 0);
             for (PluginConfig.ItemTier tier : PluginConfig.defaults().itemProgression().gatedItems()) {
                 assertFalse(MendingTradeRules.FEEDBACK_KEY.equals(tier.id()),
                         "a tier id colliding with the Mending gate would silently throttle one "

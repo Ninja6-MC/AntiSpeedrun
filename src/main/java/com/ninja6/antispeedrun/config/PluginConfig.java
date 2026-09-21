@@ -110,6 +110,7 @@ public record PluginConfig(
                     + "Type <gold>/progress";
     private static final String DEFAULT_ITEM_REJECTION =
             "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}";
+    private static final String DEFAULT_MENDING_HINT = "Cure a Zombie Villager (Zombie Doctor)";
     private static final String DEFAULT_IDLE_MESSAGE =
             "<yellow>💡 Next Goal: <white>{NEXT_STEP} <gray>(Run <gold>/progress<gray>)";
 
@@ -214,6 +215,7 @@ public record PluginConfig(
         ConfigReader tiers = r.child("gated-items");
         List<ItemTier> parsed = new ArrayList<>();
         for (String id : tiers.keys()) {
+            requirePlainTierId(id, tiers, enabled);
             parsed.add(parseItemTier(id, tiers.child(id), enabled));
         }
 
@@ -236,6 +238,46 @@ public record PluginConfig(
                 r.atLeast("feedback-cooldown-seconds", 3, 0),
                 r.string("rejection-message", DEFAULT_ITEM_REJECTION),
                 parsed);
+    }
+
+    /**
+     * The character a tier id may not contain, because ids containing it are reserved for feedback
+     * keys that are not tiers.
+     *
+     * <p>The item gate throttles its action bar line in one map keyed per tier id, and section 8's
+     * Mending gate shares that map under {@code villager:mending}. Any YAML mapping key is a legal
+     * tier id, so without this rule an operator naming a tier {@code villager:mending} would have
+     * the two gates silently throttle each other. Reserving the colon makes that collision
+     * impossible rather than unlikely, and costs nothing: no shipped tier id contains one.
+     */
+    public static final char RESERVED_TIER_ID_CHAR = ':';
+
+    /**
+     * Rejects a tier id containing {@link #RESERVED_TIER_ID_CHAR}.
+     *
+     * <p>Fatal while item progression is on and a warning while it is off, the same split
+     * {@link ConfigReader#advancementKeys(String, List, boolean)} draws: a section that is switched
+     * off gates nothing, so a stale id inside it must not stop a server. The fatal case is an
+     * {@link UnenforceableGateException} rather than a plain {@link ConfigLoadException} so that a
+     * rejected file refuses the boot instead of falling back to the defaults, which gate no items.
+     */
+    private static void requirePlainTierId(String id, ConfigReader tiers, boolean enforced)
+            throws ConfigLoadException {
+        if (id.indexOf(RESERVED_TIER_ID_CHAR) < 0) {
+            return;
+        }
+        String problem = "tier id \"" + id + "\" contains '" + RESERVED_TIER_ID_CHAR + "', which is "
+                + "reserved: tier ids share a feedback cooldown map with other gates whose keys "
+                + "contain it, so this tier could silently throttle their messages or have its own "
+                + "throttled. Rename the tier";
+        if (!enforced) {
+            tiers.note(problem + " before switching item-progression back on, or the plugin "
+                    + "will refuse it then.");
+            return;
+        }
+        throw new UnenforceableGateException("item-progression.gated-items: " + problem
+                + " and reload. config.yml has NOT been applied: after a reload the configuration "
+                + "already running stays live, and at startup the plugin does not enable.");
     }
 
     private static ItemTier parseItemTier(String id, ConfigReader r, boolean enforced)
@@ -341,7 +383,7 @@ public record PluginConfig(
 
     private static VillagerProgression parseVillagerProgression(ConfigReader r)
             throws ConfigLoadException {
-        r.expect("gate-mending-trade", "required-advancement");
+        r.expect("gate-mending-trade", "required-advancement", "hint");
         // gate-mending-trade defaults to false, so this is the section most likely to carry a key
         // nothing reads. It must not be able to refuse a boot while the gate is off. With the gate
         // on it is the other half of #92's second waiver path: a blank key beside it is a gate that
@@ -350,7 +392,8 @@ public record PluginConfig(
         return new VillagerProgression(
                 gated,
                 r.advancementKey("required-advancement", "minecraft:story/cure_zombie_villager",
-                        gated));
+                        gated),
+                r.string("hint", DEFAULT_MENDING_HINT));
     }
 
     // ---------------------------------------------------------------------------------------
@@ -623,10 +666,17 @@ public record PluginConfig(
      * @param requiredAdvancement canonical advancement key, or {@code ""} when the operator has
      *                            cleared it to mean "gate the trade, require no advancement";
      *                            default {@code "minecraft:story/cure_zombie_villager"}
+     * @param hint                player-facing text for {@code {REQUIREMENT}} when the Mending
+     *                            trade is refused; default {@code "Cure a Zombie Villager (Zombie
+     *                            Doctor)"}, describing the default advancement. Blank falls back to
+     *                            naming the outstanding advancement key, as an item tier's blank
+     *                            hint does
      */
-    public record VillagerProgression(boolean gateMendingTrade, String requiredAdvancement) {
+    public record VillagerProgression(boolean gateMendingTrade, String requiredAdvancement,
+                                      String hint) {
         public VillagerProgression {
             Objects.requireNonNull(requiredAdvancement, "requiredAdvancement");
+            Objects.requireNonNull(hint, "hint");
         }
     }
 }

@@ -220,9 +220,27 @@ public final class ItemGateRules {
      */
     public static String requirementText(ItemTier tier, EligibilityResult result) {
         Objects.requireNonNull(tier, "tier");
-        Objects.requireNonNull(result, "result");
+        return requirementText(tier.hint(), result);
+    }
 
-        String hint = tier.hint();
+    /**
+     * What to put in {@code {REQUIREMENT}}, from a configured hint rather than a tier.
+     *
+     * <p>The form {@link ItemProgressionListener} calls for both of its gates, because section 8's
+     * Mending gate has a {@code hint} of its own and no tier to carry it. Same rule as
+     * {@link #requirementText(ItemTier, EligibilityResult)}: a non-blank hint wins, and a blank one
+     * falls back to {@link #outstanding}.
+     *
+     * <p>Called only once the feedback throttle has decided to speak, never at the refusal site:
+     * the composed fallback allocates, and a refused pickup retries every two seconds for as long as
+     * the player stands on the item.
+     *
+     * @param hint the operator's configured hint; blank means "compose one from the result"
+     * @return never blank
+     */
+    public static String requirementText(String hint, EligibilityResult result) {
+        Objects.requireNonNull(hint, "hint");
+        Objects.requireNonNull(result, "result");
         if (!hint.isBlank()) {
             return hint;
         }
@@ -233,9 +251,8 @@ public final class ItemGateRules {
      * What is still outstanding, composed from the evaluation alone.
      *
      * <p>Extracted from {@link #requirementText} so that {@link MendingTradeRules}'s gate can share
-     * it. Section 8 configures no {@code hint} — it has no tier to hang one on — so the composed
-     * line is all that gate ever has, and duplicating this arithmetic there would be two
-     * descriptions of a refusal that can drift apart.
+     * it. Section 8's {@code hint} is blank unless an operator sets one, and duplicating this
+     * arithmetic there would be two descriptions of a refusal that can drift apart.
      *
      * <p>Names only what the player can still go and do:
      * {@link EligibilityResult#unresolvableAdvancements()} is excluded because the evaluator has
