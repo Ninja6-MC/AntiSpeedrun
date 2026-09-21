@@ -24,7 +24,8 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * <p>{@link #miniMessage} adds a fourth arm to the same policy rather than a second policy: a value
  * of the right type that the consumer cannot use falls back to the shipped default and warns. It
  * exists because a message template is only discovered to be unusable at the moment it is sent,
- * which for {@code idle-reminder.message} is on a region thread once per reminder.
+ * which for {@code idle-reminder.message} and the {@code rejection-message} keys under
+ * {@code dimension-gates} and {@code item-progression} is on a region thread.
  *
  * <h2>The one exception: an advancement key the server cannot resolve is fatal</h2>
  *
@@ -173,6 +174,17 @@ final class ConfigReader {
      * operator learns about it from the warning, at startup and again on every {@code /asr reload},
      * which is what the finding asked for — the failure is reported at load rather than discovered
      * as a per-second exception on a region thread.
+     *
+     * <p><strong>The same answer holds for a {@code rejection-message}</strong>, decided on #116,
+     * although a refusal is closer to a gate reporting itself than a reminder is. What decides it is
+     * still the running state the fallback produces, and here it is the right one: the fallback is
+     * the shipped rejection for that same gate, so the refusal goes ahead and the player is told the
+     * right thing. The state worth refusing a boot over is the one this prevents rather than the one
+     * it leaves. Several refusal paths send the message before they cancel or eject, so a template
+     * that threw there did not merely lose the message, it could let the refused player through.
+     * Guaranteeing at load that the template parses closes that without stopping a server over its
+     * wording. {@code gated-items.<tier>.hint} is read the same way because it is interpolated into
+     * the item rejection line: escaping neutralises its tags but not a section sign.
      *
      * <p>The raw configured value is what gets parsed here, not the form the engine hands to
      * MiniMessage: {@code {NEXT_STEP}} is not MiniMessage syntax and the tag it is rewritten to is

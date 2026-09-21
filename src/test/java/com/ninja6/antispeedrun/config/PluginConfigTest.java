@@ -597,6 +597,133 @@ class PluginConfigTest {
         }
     }
 
+    /**
+     * The rejection lines are deserialised as MiniMessage on a region thread, on every refusal, and
+     * several refusal paths send before they cancel or eject. #116: they went through
+     * {@code r.string} unvalidated while {@code idle-reminder.message} beside them did not.
+     *
+     * <p>Warn and fall back, like the reminder, rather than refusing the document: the fallback is
+     * the shipped rejection for the same gate, so the refusal still happens and still says the
+     * right thing. See {@code ConfigReader#miniMessage}.
+     */
+    @Nested
+    @DisplayName("rejection messages as MiniMessage")
+    class RejectionMessages {
+
+        @Test
+        @DisplayName("every shipped rejection template really does parse")
+        void shippedTemplatesParse() throws Exception {
+            PluginConfig config = shipped();
+
+            for (String message : List.of(
+                    config.dimensionGates().nether().rejectionMessage(),
+                    config.dimensionGates().theEnd().rejectionMessage(),
+                    config.itemProgression().rejectionMessage())) {
+                assertNotNull(MiniMessage.miniMessage().deserialize(message), message);
+            }
+        }
+
+        @Test
+        @DisplayName("operator templates that parse are kept exactly as written")
+        void validTemplatesSurvive() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    dimension-gates:
+                      nether:
+                        rejection-message: "<red>Not yet."
+                      the_end:
+                        rejection-message: "<dark_purple>Later."
+                    item-progression:
+                      rejection-message: "<red>{ITEM} needs {REQUIREMENT}"
+                    """));
+
+            assertEquals("<red>Not yet.", config.dimensionGates().nether().rejectionMessage());
+            assertEquals("<dark_purple>Later.", config.dimensionGates().theEnd().rejectionMessage());
+            assertEquals("<red>{ITEM} needs {REQUIREMENT}",
+                    config.itemProgression().rejectionMessage());
+            assertFalse(mentions(config.warnings(), "rejection-message"),
+                    "nothing to say about templates that parse: " + config.warnings());
+        }
+
+        @Test
+        @DisplayName("a legacy formatting code in a dimension gate warns and falls back to that gate's default")
+        void dimensionGateTemplateFallsBack() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    dimension-gates:
+                      nether:
+                        rejection-message: "§cYou cannot enter the Nether yet."
+                      the_end:
+                        rejection-message: "§5The End is sealed."
+                    """));
+            PluginConfig defaults = PluginConfig.defaults();
+
+            assertEquals(defaults.dimensionGates().nether().rejectionMessage(),
+                    config.dimensionGates().nether().rejectionMessage());
+            assertEquals(defaults.dimensionGates().theEnd().rejectionMessage(),
+                    config.dimensionGates().theEnd().rejectionMessage(),
+                    "each gate falls back to its own default, not to the other gate's");
+            assertTrue(mentions(config.warnings(), "dimension-gates.nether.rejection-message"),
+                    "the warning names the full key path: " + config.warnings());
+            assertTrue(mentions(config.warnings(), "dimension-gates.the_end.rejection-message"),
+                    config.warnings().toString());
+            assertTrue(mentions(config.warnings(), "is not valid MiniMessage"),
+                    config.warnings().toString());
+
+            assertTrue(config.dimensionGates().nether().enabled(),
+                    "a message it cannot render does not switch the gate off");
+            assertNotNull(MiniMessage.miniMessage().deserialize(
+                    config.dimensionGates().nether().rejectionMessage()));
+        }
+
+        @Test
+        @DisplayName("a legacy formatting code in the item rejection warns and falls back")
+        void itemTemplateFallsBack() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      rejection-message: "§c{ITEM} is locked: {REQUIREMENT}"
+                    """));
+
+            assertEquals(PluginConfig.defaults().itemProgression().rejectionMessage(),
+                    config.itemProgression().rejectionMessage());
+            assertTrue(mentions(config.warnings(), "item-progression.rejection-message"),
+                    "the warning names the full key path: " + config.warnings());
+            assertTrue(config.itemProgression().enabled());
+            assertNotNull(MiniMessage.miniMessage().deserialize(
+                    config.itemProgression().rejectionMessage()));
+        }
+
+        @Test
+        @DisplayName("a tier hint with a legacy formatting code warns and falls back to no hint")
+        void tierHintFallsBack() throws Exception {
+            // The hint is interpolated into the rejection line with its tags escaped, and escaping
+            // leaves a section sign alone, so it would throw at the same deserialise.
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      gated-items:
+                        iron-tier:
+                          items:
+                            - "IRON_INGOT"
+                          require-advancements:
+                            - "minecraft:story/mine_stone"
+                          hint: "§eSmelt some iron first"
+                        gold-tier:
+                          items:
+                            - "GOLD_INGOT"
+                          require-advancements:
+                            - "minecraft:story/mine_stone"
+                          hint: "<yellow>tags here are escaped, not rejected"
+                    """));
+
+            List<PluginConfig.ItemTier> tiers = config.itemProgression().gatedItems();
+            assertEquals("", tiers.get(0).hint(),
+                    "a blank hint is the existing 'compose it from the evaluation' case");
+            assertEquals("<yellow>tags here are escaped, not rejected", tiers.get(1).hint());
+            assertTrue(mentions(config.warnings(), "gated-items.iron-tier.hint"),
+                    "the warning names the full key path: " + config.warnings());
+            assertFalse(mentions(config.warnings(), "gated-items.gold-tier.hint"),
+                    config.warnings().toString());
+        }
+    }
+
     @Nested
     @DisplayName("advancement keys")
     class AdvancementKeyReads {
