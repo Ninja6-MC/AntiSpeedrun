@@ -301,6 +301,11 @@ class VehicleTransitTest {
          * {@code EntityPortalEvent} nor {@code PlayerPortalEvent}, so there is no triage, no
          * capture, no cancellation and no ejection. Everyone simply arrives, and the world-change
          * backstop is the only thing that runs.
+         *
+         * <p>This harness assumes the arrival is reported. Read against Folia's source, it is not:
+         * Folia's asynchronous dimension change fires no {@code PlayerChangedWorldEvent} (#114, set
+         * out on {@code ProgressionGateListener#onPlayerChangedWorld}). These cases therefore pin
+         * the backstop's verdict and bookkeeping, not that it is armed on Folia.
          */
         private void runUnreportedTransit(List<Rider> riders) {
             runUnreportedTransit(riders, NETHER);
