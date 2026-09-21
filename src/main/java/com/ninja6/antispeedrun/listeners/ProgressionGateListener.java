@@ -50,7 +50,9 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *       an exemption at {@code MONITOR}, where the destination can no longer change.</li>
  *   <li><strong>{@link PlayerChangedWorldEvent}</strong> (#100) — the backstop. Not a route in at
  *       all but the arrival itself, checked after the fact because Folia has a route in that fires
- *       none of the three above. See {@link #onPlayerChangedWorld}.</li>
+ *       none of the three above. See {@link #onPlayerChangedWorld}, and in particular its
+ *       <em>Does Folia fire this at all?</em> section: read against Folia's source, it does not, so
+ *       on Folia this backstop is not armed.</li>
  * </ul>
  *
  * <p>Everything that decides anything lives in {@link DimensionGateRules}, {@link VehicleTransit}
@@ -202,7 +204,8 @@ public final class ProgressionGateListener implements Listener {
      * <h2>A note belongs to one transit, and three rules keep it there</h2>
      *
      * A record that outlives the decision it records is a free pass, on a gate whose failure mode is
-     * a bypass. So:
+     * a bypass. So, as far as they reach — the list below is what bounds a note, not a proof that
+     * none can outlive its transit; the known remainder follows it:
      *
      * <ul>
      *   <li><strong>It names the destination.</strong> {@link DimensionGateRules.Decision} carries
@@ -217,9 +220,28 @@ public final class ProgressionGateListener implements Listener {
      *       after {@link DimensionGateRules#DECISION_WINDOW_MILLIS}.</li>
      * </ul>
      *
-     * <p>Notes are written only where they are actually needed, which keeps the map near-empty in
-     * ordinary play: an eligible or waived player never gets one, because the backstop re-reads
-     * both rather than trusting a note. Registered with
+     * <p>What the three rules do not cover:
+     *
+     * <ul>
+     *   <li><strong>A teleport that is settled but never completes.</strong> A teleport that reaches
+     *       {@code MONITOR} uncancelled and then fails server-side — the destination chunk never
+     *       loads, the player disconnects mid-transfer — leaves a note correctly bound to a world
+     *       the player never reached. Spending it needs an unreported transit into that same world,
+     *       through that same gate, inside the window. Far narrower than an unbound note, but not
+     *       nothing.</li>
+     *   <li><strong>A destination changed after the note was written.</strong> See
+     *       {@link #onPlayerTeleportSettled} for the same-priority case on the teleport path, and
+     *       {@link #ejectAndReposition} for the vehicle path, whose note is written at
+     *       {@code HIGH}.</li>
+     * </ul>
+     *
+     * <p>Only the vehicle path consults eligibility before writing: {@link #ejectAndReposition}
+     * notes only the riders it is ejecting. {@link #onPlayerTeleportSettled} notes <em>every</em>
+     * ungated-cause teleport across a gate, eligible, waived or neither, because deciding which
+     * would cost a progression evaluation on a path that needs none. The spare notes are harmless:
+     * the backstop re-reads eligibility and the waiver on arrival and lets either through whatever
+     * the ledger says, and it consumes the note on the way past, so it does not linger. Registered
+     * with
      * {@link com.ninja6.antispeedrun.progression.PlayerStateRegistry} for quit cleanup — finding
      * R-08.
      */
@@ -443,15 +465,26 @@ public final class ProgressionGateListener implements Listener {
      *       that really happens is bounced while the note sits waiting for one that never comes.</li>
      * </ul>
      *
-     * <p>{@code MONITOR} with {@code ignoreCancelled} is the priority at which neither is possible:
-     * nothing runs after it, a cancelled teleport never reaches it, and {@code getTo()} is the
-     * destination the player will actually arrive in. The handler observes and records; it decides
-     * nothing and cancels nothing, which is what {@code MONITOR} is for.
+     * <p>{@code MONITOR} with {@code ignoreCancelled} is the priority at which neither is possible
+     * for a well-behaved plugin: no later <em>priority</em> exists, a cancelled teleport never
+     * reaches it, and {@code getTo()} is ordinarily the destination the player will arrive in. The
+     * handler observes and records; it decides nothing and cancels nothing, which is what
+     * {@code MONITOR} is for.
+     *
+     * <p>That is a guarantee about priorities, not about handlers. Within one priority Bukkit runs
+     * handlers in registration order, so a plugin registered after this one that mutates the event
+     * at {@code MONITOR} — against the convention, but nothing enforces it — still lands after this
+     * handler. A later {@code setTo()} into another world leaves a note naming a world the player
+     * never reaches: the arrival that does happen finds no note, and an ineligible, unwaived player
+     * the other plugin deliberately teleported is returned. That is the mirror image of the defect
+     * the move to {@code MONITOR} fixed, and it fails closed. A later cancellation is the other
+     * way round: an orphaned note, bounded by the rules on {@link #decisions}.
      *
      * <p>Only cross-dimension teleports into a gated dimension are noted, so the ordinary intra-world
-     * plugin teleport costs nothing but the {@link #kindOf} pair — and a gated cause is skipped
-     * outright, because an ineligible player's gated-cause teleport was cancelled above and an
-     * eligible or waived one needs no note: the backstop re-reads both.
+     * plugin teleport costs nothing but the {@link #kindOf} pair. A gated cause is skipped outright,
+     * because an ineligible player's gated-cause teleport was cancelled above. An ungated cause is
+     * noted <em>without</em> consulting eligibility or the waiver: an eligible or waived player gets
+     * a note they do not need, which the backstop consumes and ignores, since it re-reads both.
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerTeleportSettled(PlayerTeleportEvent event) {
@@ -493,6 +526,33 @@ public final class ProgressionGateListener implements Listener {
      * vehicle's transit produces both events and {@link #onEntityPortal} handles it — but this
      * handler is registered on both platforms deliberately. A backstop that only armed itself on
      * Folia would need to detect Folia, and the detection would be the thing that broke.
+     *
+     * <h2>Does Folia fire this at all? Read against the source: no</h2>
+     *
+     * Everything above rests on Folia firing {@code PlayerChangedWorldEvent} for the transit it
+     * does not report. #114 asked where that was established. Nowhere, it turns out, and reading
+     * the servers' source says it does not happen:
+     *
+     * <ul>
+     *   <li>Paper fires this event in exactly two places,
+     *       {@code ServerPlayer#teleport(TeleportTransition)} and {@code PlayerList#respawn}. A code
+     *       search of PaperMC/Paper finds no other call site.</li>
+     *   <li>Folia's region-threading patch makes both of them throw
+     *       {@code UnsupportedOperationException} ("Must use teleportAsync while in region
+     *       threading") before they reach the event, and replaces them with an asynchronous path —
+     *       {@code Entity#placeInAsync}, {@code ServerPlayer#placeSingleSync}, and a
+     *       {@code ServerPlayer#respawn} of its own — that fires no {@code PlayerChangedWorldEvent}
+     *       anywhere. Checked on Folia's {@code ver/1.21.4} branch, which matches the API this
+     *       plugin compiles against, and again on {@code ver/26.1.x}; neither patch set mentions the
+     *       event.</li>
+     * </ul>
+     *
+     * <p>So on Folia this handler is not called for a portal transit, a {@code teleportAsync} or a
+     * respawn, and the unreported vehicle transit #100 is about is still open there. On Paper it
+     * runs as described, as a second line behind {@link #onEntityPortal}. That is a reading of the
+     * upstream source rather than an observation on a running server and should be confirmed on
+     * one; if it holds, the backstop needs a different signal on Folia, which is a design decision
+     * rather than a comment.
      *
      * <h2>Not double-handling what Paper already caught</h2>
      *
@@ -543,14 +603,20 @@ public final class ProgressionGateListener implements Listener {
      * now owns the player, in the destination world. Legal inline, and all of it done inline: the
      * progression evaluation (a cache read), the bypass grant (this player's own PDC), the
      * dimension-unlock override (in memory), the ledger (in memory), and the message. Illegal, and
-     * therefore not done: reading a block in the world they came from — the source world belongs to
-     * another region and this thread may not touch it, which is why the return point is the source
-     * world's spawn and not a {@link SafeRetreat} probe behind the portal.
+     * therefore not done inline: reading a block in the world they came from — the source world
+     * belongs to another region and this thread may not touch it. There is no captured origin
+     * behind the portal either, because nothing announced the transit, so the return point is the
+     * source world's spawn.
      *
-     * <p>{@code cameFrom.getSpawnLocation()} is the one call below that touches the source world at
-     * all, and it is not an exception to that rule: a world's spawn is level data held on the
-     * {@code World} object, not a block read, so it neither loads a chunk nor consults a region the
-     * caller does not own. The rule above is about chunks; this is a field.
+     * <p>{@code getSpawnLocation()} on the source world is not an exception to that rule: a world's
+     * spawn is level data held on the {@code World} object, not a block read, so it neither loads a
+     * chunk nor consults a region the caller does not own.
+     *
+     * <p>The spawn is not a landing, though. For a {@code NETHER -> THE_END} arrival it is the
+     * Nether's spawn, which is routinely inside netherrack. {@link #returnToSpawn} therefore hands
+     * the block reads to the region scheduler <em>for the spawn location</em> — the one thread
+     * allowed to make them — and lets {@link SafeRetreat#spawnLanding} find standable ground in
+     * that column before anyone is moved.
      *
      * <p>The return itself is deferred to the player's own {@code EntityScheduler} and performed
      * with {@code teleportAsync}, by way of {@link #scheduleEjection}. Deferred because moving a
@@ -591,7 +657,36 @@ public final class ProgressionGateListener implements Listener {
         plugin.getLogger().fine(() -> "Returning " + player.getName() + " from " + arrivedIn.getName()
                 + ": they arrived without passing the " + dimension + " gate, which on Folia means a"
                 + " vehicle carried them through a portal the server reported no event for.");
-        scheduleEjection(player, cameFrom.getSpawnLocation());
+        returnToSpawn(player, cameFrom);
+    }
+
+    /**
+     * Returns a player the backstop refused to the spawn of the world they came from, on ground
+     * they fit on.
+     *
+     * <p>Two hops, each on the thread that owns what it touches. The landing is worked out on the
+     * region scheduler for the spawn location, because that is the only thread allowed to read
+     * those blocks; the move is then handed to the player's own {@code EntityScheduler} by
+     * {@link #scheduleEjection}, as every other return in this class is. On Paper both schedulers
+     * run on the main thread and the hops cost a tick of delay and nothing else.
+     *
+     * <p>{@code maxY} is capped at the world's logical height so that a deep Nether spawn is not
+     * resolved onto the roof.
+     */
+    private void returnToSpawn(Player player, World world) {
+        Location spawn = world.getSpawnLocation();
+        plugin.getServer().getRegionScheduler().execute(plugin, spawn, () -> {
+            int minY = world.getMinHeight();
+            int maxY = Math.min(world.getMaxHeight(), minY + world.getLogicalHeight());
+            SafeRetreat.Landing landing = SafeRetreat.spawnLanding(spawn.getX(), spawn.getY(),
+                    spawn.getZ(), terrainOf(world), minY, maxY);
+            if (!landing.retreated()) {
+                plugin.getLogger().fine(() -> "No standable ground in the spawn column of "
+                        + world.getName() + "; returning " + player.getName() + " to the spawn as is.");
+            }
+            scheduleEjection(player, new Location(world, landing.x(), landing.y(), landing.z(),
+                    spawn.getYaw(), spawn.getPitch()));
+        });
     }
 
     /**
@@ -807,6 +902,12 @@ public final class ProgressionGateListener implements Listener {
                 // a note there would be a live exemption nothing ever consumes. Noted against the
                 // world the portal actually resolved to, so it cannot be spent on an arrival
                 // somewhere else.
+                //
+                // Written at HIGH, beside the triage, so a HIGHEST handler that redirects this
+                // EntityPortalEvent's setTo() into another world leaves the note naming a world the
+                // rider never reaches. The backstop then returns them to spawn as well as this
+                // ejection repositioning them, and whichever teleport runs last wins. A HIGHEST
+                // cancellation leaves an orphaned note instead, bounded as on the decisions field.
                 noteDecision(order.rider(), dimension, destination);
             }
             scheduleEjection(order.rider(), order.returnTo());
@@ -851,8 +952,9 @@ public final class ProgressionGateListener implements Listener {
      * Dismounts one player and returns them to a position decided by the caller.
      *
      * <p>Two callers, one shape of problem. {@link #ejectAndReposition} hands over a point captured
-     * before the transit resolved; {@link #onPlayerChangedWorld} hands over the spawn of the world
-     * the player came from, having no captured point to offer. Neither computes anything here.
+     * before the transit resolved; {@link #returnToSpawn} hands over standable ground in the spawn
+     * column of the world the player came from, having no captured point to offer. Neither computes
+     * anything here.
      *
      * <p>Runs next tick on the <strong>rider's</strong> region — see
      * {@link #ejectAndReposition} for why not the vehicle's — with a retired callback that logs,
@@ -893,9 +995,9 @@ public final class ProgressionGateListener implements Listener {
     /**
      * The {@link SafeRetreat.Terrain} probe over a live world.
      *
-     * <p>Called on the event thread, before any transfer resolves, and only for a column two blocks
-     * from the vehicle — so the world it reads is the one the calling region owns and the chunks
-     * are ones that region is already ticking.
+     * <p>Only ever read on the thread that owns the blocks asked about: by {@link #returnPointFor}
+     * on the event thread, before any transfer resolves, for a column two blocks from the vehicle;
+     * and by {@link #returnToSpawn} on the region scheduler for the spawn location.
      *
      * <p>Each method answers one plain question about one block. In particular {@code isPassable}
      * is Bukkit's collision question and nothing more: lava and water are passable, and it is
