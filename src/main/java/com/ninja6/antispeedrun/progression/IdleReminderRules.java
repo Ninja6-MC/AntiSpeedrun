@@ -5,8 +5,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import com.ninja6.antispeedrun.config.PluginConfig.IdleReminder;
 
@@ -202,17 +205,31 @@ public final class IdleReminderRules {
     }
 
     /**
-     * The side of one poll that needs a player: look the next step up and say it.
+     * Which half of a reminder attempt failed.
      *
-     * <p>Separated from {@link #advance} so that the ordering rule below — the cooldown stamp is
-     * earned by the <em>attempt</em>, not by its success — is testable without a Bukkit type
-     * anywhere near it. {@link IdleReminderEngine} supplies the one implementation.
+     * <p>The two halves fail for unrelated reasons and point the operator at different places, so
+     * {@link #advance} guards them separately and says which one threw. Folding them into one guard
+     * is what reported a {@link ProgressionManager#evaluate} fault as a bad
+     * {@code idle-reminder.message}.
      */
-    @FunctionalInterface
-    public interface Delivery {
+    public enum Stage {
 
-        /** Delivers the reminder, if there is one to deliver. May throw; {@link #advance} expects it. */
-        void deliver();
+        /** Working out the next step: the player's progression, evaluated through the manager. */
+        EVALUATE,
+
+        /** Rendering the operator's template and sending it. */
+        SEND
+    }
+
+    /** Told what a reminder attempt threw, and in which {@link Stage}. */
+    @FunctionalInterface
+    public interface FailureReport {
+
+        /**
+         * Records one failure. May itself throw; {@link #advance} contains that as well, because a
+         * report that escapes would lose the cooldown stamp the attempt has already earned.
+         */
+        void report(Stage stage, Throwable thrown);
     }
 
     /**
@@ -222,7 +239,7 @@ public final class IdleReminderRules {
      * this class rather than in the engine.
      *
      * <p><strong>The cooldown stamp is earned by the attempt.</strong> {@link #reminded} is applied
-     * before {@code delivery} runs, and the returned state carries the stamp whether the delivery
+     * before {@code nextStep} runs, and the returned state carries the stamp whether the delivery
      * succeeded, said nothing, or threw. Stamping afterwards is what a straightforward reading of
      * this code would do, and it is wrong in a way that only shows up when something goes wrong: a
      * delivery that throws would leave {@code lastReminderMillis} at {@link #NEVER_REMINDED} and
@@ -232,8 +249,16 @@ public final class IdleReminderRules {
      * expensive half of the poll off the hot path, and stamping late bypasses it in exactly the case
      * where the poll is already failing.
      *
-     * <p><strong>A throwing delivery cannot end the poll.</strong> Whatever {@code delivery} throws
-     * is handed to {@code onFailure} and not rethrown.
+     * <p><strong>A throwing delivery cannot end the poll.</strong> Whatever either half throws is
+     * handed to {@code onFailure} and not rethrown, and {@code onFailure} is itself inside a guard:
+     * a report that throws is dropped rather than allowed to carry the stamped state away with it.
+     * The two halves are guarded separately so the report can say which one failed — see
+     * {@link Stage}.
+     *
+     * <p>"Throws" means a {@link RuntimeException} or a {@link StackOverflowError}. The second is
+     * not hypothetical: MiniMessage parses nested tags recursively, and a template nested a few
+     * thousand deep overflows the stack of a region thread. Every other {@link Error} is still left
+     * to propagate — an {@link OutOfMemoryError} is not a reminder's to swallow.
      *
      * <p>It was worth settling what the scheduler actually does here rather than guessing, because
      * the two answers have very different costs. Read from the implementation —
@@ -258,13 +283,16 @@ public final class IdleReminderRules {
      * @param now       where the player is at this poll
      * @param nowMillis wall clock at this poll
      * @param settings  the {@code idle-reminder} section of the snapshot the caller is holding
-     * @param delivery  runs only when the poll earns a reminder
-     * @param onFailure told what {@code delivery} threw, if it threw
+     * @param nextStep  runs only when the poll earns a reminder; empty means there is nothing to say
+     * @param send      runs only when {@code nextStep} produced something, and is handed it
+     * @param onFailure told what either half threw, if it threw
      * @return the state to store, stamped if a reminder was attempted
      */
     public static State advance(State previous, Position now, long nowMillis, IdleReminder settings,
-                                Delivery delivery, Consumer<RuntimeException> onFailure) {
-        Objects.requireNonNull(delivery, "delivery");
+                                Supplier<Optional<String>> nextStep, Consumer<String> send,
+                                FailureReport onFailure) {
+        Objects.requireNonNull(nextStep, "nextStep");
+        Objects.requireNonNull(send, "send");
         Objects.requireNonNull(onFailure, "onFailure");
 
         Decision decision = poll(previous, now, nowMillis, settings);
@@ -277,12 +305,101 @@ public final class IdleReminderRules {
         // keeps a player who has cleared every gate -- nextStep empty, nothing to deliver -- from
         // being re-evaluated on every poll for as long as they stand there.
         State next = reminded(decision.state(), nowMillis);
+        Optional<String> step;
         try {
-            delivery.deliver();
-        } catch (RuntimeException thrown) {
-            onFailure.accept(thrown);
+            step = Objects.requireNonNull(nextStep.get(), "nextStep returned null");
+        } catch (RuntimeException | StackOverflowError thrown) {
+            report(onFailure, Stage.EVALUATE, thrown);
+            return next;
+        }
+        if (step.isEmpty()) {
+            return next;
+        }
+        try {
+            send.accept(step.get());
+        } catch (RuntimeException | StackOverflowError thrown) {
+            report(onFailure, Stage.SEND, thrown);
         }
         return next;
+    }
+
+    /**
+     * Hands a failure to the caller's report, and contains the report too.
+     *
+     * <p>The report runs inside the same boundary as the attempt it describes. Outside it, a report
+     * that threw — a logger handler failing, a player name read off a retiring entity — would
+     * propagate out of {@link #advance}, the caller would never store the stamped state, and the
+     * once-a-second loop the stamp exists to prevent would be back. There is nobody left to tell
+     * about a report that fails, so it is dropped.
+     */
+    private static void report(FailureReport onFailure, Stage stage, Throwable thrown) {
+        try {
+            onFailure.report(stage, thrown);
+        } catch (RuntimeException | StackOverflowError ignored) {
+            // Deliberately empty: see above.
+        }
+    }
+
+    /**
+     * The shortest interval between two failure lines in the log, whatever the configuration says.
+     *
+     * <p>The cooldown stamp already limits failures to one per player per
+     * {@code max(cooldown-minutes, stand-still-seconds)}, but {@code cooldown-minutes} floors at 0,
+     * so an operator running {@code cooldown-minutes: 0} and {@code stand-still-seconds: 1} would get
+     * a stack trace a second per player. A minute is short enough that an operator watching the
+     * console after a reload sees the failure straight away, and long enough that a broken template
+     * on a full server cannot bury everything else in the log.
+     */
+    public static final long FAILURE_LOG_FLOOR_MILLIS = 60_000L;
+
+    /**
+     * Admits at most one failure line per {@link #FAILURE_LOG_FLOOR_MILLIS}, across every player, and
+     * counts what it turned away.
+     *
+     * <p>Server-wide rather than per player: a template that fails for one player fails for all of
+     * them, so a per-player limit would still scale the log with the player count. Safe to share
+     * across region threads — every poll on every region reports through the one instance.
+     */
+    public static final class FailureLogThrottle {
+
+        private final long intervalMillis;
+        private final AtomicLong lastAdmittedMillis = new AtomicLong(NEVER_REMINDED);
+        private final AtomicLong suppressed = new AtomicLong();
+
+        /** A throttle at {@link #FAILURE_LOG_FLOOR_MILLIS}. */
+        public FailureLogThrottle() {
+            this(FAILURE_LOG_FLOOR_MILLIS);
+        }
+
+        /** A throttle at an explicit interval. For tests. */
+        public FailureLogThrottle(long intervalMillis) {
+            if (intervalMillis < 1L) {
+                throw new IllegalArgumentException("intervalMillis must be at least 1, was " + intervalMillis);
+            }
+            this.intervalMillis = intervalMillis;
+        }
+
+        /**
+         * Whether a failure at {@code nowMillis} may be logged.
+         *
+         * @return empty if the line is to be dropped; otherwise how many were dropped since the last
+         *         admitted line, so the admitted line can say so
+         */
+        public OptionalLong admit(long nowMillis) {
+            while (true) {
+                long last = lastAdmittedMillis.get();
+                // A clock corrected backwards admits, for the reason cooldownElapsed gives: silence
+                // until the clock catches up could be arbitrarily long.
+                boolean due = last == NEVER_REMINDED || nowMillis < last || nowMillis - last >= intervalMillis;
+                if (!due) {
+                    suppressed.incrementAndGet();
+                    return OptionalLong.empty();
+                }
+                if (lastAdmittedMillis.compareAndSet(last, nowMillis)) {
+                    return OptionalLong.of(suppressed.getAndSet(0L));
+                }
+            }
+        }
     }
 
     /**

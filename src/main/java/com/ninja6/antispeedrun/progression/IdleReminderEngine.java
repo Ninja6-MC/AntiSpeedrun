@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -119,6 +120,10 @@ public final class IdleReminderEngine {
     /** Where each armed player was last seen, and when they were last spoken to. */
     private final PlayerStateMap<IdleReminderRules.State> tracked;
 
+    /** Keeps a failing reminder to one log line a minute, whatever the configured cooldown. */
+    private final IdleReminderRules.FailureLogThrottle failureLog =
+            new IdleReminderRules.FailureLogThrottle();
+
     /**
      * @param plugin        the owning plugin, for the scheduler
      * @param configuration reads the live configuration snapshot; the task calls it once per poll,
@@ -151,6 +156,12 @@ public final class IdleReminderEngine {
      * <p>Idempotent. Called on join, for players already online when the plugin enables, and for
      * every online player after an {@code /asr reload} — which is the only thing that can switch the
      * feature off under an armed task, or back on under a player who was never armed.
+     *
+     * <p><strong>Death and respawn need no call here.</strong> Paper retires an entity's scheduler
+     * from {@code Entity#setRemoved}, but skips it for a {@code ServerPlayer}, whose scheduler is
+     * retired only by {@code PlayerList#remove} — the quit. Respawn reuses the same player entity
+     * rather than constructing a new one, so the task armed at join keeps running through a death.
+     * Read from the Paper 1.20.4 server jar; {@link UnlockWatch} relies on the same fact.
      */
     public void refresh(Player player, PluginConfig config) {
         Objects.requireNonNull(player, "player");
@@ -255,9 +266,9 @@ public final class IdleReminderEngine {
         // poll, are both IdleReminderRules#advance's -- they are decisions about when the cooldown
         // is earned, not wiring, and they are unit-tested there without a Bukkit type in sight.
         IdleReminderRules.State next = IdleReminderRules.advance(previous, where, now, settings,
-                () -> IdleReminderRules.nextStep(progressOf(player, config))
-                        .ifPresent(step -> deliver(player, settings, step)),
-                thrown -> reportDeliveryFailure(player, thrown));
+                () -> IdleReminderRules.nextStep(progressOf(player, config)),
+                step -> deliver(player, settings, step),
+                (stage, thrown) -> reportFailure(player, stage, thrown));
         tracked.put(id, next);
     }
 
@@ -277,18 +288,39 @@ public final class IdleReminderEngine {
     }
 
     /**
-     * Logs a delivery that threw, once per {@code cooldown-minutes} per player rather than per poll.
+     * Logs a reminder attempt that threw, at most once per
+     * {@link IdleReminderRules#FAILURE_LOG_FLOOR_MILLIS} across the whole server.
      *
-     * <p>The rate is what {@link IdleReminderRules#advance} buys: the cooldown is stamped before the
-     * delivery is attempted, so a template that throws produces one line per cooldown window and not
-     * one per second. {@code idle-reminder.message} is validated at config load, so reaching here at
-     * all means either a MiniMessage failure mode the validation does not model or a fault in the
-     * send itself; both are worth a line, and neither is worth the player's poll.
+     * <p>Two limits apply, and the second is what makes the rate unconditional. The cooldown is
+     * stamped before the attempt ({@link IdleReminderRules#advance}), so one player produces at most
+     * one failure per {@code max(cooldown-minutes, stand-still-seconds)}; but {@code cooldown-minutes}
+     * may be 0, which on its own would put a stack trace in the log every second.
+     * {@link IdleReminderRules.FailureLogThrottle} floors that, and the line it admits says how many
+     * it dropped.
+     *
+     * <p>The message depends on the {@link IdleReminderRules.Stage}. A failure to send points at
+     * {@code idle-reminder.message}, which is validated at config load, so reaching here means a
+     * MiniMessage failure mode the validation does not model or a fault in the send itself. A failure
+     * to evaluate is not the operator's template at all, and says so.
      */
-    private void reportDeliveryFailure(Player player, RuntimeException thrown) {
-        plugin.getLogger().log(Level.WARNING,
-                "idle-reminder: could not deliver the reminder to " + player.getName()
-                        + "; check idle-reminder.message in config.yml", thrown);
+    private void reportFailure(Player player, IdleReminderRules.Stage stage, Throwable thrown) {
+        OptionalLong admitted = failureLog.admit(clock.get());
+        if (admitted.isEmpty()) {
+            return;
+        }
+        String line = switch (stage) {
+            case EVALUATE -> "idle-reminder: could not work out the next step for " + player.getName()
+                    + "; progression evaluation failed, which is a plugin fault rather than a "
+                    + "configuration one";
+            case SEND -> "idle-reminder: could not deliver the reminder to " + player.getName()
+                    + "; check idle-reminder.message in config.yml";
+        };
+        long dropped = admitted.getAsLong();
+        if (dropped > 0L) {
+            line += " (" + dropped + " further idle-reminder "
+                    + (dropped == 1L ? "failure" : "failures") + " not logged since the last line)";
+        }
+        plugin.getLogger().log(Level.WARNING, line, thrown);
     }
 
     /** The player's position, in the Bukkit-free terms {@link IdleReminderRules} compares. */

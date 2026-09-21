@@ -559,6 +559,36 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("a template nested deep enough to overflow the stack warns and falls back")
+        void deeplyNestedTemplateFallsBack() throws Exception {
+            // MiniMessage parses nested tags recursively. On a small stack a template nested this
+            // deep overflows rather than throwing a parse error, and the load must survive that the
+            // same way it survives a legacy formatting code. The small stack makes the overflow
+            // certain rather than dependent on the JVM's default thread size.
+            String template = "<red>".repeat(50_000) + "{NEXT_STEP}";
+            String document = """
+                    idle-reminder:
+                      message: "%s"
+                    """.formatted(template);
+            AtomicReference<Object> outcome = new AtomicReference<>();
+            Thread loader = new Thread(null, () -> {
+                try {
+                    outcome.set(PluginConfig.from(yaml(document)));
+                } catch (Throwable thrown) {
+                    outcome.set(thrown);
+                }
+            }, "deep-template-loader", 256L * 1024L);
+            loader.start();
+            loader.join();
+
+            assertTrue(outcome.get() instanceof PluginConfig,
+                    "the load completes rather than failing with " + outcome.get());
+            PluginConfig config = (PluginConfig) outcome.get();
+            assertEquals(PluginConfig.defaults().idleReminder().message(), config.idleReminder().message());
+            assertTrue(mentions(config.warnings(), "idle-reminder.message"), config.warnings().toString());
+        }
+
+        @Test
         @DisplayName("MiniMessage's leniency is what it is, and the reader does not second-guess it")
         void lenientInputsAreKept() throws Exception {
             // Measured against adventure-text-minimessage 4.20.0: an unknown tag survives as literal
