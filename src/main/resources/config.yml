@@ -254,6 +254,16 @@ anti-cheese:
   outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
 
 # 8. Villager Progression
+# Refuses a villager or wandering-trader trade whose result carries Mending until the
+# advancement below is earned. This gate is independent of section 2: it stays on with
+# item-progression.enabled: false. It does borrow two keys from section 2, though --
+# the refusal is worded by item-progression.rejection-message and throttled by
+# item-progression.feedback-cooldown-seconds -- so both still apply here even when
+# item progression itself is switched off. It is waived by the same antispeedrun.bypass.items
+# permission and /asr bypass grant as the item gate.
 villager-progression:
   gate-mending-trade: false
   required-advancement: "minecraft:story/cure_zombie_villager"
+  # Shown as {REQUIREMENT} in the refusal. Left blank, the player is shown the raw
+  # advancement key instead. Update it if you change required-advancement.
+  hint: "Cure a Zombie Villager (Zombie Doctor)"

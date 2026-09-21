@@ -195,3 +195,4 @@ anti-cheese:
 villager-progression:
   gate-mending-trade: false
   required-advancement: "minecraft:story/cure_zombie_villager"
+  hint: "Cure a Zombie Villager (Zombie Doctor)"

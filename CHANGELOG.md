@@ -44,7 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plugin merchant is covered as well as a librarian's book. It is off by default, costs nothing on
   the trade path while it is off, and is waived by `antispeedrun.bypass.items` or an unexpired
   `/asr bypass` grant. A result that is both above its item tier and enchanted with Mending is
-  refused once, not twice.
+  refused once, not twice. The refusal is worded by `villager-progression.hint`, shipped as "Cure a
+  Zombie Villager (Zombie Doctor)"; left blank, it names the raw advancement key. The gate is
+  independent of `item-progression.enabled` but borrows that section's `rejection-message` and
+  `feedback-cooldown-seconds`. An item tier id may not contain `:`, which is reserved so that no
+  tier can share the Mending gate's feedback throttle.
 - Drop recall, implementing `item-progression.drop-recall-enabled`, which until now was parsed and
   read by nothing. A player may always re-collect an item entity they dropped or died with,
   whatever its tier, so that gear held by administrative grant, gear predating installation, and

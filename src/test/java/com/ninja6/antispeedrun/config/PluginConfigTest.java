@@ -941,6 +941,76 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("a tier id containing ':' is fatal while item progression is on")
+        void aColonInATierIdIsFatalWhileItemProgressionIsOn() {
+            // #113 item 3. The Mending gate throttles its feedback in the item gate's per-tier map
+            // under "villager:mending", so a tier of that name would silently throttle one gate
+            // behind the other. Checked against an operator's id, which a test over the shipped
+            // tiers cannot see. Subtype pinned for the reason given on the villager case above.
+            UnenforceableGateException failure = assertThrows(UnenforceableGateException.class,
+                    () -> PluginConfig.from(yaml("""
+                            item-progression:
+                              enabled: true
+                              gated-items:
+                                "villager:mending":
+                                  items:
+                                    - "DIAMOND"
+                                  require-advancements:
+                                    - "minecraft:story/mine_diamond"
+                            """)));
+
+            assertTrue(failure.getMessage().contains("villager:mending"), failure.getMessage());
+            assertTrue(failure.getMessage().contains("item-progression.gated-items"),
+                    failure.getMessage());
+        }
+
+        @Test
+        @DisplayName("a tier id containing ':' is a warning while item progression is off")
+        void aColonInATierIdIsAWarningWhileItemProgressionIsOff() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      enabled: false
+                      gated-items:
+                        "a:b":
+                          items:
+                            - "DIAMOND"
+                    """));
+
+            assertTrue(mentions(config.warnings(), "\"a:b\""), config.warnings().toString());
+        }
+
+        @Test
+        @DisplayName("no shipped tier id contains the reserved character")
+        void noShippedTierIdIsReserved() throws Exception {
+            for (PluginConfig.ItemTier tier : shipped().itemProgression().gatedItems()) {
+                assertTrue(tier.id().indexOf(PluginConfig.RESERVED_TIER_ID_CHAR) < 0, tier.id());
+            }
+        }
+
+        @Test
+        @DisplayName("villager-progression.hint is read, and defaults to a readable line")
+        void villagerHintIsRead() throws Exception {
+            // #113 item 5: without a hint the Mending refusal could only ever name the raw
+            // advancement key.
+            PluginConfig configured = PluginConfig.from(yaml("""
+                    villager-progression:
+                      hint: "Cure a Zombie Villager"
+                    """));
+            assertEquals("Cure a Zombie Villager", configured.villagerProgression().hint());
+            assertFalse(mentions(configured.warnings(), "villager-progression"),
+                    configured.warnings().toString());
+
+            assertFalse(PluginConfig.defaults().villagerProgression().hint().isBlank(),
+                    "the Mending refusal should not default to a raw advancement key");
+
+            PluginConfig cleared = PluginConfig.from(yaml("""
+                    villager-progression:
+                      hint: ""
+                    """));
+            assertEquals("", cleared.villagerProgression().hint());
+        }
+
+        @Test
         @DisplayName("a scalar require-advancements is fatal on an armed item tier")
         void aScalarRequirementListIsFatalOnAnArmedTier() {
             // #92, waiver path 1. A scalar where a list is expected falls back through stringList
