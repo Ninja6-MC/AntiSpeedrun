@@ -144,6 +144,30 @@ class StartupConfigPolicyTest {
     }
 
     @Test
+    @DisplayName("a tier id carrying the reserved character does not stop the plugin")
+    void aReservedTierIdBoots() throws ConfigLoadException {
+        // The tier gates exactly the items it names whatever it is called, so the document does not
+        // describe gating this server would fail to enforce. All the colon costs is one of two
+        // action bar lines being throttled behind the other, and refusing the boot over that would
+        // turn every gate in the file off -- the outcome this class exists to keep out.
+        PluginConfig config = parse("""
+                item-progression:
+                  enabled: true
+                  gated-items:
+                    "villager:mending":
+                      items:
+                        - "DIAMOND"
+                      require-advancements:
+                        - "minecraft:story/mine_diamond"
+                """);
+
+        assertTrue(config.itemProgression().enabled());
+        assertEquals(1, config.itemProgression().gatedItems().size());
+        assertTrue(config.warnings().stream().anyMatch(w -> w.contains("villager:mending")),
+                config.warnings().toString());
+    }
+
+    @Test
     @DisplayName("switching the same gate back on makes the same key fatal again")
     void enablingTheGateRestoresTheRefusal() {
         ConfigLoadException rejection = assertThrows(UnenforceableGateException.class, () -> parse("""

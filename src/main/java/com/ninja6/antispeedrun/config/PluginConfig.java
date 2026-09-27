@@ -111,8 +111,28 @@ public record PluginConfig(
     private static final String DEFAULT_ITEM_REJECTION =
             "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}";
     private static final String DEFAULT_MENDING_HINT = "Cure a Zombie Villager (Zombie Doctor)";
+    private static final String DEFAULT_MENDING_ADVANCEMENT =
+            "minecraft:story/cure_zombie_villager";
     private static final String DEFAULT_IDLE_MESSAGE =
             "<yellow>💡 Next Goal: <white>{NEXT_STEP} <gray>(Run <gold>/progress<gray>)";
+
+    /**
+     * The feedback key section 8's Mending gate throttles under, mirroring
+     * {@code MendingTradeRules.FEEDBACK_KEY}.
+     *
+     * <p>Stated here rather than imported because {@code config} does not depend on
+     * {@code listeners} and must not start to. {@code MendingTradeRulesTest} asserts the two agree.
+     */
+    public static final String MENDING_FEEDBACK_KEY = "villager:mending";
+
+    /**
+     * The character a tier id is asked not to contain, because ids containing it are reserved for
+     * feedback keys that are not tiers.
+     *
+     * <p>Advisory: {@link #warnOnReservedTierId} says why a tier that ignores it is warned about
+     * rather than refused.
+     */
+    public static final char RESERVED_TIER_ID_CHAR = ':';
 
     /**
      * Parses a complete snapshot from {@code root}.
@@ -215,7 +235,7 @@ public record PluginConfig(
         ConfigReader tiers = r.child("gated-items");
         List<ItemTier> parsed = new ArrayList<>();
         for (String id : tiers.keys()) {
-            requirePlainTierId(id, tiers, enabled);
+            warnOnReservedTierId(id, tiers);
             parsed.add(parseItemTier(id, tiers.child(id), enabled));
         }
 
@@ -241,43 +261,29 @@ public record PluginConfig(
     }
 
     /**
-     * The character a tier id may not contain, because ids containing it are reserved for feedback
-     * keys that are not tiers.
+     * Warns about a tier id containing {@link #RESERVED_TIER_ID_CHAR}.
      *
-     * <p>The item gate throttles its action bar line in one map keyed per tier id, and section 8's
-     * Mending gate shares that map under {@code villager:mending}. Any YAML mapping key is a legal
-     * tier id, so without this rule an operator naming a tier {@code villager:mending} would have
-     * the two gates silently throttle each other. Reserving the colon makes that collision
-     * impossible rather than unlikely, and costs nothing: no shipped tier id contains one.
+     * <p>A warning and never fatal. Such a tier gates exactly the items it names — the character
+     * costs nothing at the gate itself — so refusing the boot would trade every gate in the file for
+     * a cosmetic defect, which is the inverse of what {@link UnenforceableGateException} exists to
+     * prevent. What it does cost is the feedback throttle: the item gate keys its action bar line
+     * per tier id and section 8's Mending gate shares that map under
+     * {@link #MENDING_FEEDBACK_KEY}, so a tier named exactly that suppresses one of the two refusal
+     * lines while the other's cooldown runs. The whole character class is named rather than that one
+     * id because the reservation is what keeps the two namespaces separable at all, and no shipped
+     * tier id contains a colon.
      */
-    public static final char RESERVED_TIER_ID_CHAR = ':';
-
-    /**
-     * Rejects a tier id containing {@link #RESERVED_TIER_ID_CHAR}.
-     *
-     * <p>Fatal while item progression is on and a warning while it is off, the same split
-     * {@link ConfigReader#advancementKeys(String, List, boolean)} draws: a section that is switched
-     * off gates nothing, so a stale id inside it must not stop a server. The fatal case is an
-     * {@link UnenforceableGateException} rather than a plain {@link ConfigLoadException} so that a
-     * rejected file refuses the boot instead of falling back to the defaults, which gate no items.
-     */
-    private static void requirePlainTierId(String id, ConfigReader tiers, boolean enforced)
-            throws ConfigLoadException {
+    private static void warnOnReservedTierId(String id, ConfigReader tiers) {
         if (id.indexOf(RESERVED_TIER_ID_CHAR) < 0) {
             return;
         }
-        String problem = "tier id \"" + id + "\" contains '" + RESERVED_TIER_ID_CHAR + "', which is "
-                + "reserved: tier ids share a feedback cooldown map with other gates whose keys "
-                + "contain it, so this tier could silently throttle their messages or have its own "
-                + "throttled. Rename the tier";
-        if (!enforced) {
-            tiers.note(problem + " before switching item-progression back on, or the plugin "
-                    + "will refuse it then.");
-            return;
-        }
-        throw new UnenforceableGateException("item-progression.gated-items: " + problem
-                + " and reload. config.yml has NOT been applied: after a reload the configuration "
-                + "already running stays live, and at startup the plugin does not enable.");
+        tiers.note("tier id \"" + id + "\" contains '" + RESERVED_TIER_ID_CHAR + "', which is not "
+                + "recommended: the item gate throttles its action bar line under the tier id and "
+                + "section 8's Mending gate shares that map under \"" + MENDING_FEEDBACK_KEY
+                + "\". The tier still gates every item it names, but a tier id colliding with that "
+                + "key silently suppresses one of the two refusal messages while the other's "
+                + "feedback-cooldown-seconds is running. Rename the tier to something without a "
+                + "colon.");
     }
 
     private static ItemTier parseItemTier(String id, ConfigReader r, boolean enforced)
@@ -389,11 +395,38 @@ public record PluginConfig(
         // on it is the other half of #92's second waiver path: a blank key beside it is a gate that
         // reports itself armed and requires nothing, and is refused at the read site.
         boolean gated = r.bool("gate-mending-trade", false);
-        return new VillagerProgression(
-                gated,
-                r.advancementKey("required-advancement", "minecraft:story/cure_zombie_villager",
-                        gated),
-                r.string("hint", DEFAULT_MENDING_HINT));
+        String advancement = r.advancementKey("required-advancement", DEFAULT_MENDING_ADVANCEMENT,
+                gated);
+        String hint = r.string("hint", DEFAULT_MENDING_HINT);
+        warnOnStaleMendingHint(r, advancement, hint);
+        return new VillagerProgression(gated, advancement, hint);
+    }
+
+    /**
+     * Warns when {@code hint} still describes the shipped advancement while
+     * {@code required-advancement} no longer names it.
+     *
+     * <p>{@code hint} is free text and nothing can check that it describes the key beside it, so
+     * only the one combination that cannot be deliberate is reported: the requirement was changed
+     * and the shipped sentence left behind, which tells every refused player to go and earn
+     * something the gate does not ask for. The opposite pair — a reworded hint beside the shipped
+     * key — is how an operator phrases the same requirement in their own words, and warning about it
+     * would fire on every server that touched the line.
+     *
+     * <p>A blank or unresolvable key is not drift. It already carries a warning or a refusal of its
+     * own, and adding this one on top would bury it.
+     */
+    private static void warnOnStaleMendingHint(ConfigReader r, String advancement, String hint) {
+        if (advancement.isEmpty() || advancement.equals(DEFAULT_MENDING_ADVANCEMENT)) {
+            return;
+        }
+        if (!hint.equals(DEFAULT_MENDING_HINT)) {
+            return;
+        }
+        r.note("hint still reads \"" + DEFAULT_MENDING_HINT + "\" while required-advancement is now "
+                + "\"" + advancement + "\", so the refusal describes a requirement this gate no "
+                + "longer applies. Reword hint to match, or clear it to show the raw advancement key "
+                + "instead.");
     }
 
     // ---------------------------------------------------------------------------------------

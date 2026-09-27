@@ -69,10 +69,11 @@ public final class MendingTradeRules {
      * <p>The item gate's cooldown map is keyed per {@code ItemTier} id, and this gate shares it
      * rather than growing a second map: being refused a Mending book and then, moments later, a
      * diamond chestplate is two different pieces of news, which is precisely the distinction that
-     * map already makes. The colon keeps it out of the tier namespace structurally rather than by
-     * convention: a tier id is a YAML mapping key an operator writes, and
-     * {@code PluginConfig} rejects any that contains
+     * map already makes. The colon keeps it out of the tier namespace: a tier id is a YAML mapping
+     * key an operator writes, and {@code PluginConfig} warns about any that contains
      * {@link com.ninja6.antispeedrun.config.PluginConfig#RESERVED_TIER_ID_CHAR} at the read site.
+     * The warning is not a guarantee — an operator may ignore it — and all that costs is one of the
+     * two refusal lines being throttled behind the other, which is why it is not fatal.
      */
     public static final String FEEDBACK_KEY = "villager:mending";
 

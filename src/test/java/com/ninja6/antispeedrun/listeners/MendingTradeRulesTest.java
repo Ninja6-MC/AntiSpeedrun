@@ -25,12 +25,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class MendingTradeRulesTest {
 
-    /** A configuration identical to the shipped defaults but for section 8. */
+    /** A configuration identical to the shipped defaults but for section 8, with no hint. */
     private static PluginConfig withVillager(boolean gated, String advancement) {
+        return withVillager(gated, advancement, "");
+    }
+
+    /** A configuration identical to the shipped defaults but for section 8. */
+    private static PluginConfig withVillager(boolean gated, String advancement, String hint) {
         PluginConfig base = PluginConfig.defaults();
         return new PluginConfig(base.profile(), base.dimensionGates(), base.itemProgression(),
                 base.trimProgression(), base.idleReminder(), base.journeyBook(), base.bossScaling(),
-                base.antiCheese(), new PluginConfig.VillagerProgression(gated, advancement, ""),
+                base.antiCheese(), new PluginConfig.VillagerProgression(gated, advancement, hint),
                 List.of());
     }
 
@@ -59,6 +64,55 @@ class MendingTradeRulesTest {
         @DisplayName("null configuration is a programming error, not a silent pass")
         void nullConfig() {
             assertThrows(NullPointerException.class, () -> MendingTradeRules.armed(null));
+        }
+    }
+
+    @Nested
+    @DisplayName("what the refusal tells the player")
+    class RefusalText {
+
+        /**
+         * {@code ItemProgressionListener#refuseMending} hands {@code villagerProgression().hint()}
+         * to the same pair of calls asserted here, so this is the configured section 8 hint reaching
+         * a player-facing refusal rather than only the hint being parsed. The listener itself needs a
+         * {@code Player} and stays untested for the reason {@link ItemGateRulesTest} records.
+         */
+        @Test
+        @DisplayName("a configured hint is what {REQUIREMENT} says")
+        void configuredHintReachesTheRefusal() {
+            PluginConfig config = withVillager(true, "minecraft:story/cure_zombie_villager",
+                    "Cure a Zombie Villager (Zombie Doctor)");
+            EligibilityResult result = new EligibilityResult(false,
+                    List.of("minecraft:story/cure_zombie_villager"), List.of(), 0.0D, 0, false);
+
+            String line = ItemGateRules.rejection(
+                    config.itemProgression().rejectionMessage(),
+                    ItemGateRules.friendlyName("ENCHANTED_BOOK"),
+                    ItemGateRules.requirementText(config.villagerProgression().hint(), result));
+
+            assertTrue(line.contains("Cure a Zombie Villager (Zombie Doctor)"), line);
+            assertFalse(line.contains("{REQUIREMENT}"), line);
+        }
+
+        /**
+         * The shipped configuration sets a hint, so this is the operator who cleared it: the raw
+         * advancement key is the fallback, which is worse text but never a blank requirement.
+         */
+        @Test
+        @DisplayName("a cleared hint falls back to the advancement key")
+        void clearedHintFallsBackToTheKey() {
+            PluginConfig config = withVillager(true, "minecraft:story/cure_zombie_villager");
+            EligibilityResult result = new EligibilityResult(false,
+                    List.of("minecraft:story/cure_zombie_villager"), List.of(), 0.0D, 0, false);
+
+            assertEquals("minecraft:story/cure_zombie_villager",
+                    ItemGateRules.requirementText(config.villagerProgression().hint(), result));
+        }
+
+        @Test
+        @DisplayName("the shipped configuration ships a hint rather than a raw key")
+        void shippedConfigurationCarriesAHint() {
+            assertFalse(PluginConfig.defaults().villagerProgression().hint().isBlank());
         }
     }
 
@@ -238,14 +292,15 @@ class MendingTradeRulesTest {
         }
 
         /**
-         * The feedback key shares the item gate's per-tier cooldown map, so it must not be able to
-         * collide with a tier id. Tier ids are YAML mapping keys an operator writes, and the
-         * config reader rejects any containing the reserved character, which this key carries.
-         * That an operator's id is rejected is pinned in {@code PluginConfigTest}.
+         * The feedback key shares the item gate's per-tier cooldown map, so it must stay out of the
+         * tier namespace. Tier ids are YAML mapping keys an operator writes, and the config reader
+         * warns about any containing the reserved character, which this key carries. That the
+         * warning is issued, and that it is only a warning, is pinned in {@code PluginConfigTest}.
          */
         @Test
-        @DisplayName("the feedback key cannot collide with a tier id")
+        @DisplayName("the feedback key sits outside the tier namespace")
         void feedbackKeyIsOutsideTheTierNamespace() {
+            assertEquals(PluginConfig.MENDING_FEEDBACK_KEY, MendingTradeRules.FEEDBACK_KEY);
             assertTrue(MendingTradeRules.FEEDBACK_KEY.indexOf(PluginConfig.RESERVED_TIER_ID_CHAR) >= 0);
             for (PluginConfig.ItemTier tier : PluginConfig.defaults().itemProgression().gatedItems()) {
                 assertFalse(MendingTradeRules.FEEDBACK_KEY.equals(tier.id()),

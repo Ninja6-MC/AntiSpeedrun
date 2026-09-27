@@ -206,37 +206,25 @@ public final class ItemGateRules {
     /**
      * What to put in {@code {REQUIREMENT}}.
      *
-     * <p>The tier's configured {@code hint} wins whenever it is set, because it is the operator
-     * saying how they want the requirement described — "Mine Stone with a wooden pickaxe (Stone
-     * Age)" is better player-facing text than any list of advancement keys this method could
-     * assemble. The composed fallback exists for a tier whose hint was left blank, and names only
-     * what the player can still go and do: {@link EligibilityResult#unresolvableAdvancements()} is
-     * excluded because the evaluator has already waived those, and repeating them here would tell a
-     * player to go and earn something this server does not define.
+     * <p>The configured {@code hint} wins whenever it is set, because it is the operator saying how
+     * they want the requirement described — "Mine Stone with a wooden pickaxe (Stone Age)" is better
+     * player-facing text than any list of advancement keys this method could assemble. The composed
+     * fallback exists for a gate whose hint was left blank, and names only what the player can still
+     * go and do: {@link EligibilityResult#unresolvableAdvancements()} is excluded because the
+     * evaluator has already waived those, and repeating them here would tell a player to go and earn
+     * something this server does not define.
      *
-     * @return never blank; falls back to a generic line when a tier has no hint and the result
-     *         carries nothing actionable, which happens when the only outstanding requirement was
-     *         waived
-     */
-    public static String requirementText(ItemTier tier, EligibilityResult result) {
-        Objects.requireNonNull(tier, "tier");
-        return requirementText(tier.hint(), result);
-    }
-
-    /**
-     * What to put in {@code {REQUIREMENT}}, from a configured hint rather than a tier.
+     * <p>Takes the hint rather than an {@code ItemTier} because both of
+     * {@link ItemProgressionListener}'s gates call it, and section 8's Mending gate has a
+     * {@code hint} of its own and no tier to carry it.
      *
-     * <p>The form {@link ItemProgressionListener} calls for both of its gates, because section 8's
-     * Mending gate has a {@code hint} of its own and no tier to carry it. Same rule as
-     * {@link #requirementText(ItemTier, EligibilityResult)}: a non-blank hint wins, and a blank one
-     * falls back to {@link #outstanding}.
-     *
-     * <p>Called only once the feedback throttle has decided to speak, never at the refusal site:
-     * the composed fallback allocates, and a refused pickup retries every two seconds for as long as
-     * the player stands on the item.
+     * <p>Called only once the feedback throttle has decided to speak, never at the refusal site: the
+     * composed fallback allocates, and a refused pickup retries every two seconds for as long as the
+     * player stands on the item.
      *
      * @param hint the operator's configured hint; blank means "compose one from the result"
-     * @return never blank
+     * @return never blank; falls back to a generic line when there is no hint and the result carries
+     *         nothing actionable, which happens when the only outstanding requirement was waived
      */
     public static String requirementText(String hint, EligibilityResult result) {
         Objects.requireNonNull(hint, "hint");
