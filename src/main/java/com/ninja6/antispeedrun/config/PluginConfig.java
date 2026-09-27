@@ -296,7 +296,9 @@ public record PluginConfig(
         r.expect("give-on-first-join", "title", "author");
         return new JourneyBook(
                 r.bool("give-on-first-join", true),
-                r.string("title", "<gold>Ninja6 Survival Guide"),
+                // Not r.string: the default is MiniMessage and an operator edits it as such, so
+                // the template is checked here rather than by whatever first renders the book.
+                r.miniMessage("title", "<gold>Ninja6 Survival Guide"),
                 r.string("author", "Ninja6-MC"));
     }
 

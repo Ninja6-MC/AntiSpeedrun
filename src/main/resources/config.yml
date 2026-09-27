@@ -60,6 +60,18 @@ profile: SMP_STANDARD
 #
 #                  The reasoning behind the split is in issue #91.
 
+# Message templates are MiniMessage, and they are parsed when this file is loaded. That
+# covers every rejection-message, every item tier hint, journey-book.title and
+# idle-reminder.message. Write colour and style as tags -- <red>, <gold>, <bold>.
+#
+# A legacy section-sign code is not MiniMessage. A template containing one is refused at
+# load and the shipped default for that same key is used in its place, with a WARNING
+# naming the key. Nothing else changes: the gate still refuses the player, and the player
+# still sees a correct message -- the one shipped with the plugin rather than the one you
+# wrote. Fix the template and reload. Parsing at load is why a mistyped template is
+# reported once at startup instead of throwing on a region thread every time somebody is
+# turned away.
+
 # 1. Dimension Progression Gates
 dimension-gates:
   nether:
@@ -67,6 +79,7 @@ dimension-gates:
     require-playtime-hours: 0          # Default 0 (Advancement-driven). Set >0 for time gating.
     require-advancements:
       - "minecraft:story/smelt_iron"
+    # MiniMessage. A legacy § code is refused at load; the default is used.
     rejection-message: "<red>🔒 The Nether is locked! Requires <yellow>Iron Gear<red> (Smelt an iron ingot). Type <gold>/progress"
 
   the_end:
@@ -77,6 +90,7 @@ dimension-gates:
       - "minecraft:story/mine_diamond"
       - "minecraft:nether/obtain_blaze_rod"
       - "minecraft:nether/find_fortress"
+    # MiniMessage. A legacy § code is refused at load; the default is used.
     rejection-message: "<red>🔒 The End is sealed! Complete survival progression first. Type <gold>/progress"
 
 # 2. Anti-Boosting & Item Progression Gating (Minecraft Tag & Pattern Resolution)
@@ -90,6 +104,7 @@ item-progression:
   gate-dispensers: true               # Prevent dispensers from equipping locked armor onto unqualified players
   gate-nested-bundles: true           # Prevent extracting/spraying locked items from Bundles
   feedback-cooldown-seconds: 3        # Cooldown between action bar warning messages
+  # MiniMessage. A legacy § code is refused at load; the default is used.
   rejection-message: "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}"
   gated-items:
     iron-tier:
@@ -121,6 +136,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/mine_stone"
       require-playtime-hours: 0
+      # MiniMessage. A legacy § code is refused at load; the default is used.
       hint: "Mine Stone with a wooden pickaxe (Stone Age)"
 
     diamond-tier:
