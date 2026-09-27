@@ -59,6 +59,48 @@ class SafeRetreatTest {
         return terrain(y -> y < groundY ? '#' : '.');
     }
 
+    /**
+     * A world described per block rather than per column, for the cases {@link Column} cannot state.
+     *
+     * <p>Every fixture above answers from {@code y} alone, which makes each of them horizontally
+     * uniform: a two-block gap in such a world is an infinite slab, and a player put down in it can
+     * always walk out of it. Enclosure is the one shape that needs {@code x} and {@code z}.
+     */
+    private interface Block {
+        char at(int x, int y, int z);
+    }
+
+    private static SafeRetreat.Terrain blocks(Block block) {
+        return new SafeRetreat.Terrain() {
+            @Override
+            public boolean isPassable(int x, int y, int z) {
+                return block.at(x, y, z) != '#';
+            }
+
+            @Override
+            public boolean isSolid(int x, int y, int z) {
+                return block.at(x, y, z) == '#';
+            }
+
+            @Override
+            public boolean isHazard(int x, int y, int z) {
+                return block.at(x, y, z) == 'L';
+            }
+        };
+    }
+
+    /**
+     * Solid rock, with a single {@code 1 x 2 x 1} air pocket at {@code (px, py..py + 1, pz)}.
+     *
+     * <p>Floor below, headroom above, nothing harmful anywhere in it, and no way out: the shape an
+     * ore pocket in the Nether has, and the shape a search written purely in terms of the column
+     * accepts.
+     */
+    private static SafeRetreat.Terrain sealedPocket(int px, int py, int pz) {
+        return blocks((x, y, z) ->
+                (x == px && z == pz && (y == py || y == py + 1)) ? '.' : '#');
+    }
+
     /** Nothing anywhere. The void, or a column of air with no floor. */
     private static final SafeRetreat.Terrain VOID = terrain(y -> '.');
 
@@ -448,6 +490,181 @@ class SafeRetreatTest {
 
             assertTrue(landing.retreated());
             assertEquals(64.0D, landing.y(), 1.0E-9D);
+        }
+
+        /**
+         * A buried Nether spawn resolved through {@link SafeRetreat#searchCeiling}, which is the only
+         * combination the listener ever uses and the case the cap was written for. The cave is far
+         * enough down that the roof is the <em>nearer</em> candidate, so the cap decides the answer
+         * rather than merely agreeing with it.
+         */
+        @Test
+        @DisplayName("a Nether spawn buried above a deep cave lands in the cave, not on the roof")
+        void netherSpawnResolvesBelowTheRoof() {
+            // Netherrack from 0 to 127 with a cave at 10-11, the roof at 127, open air above it.
+            SafeRetreat.Terrain nether = terrain(y -> (y == 10 || y == 11 || y >= 128) ? '.' : '#');
+            int minHeight = 0;
+            int maxHeight = 256;
+            int logicalHeight = 128;
+
+            SafeRetreat.Landing landing = SafeRetreat.spawnLanding(0.0D, 70.0D, 0.0D, nether,
+                    minHeight, SafeRetreat.searchCeiling(minHeight, maxHeight, logicalHeight));
+            assertTrue(landing.retreated());
+            assertEquals(10.0D, landing.y(), 1.0E-9D, "the cave, 60 blocks down");
+
+            SafeRetreat.Landing uncapped =
+                    SafeRetreat.spawnLanding(0.0D, 70.0D, 0.0D, nether, minHeight, maxHeight);
+            assertEquals(128.0D, uncapped.y(), 1.0E-9D,
+                    "without the cap the roof is 58 blocks up and wins on distance");
+        }
+    }
+
+    /**
+     * How high a spawn-column search is allowed to look, from the heights a world reports. Pure
+     * arithmetic, extracted from the listener precisely so it can be stated here: the listener's own
+     * copy needed a running server to reach.
+     */
+    @Nested
+    @DisplayName("the ceiling a spawn search is given")
+    class SearchCeiling {
+
+        @Test
+        @DisplayName("the Nether is capped at its logical height, half its build height")
+        void nether() {
+            assertEquals(128, SafeRetreat.searchCeiling(0, 256, 128));
+        }
+
+        @Test
+        @DisplayName("the Overworld is not capped, because the two heights coincide")
+        void overworld() {
+            assertEquals(320, SafeRetreat.searchCeiling(-64, 320, 384));
+        }
+
+        @Test
+        @DisplayName("the build height still wins, so no logical height can search past the world")
+        void buildHeightIsTheUpperBound() {
+            assertEquals(256, SafeRetreat.searchCeiling(0, 256, 4096));
+        }
+
+        @Test
+        @DisplayName("the minimum height is the origin of the count, not zero")
+        void countsFromTheWorldFloor() {
+            // A world floor below zero is the Overworld's normal shape, and adding a logical height
+            // to zero rather than to the floor would overshoot it by the depth of the negative part.
+            assertEquals(64, SafeRetreat.searchCeiling(-64, 320, 128));
+        }
+    }
+
+    /**
+     * The hole the #123 review found. A solid floor under two blocks of harmless air is exactly what
+     * an ore pocket in the middle of netherrack looks like, and {@link SafeRetreat#spawnLanding}
+     * searches a whole world height looking for one.
+     */
+    @Nested
+    @DisplayName("sealed pockets - standing room is not the same as a way out")
+    class SealedPockets {
+
+        @Test
+        @DisplayName("a pocket walled in on all four sides is not a landing")
+        void sealedPocketIsRefused() {
+            assertEquals(OptionalInt.empty(),
+                    SafeRetreat.groundY(sealedPocket(0, 30, 0), 0, 30, 0, 0, 128));
+        }
+
+        @Test
+        @DisplayName("a spawn above a sealed pocket is handed back rather than walled into it")
+        void spawnLandingRefusesIt() {
+            SafeRetreat.Landing landing =
+                    SafeRetreat.spawnLanding(0.0D, 70.0D, 0.0D, sealedPocket(0, 30, 0), 0, 128);
+
+            assertFalse(landing.retreated(), "the only gap in the column is sealed");
+            assertEquals(0.0D, landing.x(), 1.0E-9D, "so the spawn is handed back untouched");
+            assertEquals(70.0D, landing.y(), 1.0E-9D);
+            assertEquals(0.0D, landing.z(), 1.0E-9D);
+        }
+
+        /**
+         * The positive control the assertions above need. Without it they are equally satisfied by a
+         * rule that refuses everything a per-block fixture describes.
+         */
+        @Test
+        @DisplayName("the same pocket with one full-height opening is an ordinary landing")
+        void oneOpeningIsEnough() {
+            // The pocket, plus the two blocks immediately east of it.
+            SafeRetreat.Terrain withDoorway = blocks((x, y, z) ->
+                    (z == 0 && (x == 0 || x == 1) && (y == 30 || y == 31)) ? '.' : '#');
+
+            assertEquals(OptionalInt.of(30),
+                    SafeRetreat.groundY(withDoorway, 0, 30, 0, 0, 128));
+        }
+
+        @Test
+        @DisplayName("a gap at foot height only is not a way out; a player cannot walk through it")
+        void footHeightGapIsNotADoorway() {
+            // As the doorway above, but the block east at head height is left solid.
+            SafeRetreat.Terrain crawlspace = blocks((x, y, z) -> {
+                if (z != 0 || y < 30 || y > 31) {
+                    return '#';
+                }
+                if (x == 0) {
+                    return '.';
+                }
+                return (x == 1 && y == 30) ? '.' : '#';
+            });
+
+            assertEquals(OptionalInt.empty(),
+                    SafeRetreat.groundY(crawlspace, 0, 30, 0, 0, 128));
+        }
+
+        @Test
+        @DisplayName("an opening filled with lava is a way to die, not a way out")
+        void hazardousOpeningIsNotADoorway() {
+            SafeRetreat.Terrain lavaDoorway = blocks((x, y, z) -> {
+                if (z != 0 || y < 30 || y > 31) {
+                    return '#';
+                }
+                if (x == 0) {
+                    return '.';
+                }
+                return x == 1 ? 'L' : '#';
+            });
+
+            assertEquals(OptionalInt.empty(),
+                    SafeRetreat.groundY(lavaDoorway, 0, 30, 0, 0, 128));
+        }
+
+        /**
+         * A one-block shaft is a way out only for a player carrying blocks to pillar with, and a
+         * return through a gate promises nothing about their inventory.
+         */
+        @Test
+        @DisplayName("open air above the head does not on its own make a walled shaft escapable")
+        void shaftUpwardsIsNotADoorway() {
+            // The pocket, extended straight up to the top of the world. Walls on all four sides the
+            // whole way, so there is standing room, headroom, and still nowhere to step.
+            SafeRetreat.Terrain shaft =
+                    blocks((x, y, z) -> (x == 0 && z == 0 && y >= 30) ? '.' : '#');
+
+            assertEquals(OptionalInt.empty(),
+                    SafeRetreat.groundY(shaft, 0, 30, 0, 0, 128));
+        }
+
+        /**
+         * The rule is shared with the ejection path on purpose. A retreat spot two blocks behind a
+         * portal that is sealed is the same trap, and {@link SafeRetreat#landing} has somewhere
+         * strictly better to fall back to: the spot the rider occupied a moment ago.
+         */
+        @Test
+        @DisplayName("an ejection will not retreat into a sealed pocket either")
+        void ejectionFallsBackToTheOrigin() {
+            SafeRetreat.Landing landing = SafeRetreat.landing(
+                    2.5D, 30.0D, 0.5D, new SafeRetreat.Offset(-2.0D, 0.0D),
+                    sealedPocket(0, 30, 0), 0, 128);
+
+            assertFalse(landing.retreated(), "the pocket behind the portal is sealed");
+            assertEquals(2.5D, landing.x(), 1.0E-9D);
+            assertEquals(30.0D, landing.y(), 1.0E-9D);
+            assertEquals(0.5D, landing.z(), 1.0E-9D);
         }
     }
 }

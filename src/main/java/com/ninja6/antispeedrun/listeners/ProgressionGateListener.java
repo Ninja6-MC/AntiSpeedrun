@@ -599,8 +599,11 @@ public final class ProgressionGateListener implements Listener {
      *
      * <h2>Folia region threading</h2>
      *
-     * {@code PlayerChangedWorldEvent} is a single-entity event, so Folia calls it on the region that
-     * now owns the player, in the destination world. Legal inline, and all of it done inline: the
+     * {@code PlayerChangedWorldEvent} is a single-entity event, so were Folia to fire it, it would be
+     * on the region that now owns the player, in the destination world. It does not fire it for a
+     * portal transit — see <em>Does Folia fire this at all?</em> above — so what follows is what keeps
+     * the handler legal on Folia if that ever changes, and is the reason the block reads below go to a
+     * scheduler on Paper too. Legal inline, and all of it done inline: the
      * progression evaluation (a cache read), the bypass grant (this player's own PDC), the
      * dimension-unlock override (in memory), the ledger (in memory), and the message. Illegal, and
      * therefore not done inline: reading a block in the world they came from — the source world
@@ -655,8 +658,9 @@ public final class ProgressionGateListener implements Listener {
 
         reject(player, config, dimension, result);
         plugin.getLogger().fine(() -> "Returning " + player.getName() + " from " + arrivedIn.getName()
-                + ": they arrived without passing the " + dimension + " gate, which on Folia means a"
-                + " vehicle carried them through a portal the server reported no event for.");
+                + ": they arrived without passing the " + dimension + " gate, so a transit reached this"
+                + " world without any handler cancelling it. Paper only - Folia does not fire this"
+                + " event for a portal transit, so the backstop is not armed there.");
         returnToSpawn(player, cameFrom);
     }
 
@@ -670,14 +674,17 @@ public final class ProgressionGateListener implements Listener {
      * {@link #scheduleEjection}, as every other return in this class is. On Paper both schedulers
      * run on the main thread and the hops cost a tick of delay and nothing else.
      *
-     * <p>{@code maxY} is capped at the world's logical height so that a deep Nether spawn is not
-     * resolved onto the roof.
+     * <p>{@code maxY} comes from {@link SafeRetreat#searchCeiling}, which caps the search at the
+     * world's logical height so that a deep Nether spawn is not resolved onto the roof. The
+     * arithmetic lives there rather than here because it is the one part of this method a test can
+     * reach without a running server.
      */
     private void returnToSpawn(Player player, World world) {
         Location spawn = world.getSpawnLocation();
         plugin.getServer().getRegionScheduler().execute(plugin, spawn, () -> {
             int minY = world.getMinHeight();
-            int maxY = Math.min(world.getMaxHeight(), minY + world.getLogicalHeight());
+            int maxY = SafeRetreat.searchCeiling(minY, world.getMaxHeight(),
+                    world.getLogicalHeight());
             SafeRetreat.Landing landing = SafeRetreat.spawnLanding(spawn.getX(), spawn.getY(),
                     spawn.getZ(), terrainOf(world), minY, maxY);
             if (!landing.retreated()) {

@@ -152,7 +152,8 @@ public final class SafeRetreat {
      *
      * <p>"Stand at" means the block their feet occupy: passable and harmless at {@code y} and
      * {@code y + 1} — a player is two blocks tall, and a one-block hole is a suffocation, not a
-     * landing — with something solid and harmless at {@code y - 1} to stand on.
+     * landing — with something solid and harmless at {@code y - 1} to stand on, and at least one
+     * full-height opening beside it so the player can walk away rather than being sealed in.
      *
      * <p>Downward is searched before upward, and the two are interleaved by distance so the nearest
      * candidate wins. Falling a short way onto the ground is what an ejected rider expects;
@@ -253,9 +254,14 @@ public final class SafeRetreat {
      * handed back unchanged — the behaviour before this search existed, and still better than
      * declining to return a player the gate refused.
      *
-     * <p>A caller over a world with a ceiling should pass that world's logical height as
-     * {@code maxY}, not its build height, or the nearest open space above a deep spawn may be the
+     * <p>A caller over a world with a ceiling should pass {@link #searchCeiling} as {@code maxY}
+     * rather than the world's build height, or the nearest open space above a deep spawn may be the
      * Nether roof.
+     *
+     * <p>Searching a whole world height is also what makes the escape clause in {@code standable}
+     * load-bearing: over a column of netherrack the first two-block gap is far likelier to be a
+     * sealed ore pocket than a cave, and a player walled into one is worse off than at the buried
+     * spawn this search exists to move them off.
      *
      * @param spawnX  the spawn's x
      * @param spawnY  the spawn's y
@@ -279,6 +285,40 @@ public final class SafeRetreat {
         return new Landing(blockX + 0.5D, ground.getAsInt(), blockZ + 0.5D, true);
     }
 
+    /**
+     * Whether a player put down with their feet at {@code (x, y, z)} would stand there, unharmed,
+     * and be able to walk away from it.
+     *
+     * <p>The last clause is not decoration. A solid floor under two blocks of harmless air is
+     * satisfied by a sealed pocket in the middle of rock, and {@link #spawnLanding} searches a whole
+     * world height looking for one: the Nether's spawn column is solid netherrack, and the first
+     * two-block gap anywhere in it is far likelier to be an ore pocket than a cave. Setting a player
+     * the gate just refused down inside rock with no way out is worse than the buried spawn the
+     * search was meant to rescue them from, because the spawn is at least where they expected to be.
+     */
+    /**
+     * The {@code maxY} a spawn-column search should be given for a world, from the three heights the
+     * world reports.
+     *
+     * <p>A world's logical height is the part of it a player belongs in, and in the Nether it is half
+     * the build height: {@code minHeight 0}, {@code maxHeight 256}, {@code logicalHeight 128}. Above
+     * that is the roof and the open air over it, which is reachable, standable, harmless and exactly
+     * where nobody should be put — so {@link #spawnLanding} is given the logical ceiling rather than
+     * the build height, and a spawn buried in netherrack resolves to a cave below the roof or to
+     * nothing at all. In the Overworld the two coincide and this changes nothing.
+     *
+     * <p>{@code maxHeight} is still honoured, so a server that reports a logical height larger than
+     * the world cannot push the search past the top of it.
+     *
+     * @param minHeight     the world's minimum build height, inclusive
+     * @param maxHeight     the world's maximum build height, exclusive
+     * @param logicalHeight the world's logical height
+     * @return the exclusive ceiling to search to
+     */
+    public static int searchCeiling(int minHeight, int maxHeight, int logicalHeight) {
+        return Math.min(maxHeight, minHeight + logicalHeight);
+    }
+
     private static boolean standable(Terrain terrain, int x, int y, int z, int minY, int maxY) {
         if (y - 1 < minY || y + 1 >= maxY) {
             // No floor below the build limit, and no headroom above it. Both are outside the world
@@ -287,9 +327,45 @@ public final class SafeRetreat {
         }
         return terrain.isSolid(x, y - 1, z)
                 && !terrain.isHazard(x, y - 1, z)
-                && terrain.isPassable(x, y, z)
+                && roomToStand(terrain, x, y, z)
+                && escapable(terrain, x, y, z);
+    }
+
+    /**
+     * Whether a player's body fits at {@code (x, y, z)} and is not in something that hurts.
+     *
+     * <p>Both blocks, because a player is two blocks tall and a one-block gap is a suffocation
+     * rather than a landing. Passable and harmless are asked separately of each: they disagree
+     * exactly where it matters, which is what once put an ejected rider in lava.
+     */
+    private static boolean roomToStand(Terrain terrain, int x, int y, int z) {
+        return terrain.isPassable(x, y, z)
                 && !terrain.isHazard(x, y, z)
                 && terrain.isPassable(x, y + 1, z)
                 && !terrain.isHazard(x, y + 1, z);
+    }
+
+    /**
+     * Whether a player standing at {@code (x, y, z)} could walk out of it.
+     *
+     * <p>The test is one full-height opening in any of the four horizontal directions: somewhere a
+     * body fits and is not harmed, so it can be stepped into. A gap at foot height under a solid
+     * block is not one — a player cannot walk through it — and a hazard on the far side is a way to
+     * die rather than a way out.
+     *
+     * <p>Open space above the head does not count. A one-block shaft through forty blocks of stone
+     * is a way out only for a player who happens to be carrying blocks to pillar with, and a return
+     * through a gate makes no promise about their inventory.
+     *
+     * <p>Only the immediate neighbours are probed. This is deliberately a check that the spot is not
+     * <em>sealed</em>, not a pathfind to the surface: a cave a long way from anywhere is still
+     * somewhere a player can move, dig and light, and refusing it would send them back to a spawn
+     * inside rock instead.
+     */
+    private static boolean escapable(Terrain terrain, int x, int y, int z) {
+        return roomToStand(terrain, x + 1, y, z)
+                || roomToStand(terrain, x - 1, y, z)
+                || roomToStand(terrain, x, y, z + 1)
+                || roomToStand(terrain, x, y, z - 1);
     }
 }
