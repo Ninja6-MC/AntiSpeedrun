@@ -375,4 +375,79 @@ class SafeRetreatTest {
             assertEquals(200.5D, landing.z(), 1.0E-9D);
         }
     }
+
+    /**
+     * A player the arrival backstop returns to the spawn of the world they came from — #114.
+     *
+     * <p>The worlds below are shaped like the case that motivated it: a Nether spawn buried in
+     * netherrack, with the nearest cave well beyond {@link SafeRetreat#SEARCH_RADIUS}, and a
+     * bedrock roof with open air above it that a search must not prefer.
+     */
+    @Nested
+    @DisplayName("the landing for a return to spawn")
+    class SpawnLanding {
+
+        /** Solid everywhere except a two-block pocket at 30-31 and open air from the roof up. */
+        private final SafeRetreat.Terrain buriedNetherSpawn =
+                terrain(y -> (y == 30 || y == 31 || y >= 128) ? '.' : '#');
+
+        @Test
+        @DisplayName("an open spawn is used as it stands")
+        void openSpawn() {
+            SafeRetreat.Landing landing =
+                    SafeRetreat.spawnLanding(0.0D, 64.0D, 0.0D, flatGround(64), -64, 320);
+
+            assertTrue(landing.retreated());
+            assertEquals(0.5D, landing.x(), 1.0E-9D);
+            assertEquals(64.0D, landing.y(), 1.0E-9D);
+            assertEquals(0.5D, landing.z(), 1.0E-9D);
+        }
+
+        @Test
+        @DisplayName("a spawn inside rock is searched past the ejection radius to the nearest pocket")
+        void buriedSpawnFindsThePocket() {
+            SafeRetreat.Landing landing =
+                    SafeRetreat.spawnLanding(8.0D, 70.0D, -3.0D, buriedNetherSpawn, 0, 128);
+
+            assertTrue(landing.retreated(), "the pocket is 40 blocks down, well past SEARCH_RADIUS");
+            assertEquals(30.0D, landing.y(), 1.0E-9D);
+            assertEquals(8.5D, landing.x(), 1.0E-9D);
+            assertEquals(-2.5D, landing.z(), 1.0E-9D);
+        }
+
+        @Test
+        @DisplayName("capped at the logical height, the Nether roof is never the answer")
+        void roofIsNotALanding() {
+            SafeRetreat.Terrain sealed = terrain(y -> y >= 128 ? '.' : '#');
+
+            SafeRetreat.Landing capped = SafeRetreat.spawnLanding(0.0D, 70.0D, 0.0D, sealed, 0, 128);
+            assertFalse(capped.retreated(), "nothing standable below the roof");
+            assertEquals(70.0D, capped.y(), 1.0E-9D, "so the spawn is handed back unchanged");
+
+            SafeRetreat.Landing uncapped = SafeRetreat.spawnLanding(0.0D, 70.0D, 0.0D, sealed, 0, 256);
+            assertEquals(128.0D, uncapped.y(), 1.0E-9D,
+                    "which is why the caller passes the logical height rather than the build height");
+        }
+
+        @Test
+        @DisplayName("never answers nowhere, even over the void")
+        void neverAnswersNowhere() {
+            SafeRetreat.Landing landing = SafeRetreat.spawnLanding(1.5D, 64.0D, 2.5D, VOID, -64, 320);
+
+            assertFalse(landing.retreated());
+            assertEquals(1.5D, landing.x(), 1.0E-9D);
+            assertEquals(64.0D, landing.y(), 1.0E-9D);
+            assertEquals(2.5D, landing.z(), 1.0E-9D);
+        }
+
+        @Test
+        @DisplayName("a spawn Y outside the build range is clamped rather than searched from outside")
+        void spawnOutsideTheWorldIsClamped() {
+            SafeRetreat.Landing landing =
+                    SafeRetreat.spawnLanding(0.0D, 400.0D, 0.0D, flatGround(64), -64, 320);
+
+            assertTrue(landing.retreated());
+            assertEquals(64.0D, landing.y(), 1.0E-9D);
+        }
+    }
 }

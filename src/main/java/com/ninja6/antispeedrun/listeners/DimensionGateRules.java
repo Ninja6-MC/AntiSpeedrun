@@ -145,7 +145,9 @@ public final class DimensionGateRules {
      * because on Folia one route does not announce itself at all: a vehicle carrying a passenger
      * through a portal fires neither {@code EntityPortalEvent} nor {@code PlayerPortalEvent}
      * (PaperMC/Folia#453), so there is no transit to cancel and the only evidence the gate ever gets
-     * is the player turning up on the other side.
+     * is the player turning up on the other side. Whether Folia reports even that is a question
+     * about the listener, not about this verdict — see {@code
+     * ProgressionGateListener#onPlayerChangedWorld} for the answer #114 found in the source.
      *
      * <p>The whole difficulty is telling that arrival apart from the several legitimate ways an
      * ineligible player reaches the Nether, and the answer is that each of those leaves a trace:

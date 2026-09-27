@@ -17,6 +17,9 @@ import java.util.OptionalInt;
  *   <li><strong>So where do they go?</strong> {@link #landing} composes the two and, crucially,
  *       <em>always answers</em> — falling back to the origin it was given rather than to nothing.
  *       See the note on {@link Landing} for why the difference is a gate rather than a nicety.</li>
+ *   <li><strong>And a player sent back to a world's spawn?</strong> {@link #spawnLanding} walks the
+ *       spawn column over the world's whole height, because a spawn point is level data rather than
+ *       a place anyone has stood — the Nether's is routinely inside netherrack.</li>
  * </ul>
  *
  * <p>The {@link Terrain} seam is the whole point. The listener implements it over
@@ -74,8 +77,9 @@ public final class SafeRetreat {
      * @param x block-centre x
      * @param y the block their feet occupy
      * @param z block-centre z
-     * @param retreated whether this is a retreat spot behind the portal ({@code true}) or the
-     *                  origin handed back unchanged because no retreat spot was usable
+     * @param retreated whether the search found a standable spot — behind the portal for
+     *                  {@link #landing}, in the spawn column for {@link #spawnLanding} — ({@code true})
+     *                  or handed the starting point back unchanged because nothing was usable
      *                  ({@code false}). Only of interest for logging; both are legitimate answers
      */
     public record Landing(double x, double y, double z, boolean retreated) {
@@ -112,9 +116,10 @@ public final class SafeRetreat {
      *
      * <p>Coordinates are block coordinates. Each method answers one plain fact about one block and
      * composes nothing; {@link #standable} is where those facts become a rule. An implementation
-     * over a real world must answer for whatever column it is asked about — the listener's
-     * implementation is called on the region that owns the source world's blocks, before any
-     * transfer has resolved, so the chunks it asks about are ones that region is already ticking.
+     * over a real world must answer for whatever column it is asked about, and may only be asked
+     * on the thread that owns those blocks. The listener honours that in two ways: an ejection
+     * probes the source world on the event thread, before any transfer has resolved; a return to
+     * spawn probes on the region scheduler for the spawn location itself.
      */
     public interface Terrain {
 
@@ -165,8 +170,13 @@ public final class SafeRetreat {
      *         than into a dropped ejection
      */
     public static OptionalInt groundY(Terrain terrain, int x, int startY, int z, int minY, int maxY) {
+        return groundY(terrain, x, startY, z, minY, maxY, SEARCH_RADIUS);
+    }
+
+    private static OptionalInt groundY(Terrain terrain, int x, int startY, int z, int minY, int maxY,
+                                       int radius) {
         Objects.requireNonNull(terrain, "terrain");
-        for (int delta = 0; delta <= SEARCH_RADIUS; delta++) {
+        for (int delta = 0; delta <= radius; delta++) {
             int below = startY - delta;
             if (below >= minY && below < maxY && standable(terrain, x, below, z, minY, maxY)) {
                 return OptionalInt.of(below);
@@ -226,6 +236,47 @@ public final class SafeRetreat {
             return origin;
         }
         return new Landing(targetX + 0.5D, ground.getAsInt(), targetZ + 0.5D, true);
+    }
+
+    /**
+     * Where to put a player returned to a world's spawn point.
+     *
+     * <p>The spawn is level data, not a place anyone has stood, and nothing guarantees a player fits
+     * there. For the Overworld it is usually open ground; for the Nether it is routinely inside
+     * netherrack, and a {@code NETHER -> THE_END} arrival the gate refuses is returned to exactly
+     * that world. So the spawn column is searched, nearest first as in {@link #groundY}, but over
+     * the <em>whole</em> of {@code [minY, maxY)} rather than {@link #SEARCH_RADIUS}: the point of a
+     * short radius is not to relocate a player who was somewhere survivable, and a spawn inside rock
+     * is not that.
+     *
+     * <p>Like {@link #landing} this always answers. When the whole column is unusable the spawn is
+     * handed back unchanged — the behaviour before this search existed, and still better than
+     * declining to return a player the gate refused.
+     *
+     * <p>A caller over a world with a ceiling should pass that world's logical height as
+     * {@code maxY}, not its build height, or the nearest open space above a deep spawn may be the
+     * Nether roof.
+     *
+     * @param spawnX  the spawn's x
+     * @param spawnY  the spawn's y
+     * @param spawnZ  the spawn's z
+     * @param terrain the probe, over the world the spawn belongs to
+     * @param minY    that world's minimum build height, inclusive
+     * @param maxY    the highest Y a player should be put at, exclusive
+     * @return where to put them; never {@code null}
+     */
+    public static Landing spawnLanding(double spawnX, double spawnY, double spawnZ, Terrain terrain,
+                                       int minY, int maxY) {
+        Objects.requireNonNull(terrain, "terrain");
+        int blockX = (int) Math.floor(spawnX);
+        int blockZ = (int) Math.floor(spawnZ);
+        int startY = Math.max(minY, Math.min(maxY - 1, (int) Math.floor(spawnY)));
+        int radius = Math.max(startY - minY, maxY - 1 - startY);
+        OptionalInt ground = groundY(terrain, blockX, startY, blockZ, minY, maxY, radius);
+        if (ground.isEmpty()) {
+            return new Landing(spawnX, spawnY, spawnZ, false);
+        }
+        return new Landing(blockX + 0.5D, ground.getAsInt(), blockZ + 0.5D, true);
     }
 
     private static boolean standable(Terrain terrain, int x, int y, int z, int minY, int maxY) {
