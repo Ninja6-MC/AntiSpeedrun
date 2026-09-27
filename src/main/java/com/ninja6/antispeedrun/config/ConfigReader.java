@@ -555,9 +555,10 @@ final class ConfigReader {
      * off, it is a requirement that went missing: clearing the key and setting
      * {@code gate-mending-trade: true} are each legitimate on their own, which is why neither half
      * warned, but together they publish a gate that reports itself armed and admits every player,
-     * reached without a single malformed character. There is nothing else to fall back on —
-     * {@code villager-progression} declares this key and the flag, and nothing else. Switching the
-     * gate off remains the way to say "do not gate the mending trade".
+     * reached without a single malformed character. There is nothing else to fall back on — the only
+     * other keys {@code villager-progression} declares are the flag and a {@code hint}, and a hint
+     * describes a requirement rather than being one. Switching the gate off remains the way to say
+     * "do not gate the mending trade".
      *
      * @param enforced whether the gate reading this key is switched on. {@code false} downgrades
      *                 an unresolvable key to a warning and reads it as no requirement; {@code true}

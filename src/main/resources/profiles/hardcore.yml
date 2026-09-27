@@ -204,3 +204,4 @@ anti-cheese:
 villager-progression:
   gate-mending-trade: true             # TRUE here: Mending must be earned, not traded for.
   required-advancement: "minecraft:story/cure_zombie_villager"
+  hint: "Cure a Zombie Villager (Zombie Doctor)"

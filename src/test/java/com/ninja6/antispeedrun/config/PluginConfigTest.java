@@ -1068,6 +1068,120 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("a tier id containing ':' is a warning, and the tier is still read")
+        void aColonInATierIdIsAWarning() throws Exception {
+            // #113 item 3. The Mending gate throttles its feedback in the item gate's per-tier map
+            // under "villager:mending", so a tier of that name swallows one gate's action bar line
+            // behind the other's cooldown. That is the whole cost: the tier below gates DIAMOND
+            // either way, so the document is not one describing gating this server cannot enforce
+            // and must not stop the plugin. Checked against an operator's id, which a test over the
+            // shipped tiers cannot see.
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      enabled: true
+                      gated-items:
+                        "villager:mending":
+                          items:
+                            - "DIAMOND"
+                          require-advancements:
+                            - "minecraft:story/mine_diamond"
+                    """));
+
+            assertTrue(mentions(config.warnings(), "villager:mending"),
+                    config.warnings().toString());
+            assertEquals(1, config.itemProgression().gatedItems().size());
+            assertEquals(List.of("DIAMOND"),
+                    config.itemProgression().gatedItems().get(0).items());
+            assertEquals(List.of("minecraft:story/mine_diamond"),
+                    config.itemProgression().gatedItems().get(0).requireAdvancements());
+        }
+
+        @Test
+        @DisplayName("a tier id containing ':' is a warning while item progression is off too")
+        void aColonInATierIdIsAWarningWhileItemProgressionIsOff() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      enabled: false
+                      gated-items:
+                        "a:b":
+                          items:
+                            - "DIAMOND"
+                    """));
+
+            assertTrue(mentions(config.warnings(), "\"a:b\""), config.warnings().toString());
+        }
+
+        @Test
+        @DisplayName("the reserved character is the one the Mending feedback key carries")
+        void reservedCharacterMatchesTheMendingKey() {
+            assertTrue(PluginConfig.MENDING_FEEDBACK_KEY.indexOf(
+                    PluginConfig.RESERVED_TIER_ID_CHAR) >= 0);
+        }
+
+        @Test
+        @DisplayName("no shipped tier id contains the reserved character")
+        void noShippedTierIdIsReserved() throws Exception {
+            for (PluginConfig.ItemTier tier : shipped().itemProgression().gatedItems()) {
+                assertTrue(tier.id().indexOf(PluginConfig.RESERVED_TIER_ID_CHAR) < 0, tier.id());
+            }
+        }
+
+        @Test
+        @DisplayName("villager-progression.hint is read, and defaults to a readable line")
+        void villagerHintIsRead() throws Exception {
+            // #113 item 5: without a hint the Mending refusal could only ever name the raw
+            // advancement key.
+            PluginConfig configured = PluginConfig.from(yaml("""
+                    villager-progression:
+                      hint: "Cure a Zombie Villager"
+                    """));
+            assertEquals("Cure a Zombie Villager", configured.villagerProgression().hint());
+            assertFalse(mentions(configured.warnings(), "villager-progression"),
+                    configured.warnings().toString());
+
+            assertFalse(PluginConfig.defaults().villagerProgression().hint().isBlank(),
+                    "the Mending refusal should not default to a raw advancement key");
+
+            PluginConfig cleared = PluginConfig.from(yaml("""
+                    villager-progression:
+                      hint: ""
+                    """));
+            assertEquals("", cleared.villagerProgression().hint());
+        }
+
+        @Test
+        @DisplayName("a shipped hint left beside a changed required-advancement is a warning")
+        void aStaleMendingHintWarns() throws Exception {
+            // #113 item 5's other half: nothing can check that free text describes the key beside
+            // it, but the one pair that cannot be deliberate -- the shipped sentence surviving a
+            // requirement the operator replaced -- is reported rather than left to be noticed by a
+            // player who is told to cure a villager the gate no longer asks about.
+            PluginConfig drifted = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                      required-advancement: "minecraft:story/mine_diamond"
+                    """));
+            assertTrue(mentions(drifted.warnings(), "hint still reads"),
+                    drifted.warnings().toString());
+
+            PluginConfig reworded = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                      required-advancement: "minecraft:story/mine_diamond"
+                      hint: "Mine a diamond"
+                    """));
+            assertFalse(mentions(reworded.warnings(), "hint still reads"),
+                    reworded.warnings().toString());
+
+            PluginConfig shippedPair = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                    """));
+            assertFalse(mentions(shippedPair.warnings(), "hint still reads"),
+                    shippedPair.warnings().toString());
+        }
+
+        @Test
         @DisplayName("a scalar require-advancements is fatal on an armed item tier")
         void aScalarRequirementListIsFatalOnAnArmedTier() {
             // #92, waiver path 1. A scalar where a list is expected falls back through stringList

@@ -106,6 +106,11 @@ item-progression:
   feedback-cooldown-seconds: 3        # Cooldown between action bar warning messages
   # MiniMessage. A legacy § code is refused at load; the default is used.
   rejection-message: "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}"
+  # Each key below names a tier, and the name is yours to choose. Avoid a colon in it: the
+  # action bar warning above is throttled per tier name, and section 8's Mending gate shares
+  # that throttle under the name "villager:mending". A tier does gate every item it lists
+  # whatever you call it -- this is a WARNING, not an error -- but a tier named the same as
+  # that key would silently swallow one of the two warnings while the other's cooldown runs.
   gated-items:
     iron-tier:
       # Match modes: PREFIX ("IRON_*"), SUFFIX ("*_IRON_ORE"), CONTAINS ("*_IRON_*").
@@ -270,6 +275,18 @@ anti-cheese:
   outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
 
 # 8. Villager Progression
+# Refuses a villager or wandering-trader trade whose result carries Mending until the
+# advancement below is earned. This gate is independent of section 2: it stays on with
+# item-progression.enabled: false. It does borrow two keys from section 2, though --
+# the refusal is worded by item-progression.rejection-message and throttled by
+# item-progression.feedback-cooldown-seconds -- so both still apply here even when
+# item progression itself is switched off. It is waived by the same antispeedrun.bypass.items
+# permission and /asr bypass grant as the item gate.
 villager-progression:
   gate-mending-trade: false
   required-advancement: "minecraft:story/cure_zombie_villager"
+  # Shown as {REQUIREMENT} in the refusal. Left blank, the player is shown the raw
+  # advancement key instead. Update it if you change required-advancement: leaving the
+  # shipped sentence beside a requirement that is no longer the shipped one is a WARNING at
+  # load, because the refusal would then describe something this gate does not ask for.
+  hint: "Cure a Zombie Villager (Zombie Doctor)"

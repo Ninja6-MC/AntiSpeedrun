@@ -188,7 +188,7 @@ class ItemGateRulesTest {
         @DisplayName("a configured hint wins outright")
         void hintWins() {
             ItemTier iron = tier("iron-tier", "Mine Stone with a wooden pickaxe (Stone Age)");
-            String text = ItemGateRules.requirementText(iron,
+            String text = ItemGateRules.requirementText(iron.hint(),
                     blocked(List.of("minecraft:story/mine_stone"), 0.0D, 0));
             assertEquals("Mine Stone with a wooden pickaxe (Stone Age)", text);
         }
@@ -196,7 +196,7 @@ class ItemGateRulesTest {
         @Test
         @DisplayName("with no hint, the outstanding advancements are named")
         void fallsBackToAdvancements() {
-            String text = ItemGateRules.requirementText(tier("diamond-tier", ""),
+            String text = ItemGateRules.requirementText(tier("diamond-tier", "").hint(),
                     blocked(List.of("minecraft:story/smelt_iron"), 0.0D, 0));
             assertEquals("minecraft:story/smelt_iron", text);
         }
@@ -205,19 +205,19 @@ class ItemGateRulesTest {
         @DisplayName("playtime and account age join the sentence, and whole hours lose the decimal")
         void fallsBackToTime() {
             assertEquals("2h more playtime",
-                    ItemGateRules.requirementText(tier("t", ""), blocked(List.of(), 2.0D, 0)));
+                    ItemGateRules.requirementText(tier("t", "").hint(), blocked(List.of(), 2.0D, 0)));
             assertEquals("1.5h more playtime",
-                    ItemGateRules.requirementText(tier("t", ""), blocked(List.of(), 1.5D, 0)));
+                    ItemGateRules.requirementText(tier("t", "").hint(), blocked(List.of(), 1.5D, 0)));
             assertEquals("1 more day on this server",
-                    ItemGateRules.requirementText(tier("t", ""), blocked(List.of(), 0.0D, 1)));
+                    ItemGateRules.requirementText(tier("t", "").hint(), blocked(List.of(), 0.0D, 1)));
             assertEquals("3 more days on this server",
-                    ItemGateRules.requirementText(tier("t", ""), blocked(List.of(), 0.0D, 3)));
+                    ItemGateRules.requirementText(tier("t", "").hint(), blocked(List.of(), 0.0D, 3)));
         }
 
         @Test
         @DisplayName("several outstanding requirements read as one clause")
         void fallbackJoinsParts() {
-            String text = ItemGateRules.requirementText(tier("t", ""),
+            String text = ItemGateRules.requirementText(tier("t", "").hint(),
                     blocked(List.of("a", "b"), 2.0D, 1));
             assertEquals("a, b and 2h more playtime and 1 more day on this server", text);
         }
@@ -230,9 +230,28 @@ class ItemGateRulesTest {
         @Test
         @DisplayName("nothing actionable still produces a line rather than a blank")
         void neverBlank() {
-            String text = ItemGateRules.requirementText(tier("t", ""),
+            String text = ItemGateRules.requirementText(tier("t", "").hint(),
                     new EligibilityResult(false, List.of(), List.of("minecraft:nope"), 0.0D, 0, false));
             assertEquals("further progression", text);
+        }
+
+        /**
+         * The one form there is, called past the listener's feedback throttle by both gates. A
+         * whitespace-only hint is no hint rather than a blank {@code {REQUIREMENT}}.
+         */
+        @Test
+        @DisplayName("a blank or whitespace hint falls back to the outstanding requirement")
+        void blankHintFallsBack() {
+            EligibilityResult result = blocked(List.of("minecraft:story/cure_zombie_villager"),
+                    0.0D, 0);
+            assertEquals("Cure a Zombie Villager",
+                    ItemGateRules.requirementText("Cure a Zombie Villager", result));
+            assertEquals("minecraft:story/cure_zombie_villager",
+                    ItemGateRules.requirementText("", result));
+            assertEquals("minecraft:story/cure_zombie_villager",
+                    ItemGateRules.requirementText("   ", result));
+            assertEquals(ItemGateRules.outstanding(result),
+                    ItemGateRules.requirementText("", result));
         }
     }
 
