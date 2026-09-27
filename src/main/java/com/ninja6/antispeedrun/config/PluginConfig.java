@@ -195,7 +195,10 @@ public record PluginConfig(
                 r.decimal("require-playtime-hours", 0.0D),
                 r.integer("require-account-age-days", 0),
                 r.advancementKeys("require-advancements", defaultAdvancements, enabled),
-                r.string("rejection-message", defaultRejection));
+                // Not r.string: ProgressionGateListener deserialises this as MiniMessage on a region
+                // thread on every refused entry. See ConfigReader#miniMessage for why a rejection
+                // message warns and falls back rather than refusing the boot.
+                r.miniMessage("rejection-message", defaultRejection));
     }
 
     // ---------------------------------------------------------------------------------------
@@ -234,7 +237,9 @@ public record PluginConfig(
                 r.bool("gate-dispensers", true),
                 r.bool("gate-nested-bundles", true),
                 r.atLeast("feedback-cooldown-seconds", 3, 0),
-                r.string("rejection-message", DEFAULT_ITEM_REJECTION),
+                // Not r.string, for the same reason as a dimension gate's rejection-message:
+                // ItemProgressionListener deserialises it as MiniMessage on a region thread.
+                r.miniMessage("rejection-message", DEFAULT_ITEM_REJECTION),
                 parsed);
     }
 
@@ -250,7 +255,9 @@ public record PluginConfig(
                 r.advancementKeys("require-advancements", List.of(), enforced),
                 r.decimal("require-playtime-hours", 0.0D),
                 r.integer("require-account-age-days", 0),
-                r.string("hint", ""));
+                // Interpolated into the item rejection line with its tags escaped, which does not
+                // neutralise a legacy formatting code; see ConfigReader#miniMessage.
+                r.miniMessage("hint", ""));
     }
 
     // ---------------------------------------------------------------------------------------
@@ -289,7 +296,9 @@ public record PluginConfig(
         r.expect("give-on-first-join", "title", "author");
         return new JourneyBook(
                 r.bool("give-on-first-join", true),
-                r.string("title", "<gold>Ninja6 Survival Guide"),
+                // Not r.string: the default is MiniMessage and an operator edits it as such, so
+                // the template is checked here rather than by whatever first renders the book.
+                r.miniMessage("title", "<gold>Ninja6 Survival Guide"),
                 r.string("author", "Ninja6-MC"));
     }
 
