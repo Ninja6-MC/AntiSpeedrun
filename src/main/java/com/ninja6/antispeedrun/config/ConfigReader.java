@@ -196,14 +196,47 @@ final class ConfigReader {
             // nested a few thousand deep overflows the stack rather than throwing a parse error.
             // It is the same verdict -- this template cannot be rendered -- and deserves the same
             // fallback rather than failing the whole load.
-            //
-            // MiniMessage's message carries the offending line and a caret under it, so it arrives
-            // with newlines in it. One warning is one line here -- the whole list is logged as such.
-            String because = String.valueOf(malformed.getMessage()).replaceAll("\\s+", " ").trim();
-            warnings.add(qualify(key) + ": \"" + value + "\" is not valid MiniMessage ("
-                    + because + "); using the default");
+            warnings.add(qualify(key) + ": \"" + abbreviated(value) + "\" is not valid MiniMessage ("
+                    + diagnosis(malformed) + "); using the default");
             return def;
         }
+    }
+
+    /**
+     * How much of a rejected value a warning quotes.
+     *
+     * <p>The value is the operator's, and the template that overflows the parser's stack is nested
+     * thousands of tags deep -- hundreds of kilobytes of it. Echoing that whole is a console line
+     * nothing can read and a log nothing else fits in. A prefix this long shows the opening tags,
+     * where a hand-written template goes wrong, and the marker carries the real length so a
+     * truncated quote cannot be mistaken for a short value.
+     */
+    private static final int WARNED_VALUE_CHARS = 120;
+
+    /** The value as a warning may quote it: itself when short, a marked prefix when not. */
+    private static String abbreviated(String value) {
+        if (value.length() <= WARNED_VALUE_CHARS) {
+            return value;
+        }
+        return value.substring(0, WARNED_VALUE_CHARS) + "... [truncated, " + value.length() + " chars]";
+    }
+
+    /**
+     * What threw, in one line.
+     *
+     * <p>The type is named first and unconditionally, because {@code StackOverflowError#getMessage()}
+     * is null: a diagnosis built from the message alone reads {@code (null)} on exactly the arm that
+     * needs explaining. MiniMessage's own message carries the offending line and a caret under it, so
+     * it arrives with newlines in it -- one warning is one line here, because the whole list is
+     * logged as such.
+     */
+    private static String diagnosis(Throwable malformed) {
+        String type = malformed.getClass().getSimpleName();
+        String message = malformed.getMessage();
+        if (message == null || message.isBlank()) {
+            return type;
+        }
+        return type + ": " + message.replaceAll("\\s+", " ").trim();
     }
 
     boolean bool(String key, boolean def) {

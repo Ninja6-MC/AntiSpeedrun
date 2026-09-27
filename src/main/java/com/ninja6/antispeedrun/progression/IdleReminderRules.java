@@ -1,8 +1,11 @@
 package com.ninja6.antispeedrun.progression;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -353,18 +356,23 @@ public final class IdleReminderRules {
     public static final long FAILURE_LOG_FLOOR_MILLIS = 60_000L;
 
     /**
-     * Admits at most one failure line per {@link #FAILURE_LOG_FLOOR_MILLIS}, across every player, and
-     * counts what it turned away.
+     * Admits at most one failure line per {@link Stage} per {@link #FAILURE_LOG_FLOOR_MILLIS}, across
+     * every player, and counts what it turned away.
      *
      * <p>Server-wide rather than per player: a template that fails for one player fails for all of
      * them, so a per-player limit would still scale the log with the player count. Safe to share
-     * across region threads — every poll on every region reports through the one instance.
+     * across region threads - every poll on every region reports through the one instance.
+     *
+     * <p>Per stage, though, because the two verdicts are independent. An {@code EVALUATE} fault is a
+     * plugin bug and a {@code SEND} fault points at the operator's template; one of them recurring
+     * every poll must not swallow the first occurrence of the other for a minute, and a shared
+     * dropped-count would attribute the swallowed lines to the wrong stage when it finally reported
+     * them. One counter pair per stage keeps each line's count about its own stage.
      */
     public static final class FailureLogThrottle {
 
         private final long intervalMillis;
-        private final AtomicLong lastAdmittedMillis = new AtomicLong(NEVER_REMINDED);
-        private final AtomicLong suppressed = new AtomicLong();
+        private final Map<Stage, StageRate> rates;
 
         /** A throttle at {@link #FAILURE_LOG_FLOOR_MILLIS}. */
         public FailureLogThrottle() {
@@ -377,28 +385,44 @@ public final class IdleReminderRules {
                 throw new IllegalArgumentException("intervalMillis must be at least 1, was " + intervalMillis);
             }
             this.intervalMillis = intervalMillis;
+            Map<Stage, StageRate> perStage = new EnumMap<>(Stage.class);
+            for (Stage stage : Stage.values()) {
+                perStage.put(stage, new StageRate());
+            }
+            // Populated for every stage up front and never written to again, so the map itself needs
+            // no synchronisation; only the counters inside it are touched from a region thread.
+            this.rates = Collections.unmodifiableMap(perStage);
         }
 
         /**
-         * Whether a failure at {@code nowMillis} may be logged.
+         * Whether a failure in {@code stage} at {@code nowMillis} may be logged.
          *
-         * @return empty if the line is to be dropped; otherwise how many were dropped since the last
-         *         admitted line, so the admitted line can say so
+         * @return empty if the line is to be dropped; otherwise how many failures in this same stage
+         *         were dropped since the last admitted line for it, so that line can say so
          */
-        public OptionalLong admit(long nowMillis) {
+        public OptionalLong admit(Stage stage, long nowMillis) {
+            Objects.requireNonNull(stage, "stage");
+            StageRate rate = rates.get(stage);
             while (true) {
-                long last = lastAdmittedMillis.get();
+                long last = rate.lastAdmittedMillis.get();
                 // A clock corrected backwards admits, for the reason cooldownElapsed gives: silence
                 // until the clock catches up could be arbitrarily long.
                 boolean due = last == NEVER_REMINDED || nowMillis < last || nowMillis - last >= intervalMillis;
                 if (!due) {
-                    suppressed.incrementAndGet();
+                    rate.suppressed.incrementAndGet();
                     return OptionalLong.empty();
                 }
-                if (lastAdmittedMillis.compareAndSet(last, nowMillis)) {
-                    return OptionalLong.of(suppressed.getAndSet(0L));
+                if (rate.lastAdmittedMillis.compareAndSet(last, nowMillis)) {
+                    return OptionalLong.of(rate.suppressed.getAndSet(0L));
                 }
             }
+        }
+
+        /** One stage's admitted stamp and dropped count. */
+        private static final class StageRate {
+
+            private final AtomicLong lastAdmittedMillis = new AtomicLong(NEVER_REMINDED);
+            private final AtomicLong suppressed = new AtomicLong();
         }
     }
 

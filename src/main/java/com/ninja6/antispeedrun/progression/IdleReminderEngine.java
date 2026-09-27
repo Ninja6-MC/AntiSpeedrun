@@ -161,7 +161,8 @@ public final class IdleReminderEngine {
      * from {@code Entity#setRemoved}, but skips it for a {@code ServerPlayer}, whose scheduler is
      * retired only by {@code PlayerList#remove} — the quit. Respawn reuses the same player entity
      * rather than constructing a new one, so the task armed at join keeps running through a death.
-     * Read from the Paper 1.20.4 server jar; {@link UnlockWatch} relies on the same fact.
+     * Read from the Paper 1.21.4 sources this plugin compiles against ({@code build.gradle.kts}
+     * pins {@code paper-api:1.21.4}); {@link UnlockWatch} relies on the same fact.
      */
     public void refresh(Player player, PluginConfig config) {
         Objects.requireNonNull(player, "player");
@@ -268,7 +269,7 @@ public final class IdleReminderEngine {
         IdleReminderRules.State next = IdleReminderRules.advance(previous, where, now, settings,
                 () -> IdleReminderRules.nextStep(progressOf(player, config)),
                 step -> deliver(player, settings, step),
-                (stage, thrown) -> reportFailure(player, stage, thrown));
+                (stage, thrown) -> reportFailure(player, stage, thrown, now));
         tracked.put(id, next);
     }
 
@@ -288,23 +289,24 @@ public final class IdleReminderEngine {
     }
 
     /**
-     * Logs a reminder attempt that threw, at most once per
+     * Logs a reminder attempt that threw, at most once per stage per
      * {@link IdleReminderRules#FAILURE_LOG_FLOOR_MILLIS} across the whole server.
      *
      * <p>Two limits apply, and the second is what makes the rate unconditional. The cooldown is
      * stamped before the attempt ({@link IdleReminderRules#advance}), so one player produces at most
      * one failure per {@code max(cooldown-minutes, stand-still-seconds)}; but {@code cooldown-minutes}
      * may be 0, which on its own would put a stack trace in the log every second.
-     * {@link IdleReminderRules.FailureLogThrottle} floors that, and the line it admits says how many
-     * it dropped.
+     * {@link IdleReminderRules.FailureLogThrottle} floors that per {@link IdleReminderRules.Stage},
+     * and the line it admits says how many of that stage's failures it dropped.
      *
      * <p>The message depends on the {@link IdleReminderRules.Stage}. A failure to send points at
      * {@code idle-reminder.message}, which is validated at config load, so reaching here means a
      * MiniMessage failure mode the validation does not model or a fault in the send itself. A failure
      * to evaluate is not the operator's template at all, and says so.
      */
-    private void reportFailure(Player player, IdleReminderRules.Stage stage, Throwable thrown) {
-        OptionalLong admitted = failureLog.admit(clock.get());
+    private void reportFailure(Player player, IdleReminderRules.Stage stage, Throwable thrown,
+                               long nowMillis) {
+        OptionalLong admitted = failureLog.admit(stage, nowMillis);
         if (admitted.isEmpty()) {
             return;
         }

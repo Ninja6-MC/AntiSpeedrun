@@ -586,6 +586,25 @@ class PluginConfigTest {
             PluginConfig config = (PluginConfig) outcome.get();
             assertEquals(PluginConfig.defaults().idleReminder().message(), config.idleReminder().message());
             assertTrue(mentions(config.warnings(), "idle-reminder.message"), config.warnings().toString());
+
+            // The warning has to be usable, which means two things the naive form gets wrong:
+            // StackOverflowError#getMessage() is null, so the diagnosis has to name the type instead
+            // of printing "(null)"; and the rejected value is 250k characters, so it has to be quoted
+            // as a marked prefix rather than echoed whole into a single console line.
+            String warning = config.warnings().stream()
+                    .filter(w -> w.contains("idle-reminder.message"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(warning.contains("StackOverflowError"),
+                    "the warning must name what threw, not print a null message: " + warning);
+            assertFalse(warning.contains("(null)"), warning);
+            assertTrue(warning.contains("truncated"),
+                    "the oversized value must be quoted as a marked prefix: " + warning);
+            assertTrue(warning.length() < 500,
+                    "the warning is one console line and must stay bounded, was "
+                            + warning.length() + " characters");
+            assertTrue(template.length() > 200_000,
+                    "the template this bounds is the oversized one, was " + template.length());
         }
 
         @Test

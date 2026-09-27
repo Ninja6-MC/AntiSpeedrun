@@ -409,7 +409,7 @@ class IdleReminderRulesTest {
         void firstIsAdmitted() {
             FailureLogThrottle throttle = new FailureLogThrottle();
 
-            assertEquals(OptionalLong.of(0L), throttle.admit(1_000L));
+            assertEquals(OptionalLong.of(0L), throttle.admit(Stage.SEND, 1_000L));
         }
 
         @Test
@@ -428,7 +428,7 @@ class IdleReminderRulesTest {
                         step -> {
                             throw new IllegalStateException("malformed template");
                         },
-                        (stage, thrown) -> throttle.admit(at).ifPresent(dropped -> logged.add(at)));
+                        (stage, thrown) -> throttle.admit(stage, at).ifPresent(dropped -> logged.add(at)));
             }
 
             assertEquals(List.of(1_000L, 61_000L), logged,
@@ -440,12 +440,33 @@ class IdleReminderRulesTest {
         void droppedAreCounted() {
             FailureLogThrottle throttle = new FailureLogThrottle(60_000L);
 
-            throttle.admit(0L);
-            assertEquals(OptionalLong.empty(), throttle.admit(1_000L));
-            assertEquals(OptionalLong.empty(), throttle.admit(59_999L));
-            assertEquals(OptionalLong.of(2L), throttle.admit(60_000L));
-            assertEquals(OptionalLong.empty(), throttle.admit(60_001L));
-            assertEquals(OptionalLong.of(1L), throttle.admit(120_000L));
+            throttle.admit(Stage.SEND, 0L);
+            assertEquals(OptionalLong.empty(), throttle.admit(Stage.SEND, 1_000L));
+            assertEquals(OptionalLong.empty(), throttle.admit(Stage.SEND, 59_999L));
+            assertEquals(OptionalLong.of(2L), throttle.admit(Stage.SEND, 60_000L));
+            assertEquals(OptionalLong.empty(), throttle.admit(Stage.SEND, 60_001L));
+            assertEquals(OptionalLong.of(1L), throttle.admit(Stage.SEND, 120_000L));
+        }
+
+        @Test
+        @DisplayName("one stage's faults do not suppress the other's, and each counts only its own drops")
+        void stagesThrottleIndependently() {
+            FailureLogThrottle throttle = new FailureLogThrottle(60_000L);
+
+            // A recurring EVALUATE fault from the first millisecond onwards.
+            assertEquals(OptionalLong.of(0L), throttle.admit(Stage.EVALUATE, 0L));
+            assertEquals(OptionalLong.empty(), throttle.admit(Stage.EVALUATE, 1_000L));
+            assertEquals(OptionalLong.empty(), throttle.admit(Stage.EVALUATE, 2_000L));
+
+            // The first SEND failure is a different verdict and must still reach the log, reporting
+            // no drops of its own rather than inheriting EVALUATE's two.
+            assertEquals(OptionalLong.of(0L), throttle.admit(Stage.SEND, 2_000L),
+                    "an EVALUATE fault must not silence the first SEND failure");
+            assertEquals(OptionalLong.empty(), throttle.admit(Stage.SEND, 3_000L));
+
+            // And each stage's next admitted line counts only what that stage dropped.
+            assertEquals(OptionalLong.of(2L), throttle.admit(Stage.EVALUATE, 60_000L));
+            assertEquals(OptionalLong.of(1L), throttle.admit(Stage.SEND, 62_000L));
         }
 
         @Test
@@ -453,14 +474,22 @@ class IdleReminderRulesTest {
         void backwardsClockAdmits() {
             FailureLogThrottle throttle = new FailureLogThrottle(60_000L);
 
-            throttle.admit(900_000L);
-            assertTrue(throttle.admit(1_000L).isPresent());
+            throttle.admit(Stage.SEND, 900_000L);
+            assertTrue(throttle.admit(Stage.SEND, 1_000L).isPresent());
         }
 
         @Test
         @DisplayName("an interval below one millisecond is refused")
         void zeroIntervalRefused() {
             assertThrows(IllegalArgumentException.class, () -> new FailureLogThrottle(0L));
+        }
+
+        @Test
+        @DisplayName("a null stage is refused")
+        void nullStageRefused() {
+            FailureLogThrottle throttle = new FailureLogThrottle();
+
+            assertThrows(NullPointerException.class, () -> throttle.admit(null, 0L));
         }
     }
 
