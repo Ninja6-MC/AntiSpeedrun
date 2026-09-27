@@ -8,7 +8,6 @@ import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
-import java.util.logging.Level;
 
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -322,7 +321,60 @@ public final class IdleReminderEngine {
             line += " (" + dropped + " further idle-reminder "
                     + (dropped == 1L ? "failure" : "failures") + " not logged since the last line)";
         }
-        plugin.getLogger().log(Level.WARNING, line, thrown);
+        plugin.getLogger().warning(line + " -- " + traced(thrown));
+    }
+
+    /** How many frames of a failed attempt's stack the log carries. */
+    private static final int LOGGED_FRAMES = 8;
+
+    /**
+     * How much of a failed attempt's message the log carries.
+     *
+     * <p>The {@code SEND} arm exists for a MiniMessage failure the load-time validation does not
+     * model, and MiniMessage builds a parse message by embedding the whole template, so this is
+     * bounded for the same reason the frames are.
+     */
+    private static final int LOGGED_MESSAGE_CHARS = 200;
+
+    /**
+     * The throwable as one bounded line, rather than as a stack trace of any length.
+     *
+     * <p>Handing the throwable to {@code Logger#log} prints every frame it has, which undoes the
+     * floor the throttle pays for: the {@code StackOverflowError} this class now admits carries up to
+     * 1024 frames of MiniMessage recursion, so one admitted failure a minute is still a thousand log
+     * lines a minute. The frames that identify the fault are the innermost ones, and after eight of a
+     * recursive overflow the ninth says nothing the eighth did not; the count of what was elided says
+     * how deep it went.
+     */
+    private static String traced(Throwable thrown) {
+        StringBuilder trace = new StringBuilder(thrown.getClass().getName());
+        String message = thrown.getMessage();
+        if (message != null && !message.isBlank()) {
+            String collapsed = message.replaceAll("\\s+", " ").trim();
+            if (collapsed.length() > LOGGED_MESSAGE_CHARS) {
+                int cut = LOGGED_MESSAGE_CHARS;
+                if (Character.isHighSurrogate(collapsed.charAt(cut - 1))
+                        && Character.isLowSurrogate(collapsed.charAt(cut))) {
+                    cut--;
+                }
+                collapsed = collapsed.substring(0, cut)
+                        + "... [truncated, " + message.length() + " chars]";
+            }
+            trace.append(": ").append(collapsed);
+        }
+        StackTraceElement[] frames = thrown.getStackTrace();
+        int shown = Math.min(LOGGED_FRAMES, frames.length);
+        for (int i = 0; i < shown; i++) {
+            trace.append(" at ").append(frames[i]);
+        }
+        if (frames.length > shown) {
+            trace.append(" ... ").append(frames.length - shown).append(" more frames");
+        }
+        Throwable cause = thrown.getCause();
+        if (cause != null && cause != thrown) {
+            trace.append(" caused by ").append(cause.getClass().getName());
+        }
+        return trace.toString();
     }
 
     /** The player's position, in the Bukkit-free terms {@link IdleReminderRules} compares. */

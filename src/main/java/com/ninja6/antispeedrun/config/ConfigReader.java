@@ -203,22 +203,39 @@ final class ConfigReader {
     }
 
     /**
-     * How much of a rejected value a warning quotes.
+     * How much of a rejected value, or of the diagnosis of it, a warning quotes.
      *
      * <p>The value is the operator's, and the template that overflows the parser's stack is nested
      * thousands of tags deep -- hundreds of kilobytes of it. Echoing that whole is a console line
      * nothing can read and a log nothing else fits in. A prefix this long shows the opening tags,
      * where a hand-written template goes wrong, and the marker carries the real length so a
      * truncated quote cannot be mistaken for a short value.
+     *
+     * <p>The thrown message is bounded by the same constant, and has to be: MiniMessage builds a
+     * {@code ParsingException} message by embedding the whole input with a caret line under the
+     * offending column, so a 300,011-character value arrives with a 600,208-character message.
+     * Bounding only the echoed value leaves the same unreadable console line reachable through the
+     * diagnosis, from an ordinary legacy-formatting mistake in a long template.
      */
     private static final int WARNED_VALUE_CHARS = 120;
 
-    /** The value as a warning may quote it: itself when short, a marked prefix when not. */
-    private static String abbreviated(String value) {
-        if (value.length() <= WARNED_VALUE_CHARS) {
-            return value;
+    /**
+     * The text as a warning may quote it: itself when short, a marked prefix when not.
+     *
+     * <p>The cut lands on a code-point boundary. A plain {@code substring} at a fixed char index can
+     * fall between the halves of a surrogate pair and put a lone surrogate in the log, where it is no
+     * longer the character the operator wrote. Backing off one char when the last kept char is a high
+     * surrogate whose low half is being cut costs one comparison and keeps the prefix well-formed.
+     */
+    private static String abbreviated(String text) {
+        if (text.length() <= WARNED_VALUE_CHARS) {
+            return text;
         }
-        return value.substring(0, WARNED_VALUE_CHARS) + "... [truncated, " + value.length() + " chars]";
+        int cut = WARNED_VALUE_CHARS;
+        if (Character.isHighSurrogate(text.charAt(cut - 1)) && Character.isLowSurrogate(text.charAt(cut))) {
+            cut--;
+        }
+        return text.substring(0, cut) + "... [truncated, " + text.length() + " chars]";
     }
 
     /**
@@ -228,7 +245,8 @@ final class ConfigReader {
      * is null: a diagnosis built from the message alone reads {@code (null)} on exactly the arm that
      * needs explaining. MiniMessage's own message carries the offending line and a caret under it, so
      * it arrives with newlines in it -- one warning is one line here, because the whole list is
-     * logged as such.
+     * logged as such -- and it embeds the input, so it is bounded like the value. Between the two
+     * bounds the emitted line has a ceiling no throwable and no input size can lift.
      */
     private static String diagnosis(Throwable malformed) {
         String type = malformed.getClass().getSimpleName();
@@ -236,7 +254,7 @@ final class ConfigReader {
         if (message == null || message.isBlank()) {
             return type;
         }
-        return type + ": " + message.replaceAll("\\s+", " ").trim();
+        return type + ": " + abbreviated(message.replaceAll("\\s+", " ").trim());
     }
 
     boolean bool(String key, boolean def) {

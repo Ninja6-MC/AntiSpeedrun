@@ -559,6 +559,83 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("a long template with a legacy code bounds the parse message, not just the value")
+        void malformedTemplateBoundsTheParseMessage() throws Exception {
+            // The same operator mistake as above -- a legacy section sign, no nesting and no depth --
+            // in a template long enough for the parse message to matter. MiniMessage builds a
+            // ParsingException message by embedding the whole input with a caret line under the
+            // offending column, so the message is longer than the value it rejects; bounding only the
+            // echoed value leaves the unreadable console line reachable through the diagnosis instead.
+            // ConfigSnapshotHolder emits each warning as one logger.warning call, so the whole line is
+            // what has to have a ceiling.
+            String template = "goal ".repeat(60_000) + "§e";
+            int thrownMessageChars;
+            try {
+                MiniMessage.miniMessage().deserialize(template);
+                thrownMessageChars = 0;
+            } catch (RuntimeException parseFailure) {
+                thrownMessageChars = parseFailure.getMessage() == null ? 0 : parseFailure.getMessage().length();
+            }
+            assertTrue(thrownMessageChars > template.length(),
+                    "this case only tests anything if the parse message embeds the input, was "
+                            + thrownMessageChars + " characters against a " + template.length()
+                            + "-character value");
+
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      message: "%s"
+                    """.formatted(template)));
+
+            assertEquals(PluginConfig.defaults().idleReminder().message(),
+                    config.idleReminder().message());
+            String warning = config.warnings().stream()
+                    .filter(w -> w.contains("idle-reminder.message"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(warning.contains("ParsingException"),
+                    "the warning names what threw: " + warning);
+            assertTrue(warning.contains("truncated"),
+                    "and marks what it cut rather than quoting it whole: " + warning);
+            assertTrue(warning.length() < 500,
+                    "the warning is one console line and must stay bounded whatever the input size, "
+                            + "was " + warning.length() + " characters for a " + thrownMessageChars
+                            + "-character parse message");
+        }
+
+        @Test
+        @DisplayName("the quoted prefix cuts on a code-point boundary, not mid-surrogate")
+        void quotedPrefixKeepsSurrogatePairsWhole() throws Exception {
+            // The truncation point falls exactly between the halves of this emoji: 119 filler chars,
+            // then a high surrogate at index 119 and its low half at 120. A cut at a fixed char index
+            // would put a lone surrogate in the log, which is no longer the character the operator
+            // wrote.
+            String template = "a".repeat(119) + "😀" + "b".repeat(50) + "§e";
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      message: "%s"
+                    """.formatted(template)));
+
+            String warning = config.warnings().stream()
+                    .filter(w -> w.contains("idle-reminder.message"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(warning.contains("truncated"), warning);
+            int i = 0;
+            while (i < warning.length()) {
+                char at = warning.charAt(i);
+                if (Character.isHighSurrogate(at)) {
+                    assertTrue(i + 1 < warning.length() && Character.isLowSurrogate(warning.charAt(i + 1)),
+                            "a high surrogate at " + i + " with no low half after it: " + warning);
+                    i += 2;
+                    continue;
+                }
+                assertFalse(Character.isLowSurrogate(at),
+                        "a low surrogate at " + i + " with no high half before it: " + warning);
+                i++;
+            }
+        }
+
+        @Test
         @DisplayName("a template nested deep enough to overflow the stack warns and falls back")
         void deeplyNestedTemplateFallsBack() throws Exception {
             // MiniMessage parses nested tags recursively. On a small stack a template nested this
