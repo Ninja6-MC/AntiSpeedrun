@@ -110,8 +110,29 @@ public record PluginConfig(
                     + "Type <gold>/progress";
     private static final String DEFAULT_ITEM_REJECTION =
             "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}";
+    private static final String DEFAULT_MENDING_HINT = "Cure a Zombie Villager (Zombie Doctor)";
+    private static final String DEFAULT_MENDING_ADVANCEMENT =
+            "minecraft:story/cure_zombie_villager";
     private static final String DEFAULT_IDLE_MESSAGE =
             "<yellow>💡 Next Goal: <white>{NEXT_STEP} <gray>(Run <gold>/progress<gray>)";
+
+    /**
+     * The feedback key section 8's Mending gate throttles under, mirroring
+     * {@code MendingTradeRules.FEEDBACK_KEY}.
+     *
+     * <p>Stated here rather than imported because {@code config} does not depend on
+     * {@code listeners} and must not start to. {@code MendingTradeRulesTest} asserts the two agree.
+     */
+    public static final String MENDING_FEEDBACK_KEY = "villager:mending";
+
+    /**
+     * The character a tier id is asked not to contain, because ids containing it are reserved for
+     * feedback keys that are not tiers.
+     *
+     * <p>Advisory: {@link #warnOnReservedTierId} says why a tier that ignores it is warned about
+     * rather than refused.
+     */
+    public static final char RESERVED_TIER_ID_CHAR = ':';
 
     /**
      * Parses a complete snapshot from {@code root}.
@@ -195,7 +216,10 @@ public record PluginConfig(
                 r.decimal("require-playtime-hours", 0.0D),
                 r.integer("require-account-age-days", 0),
                 r.advancementKeys("require-advancements", defaultAdvancements, enabled),
-                r.string("rejection-message", defaultRejection));
+                // Not r.string: ProgressionGateListener deserialises this as MiniMessage on a region
+                // thread on every refused entry. See ConfigReader#miniMessage for why a rejection
+                // message warns and falls back rather than refusing the boot.
+                r.miniMessage("rejection-message", defaultRejection));
     }
 
     // ---------------------------------------------------------------------------------------
@@ -214,6 +238,7 @@ public record PluginConfig(
         ConfigReader tiers = r.child("gated-items");
         List<ItemTier> parsed = new ArrayList<>();
         for (String id : tiers.keys()) {
+            warnOnReservedTierId(id, tiers);
             parsed.add(parseItemTier(id, tiers.child(id), enabled));
         }
 
@@ -234,8 +259,36 @@ public record PluginConfig(
                 r.bool("gate-dispensers", true),
                 r.bool("gate-nested-bundles", true),
                 r.atLeast("feedback-cooldown-seconds", 3, 0),
-                r.string("rejection-message", DEFAULT_ITEM_REJECTION),
+                // Not r.string, for the same reason as a dimension gate's rejection-message:
+                // ItemProgressionListener deserialises it as MiniMessage on a region thread.
+                r.miniMessage("rejection-message", DEFAULT_ITEM_REJECTION),
                 parsed);
+    }
+
+    /**
+     * Warns about a tier id containing {@link #RESERVED_TIER_ID_CHAR}.
+     *
+     * <p>A warning and never fatal. Such a tier gates exactly the items it names — the character
+     * costs nothing at the gate itself — so refusing the boot would trade every gate in the file for
+     * a cosmetic defect, which is the inverse of what {@link UnenforceableGateException} exists to
+     * prevent. What it does cost is the feedback throttle: the item gate keys its action bar line
+     * per tier id and section 8's Mending gate shares that map under
+     * {@link #MENDING_FEEDBACK_KEY}, so a tier named exactly that suppresses one of the two refusal
+     * lines while the other's cooldown runs. The whole character class is named rather than that one
+     * id because the reservation is what keeps the two namespaces separable at all, and no shipped
+     * tier id contains a colon.
+     */
+    private static void warnOnReservedTierId(String id, ConfigReader tiers) {
+        if (id.indexOf(RESERVED_TIER_ID_CHAR) < 0) {
+            return;
+        }
+        tiers.note("tier id \"" + id + "\" contains '" + RESERVED_TIER_ID_CHAR + "', which is not "
+                + "recommended: the item gate throttles its action bar line under the tier id and "
+                + "section 8's Mending gate shares that map under \"" + MENDING_FEEDBACK_KEY
+                + "\". The tier still gates every item it names, but a tier id colliding with that "
+                + "key silently suppresses one of the two refusal messages while the other's "
+                + "feedback-cooldown-seconds is running. Rename the tier to something without a "
+                + "colon.");
     }
 
     private static ItemTier parseItemTier(String id, ConfigReader r, boolean enforced)
@@ -250,7 +303,9 @@ public record PluginConfig(
                 r.advancementKeys("require-advancements", List.of(), enforced),
                 r.decimal("require-playtime-hours", 0.0D),
                 r.integer("require-account-age-days", 0),
-                r.string("hint", ""));
+                // Interpolated into the item rejection line with its tags escaped, which does not
+                // neutralise a legacy formatting code; see ConfigReader#miniMessage.
+                r.miniMessage("hint", ""));
     }
 
     // ---------------------------------------------------------------------------------------
@@ -289,7 +344,9 @@ public record PluginConfig(
         r.expect("give-on-first-join", "title", "author");
         return new JourneyBook(
                 r.bool("give-on-first-join", true),
-                r.string("title", "<gold>Ninja6 Survival Guide"),
+                // Not r.string: the default is MiniMessage and an operator edits it as such, so
+                // the template is checked here rather than by whatever first renders the book.
+                r.miniMessage("title", "<gold>Ninja6 Survival Guide"),
                 r.string("author", "Ninja6-MC"));
     }
 
@@ -341,16 +398,44 @@ public record PluginConfig(
 
     private static VillagerProgression parseVillagerProgression(ConfigReader r)
             throws ConfigLoadException {
-        r.expect("gate-mending-trade", "required-advancement");
+        r.expect("gate-mending-trade", "required-advancement", "hint");
         // gate-mending-trade defaults to false, so this is the section most likely to carry a key
         // nothing reads. It must not be able to refuse a boot while the gate is off. With the gate
         // on it is the other half of #92's second waiver path: a blank key beside it is a gate that
         // reports itself armed and requires nothing, and is refused at the read site.
         boolean gated = r.bool("gate-mending-trade", false);
-        return new VillagerProgression(
-                gated,
-                r.advancementKey("required-advancement", "minecraft:story/cure_zombie_villager",
-                        gated));
+        String advancement = r.advancementKey("required-advancement", DEFAULT_MENDING_ADVANCEMENT,
+                gated);
+        String hint = r.string("hint", DEFAULT_MENDING_HINT);
+        warnOnStaleMendingHint(r, advancement, hint);
+        return new VillagerProgression(gated, advancement, hint);
+    }
+
+    /**
+     * Warns when {@code hint} still describes the shipped advancement while
+     * {@code required-advancement} no longer names it.
+     *
+     * <p>{@code hint} is free text and nothing can check that it describes the key beside it, so
+     * only the one combination that cannot be deliberate is reported: the requirement was changed
+     * and the shipped sentence left behind, which tells every refused player to go and earn
+     * something the gate does not ask for. The opposite pair — a reworded hint beside the shipped
+     * key — is how an operator phrases the same requirement in their own words, and warning about it
+     * would fire on every server that touched the line.
+     *
+     * <p>A blank or unresolvable key is not drift. It already carries a warning or a refusal of its
+     * own, and adding this one on top would bury it.
+     */
+    private static void warnOnStaleMendingHint(ConfigReader r, String advancement, String hint) {
+        if (advancement.isEmpty() || advancement.equals(DEFAULT_MENDING_ADVANCEMENT)) {
+            return;
+        }
+        if (!hint.equals(DEFAULT_MENDING_HINT)) {
+            return;
+        }
+        r.note("hint still reads \"" + DEFAULT_MENDING_HINT + "\" while required-advancement is now "
+                + "\"" + advancement + "\", so the refusal describes a requirement this gate no "
+                + "longer applies. Reword hint to match, or clear it to show the raw advancement key "
+                + "instead.");
     }
 
     // ---------------------------------------------------------------------------------------
@@ -623,10 +708,17 @@ public record PluginConfig(
      * @param requiredAdvancement canonical advancement key, or {@code ""} when the operator has
      *                            cleared it to mean "gate the trade, require no advancement";
      *                            default {@code "minecraft:story/cure_zombie_villager"}
+     * @param hint                player-facing text for {@code {REQUIREMENT}} when the Mending
+     *                            trade is refused; default {@code "Cure a Zombie Villager (Zombie
+     *                            Doctor)"}, describing the default advancement. Blank falls back to
+     *                            naming the outstanding advancement key, as an item tier's blank
+     *                            hint does
      */
-    public record VillagerProgression(boolean gateMendingTrade, String requiredAdvancement) {
+    public record VillagerProgression(boolean gateMendingTrade, String requiredAdvancement,
+                                      String hint) {
         public VillagerProgression {
             Objects.requireNonNull(requiredAdvancement, "requiredAdvancement");
+            Objects.requireNonNull(hint, "hint");
         }
     }
 }

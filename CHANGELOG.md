@@ -44,7 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plugin merchant is covered as well as a librarian's book. It is off by default, costs nothing on
   the trade path while it is off, and is waived by `antispeedrun.bypass.items` or an unexpired
   `/asr bypass` grant. A result that is both above its item tier and enchanted with Mending is
-  refused once, not twice.
+  refused once, not twice. The refusal is worded by `villager-progression.hint`, shipped as "Cure a
+  Zombie Villager (Zombie Doctor)"; left blank, it names the raw advancement key. The gate is
+  independent of `item-progression.enabled` but borrows that section's `rejection-message` and
+  `feedback-cooldown-seconds`. An item tier id containing `:` is warned about at load: it still gates
+  every item it names, but a tier named exactly `villager:mending` shares the Mending gate's feedback
+  throttle and suppresses one of the two refusal lines.
 - Drop recall, implementing `item-progression.drop-recall-enabled`, which until now was parsed and
   read by nothing. A player may always re-collect an item entity they dropped or died with,
   whatever its tier, so that gear held by administrative grant, gear predating installation, and
@@ -114,6 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - A player returned to a world's spawn by a dimension gate is no longer set down inside a sealed pocket. The landing search accepted any two blocks of harmless air over solid ground, which is also the shape of an ore pocket in the middle of netherrack, and the spawn column of the Nether is searched over the world's whole height looking for a gap. A spot now counts only when a player standing on it could walk off it: the search steps out over the ground around the candidate, as far as three blocks and two dozen places to stand, and refuses a space that closes in on itself inside those bounds — a single block, a pair of them, or a small room alike. Anything larger is kept, because room to move, dig and light is not the trap this refuses, and neither is a cave a long way from anywhere. Ground the server cannot be asked about from the thread doing the asking counts as walled in rather than being read anyway. When the column offers nothing better the spawn is handed back unchanged, as before. The same rule applies to the retreat behind a portal, which falls back to where the rider already was.
+- A `rejection-message`, an item tier `hint` and `journey-book.title` are validated as MiniMessage when the configuration is read, instead of being deserialised on a region thread at the moment they are sent. A template MiniMessage refuses — a legacy section-sign colour code is the one an operator is likely to write — is now reported by a warning at startup and on every `/asr reload`, naming the key, and the shipped default for that same key is used in its place. Previously the template threw on every refusal, and because `ItemProgressionListener` and the Folia arrival backstop in `ProgressionGateListener` send the message before they cancel or eject, the throw could let the refused player through.
 - A dimension gate whose last outstanding requirement is `require-account-age-days` is now announced. Tenure advances while the player is offline, so the gate was already open by the time they logged back in, was recorded silently by the join prime, and had no advancement and no online watch left to announce it — the player was never told. The set of gates a player has been congratulated on is now persisted in their `PersistentDataContainer`, and a join announces the difference. A player with no persisted record is primed silently, so installing this on an established server does not congratulate its whole population at once.
 - `DIAMOND` is gated. `DIAMOND_*` has no trailing underscore to match the gem itself, so every tool made from a diamond was gated while the diamond was not.
 - `NETHERITE_UPGRADE_SMITHING_TEMPLATE` is excluded from `netherite-tier`. It matches `NETHERITE_*` but belongs to `trim-progression`, and without the exclusion two systems claimed one material.

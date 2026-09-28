@@ -60,6 +60,18 @@ profile: SMP_STANDARD
 #
 #                  The reasoning behind the split is in issue #91.
 
+# Message templates are MiniMessage, and they are parsed when this file is loaded. That
+# covers every rejection-message, every item tier hint, journey-book.title and
+# idle-reminder.message. Write colour and style as tags -- <red>, <gold>, <bold>.
+#
+# A legacy section-sign code is not MiniMessage. A template containing one is refused at
+# load and the shipped default for that same key is used in its place, with a WARNING
+# naming the key. Nothing else changes: the gate still refuses the player, and the player
+# still sees a correct message -- the one shipped with the plugin rather than the one you
+# wrote. Fix the template and reload. Parsing at load is why a mistyped template is
+# reported once at startup instead of throwing on a region thread every time somebody is
+# turned away.
+
 # 1. Dimension Progression Gates
 dimension-gates:
   nether:
@@ -67,6 +79,7 @@ dimension-gates:
     require-playtime-hours: 0          # Default 0 (Advancement-driven). Set >0 for time gating.
     require-advancements:
       - "minecraft:story/smelt_iron"
+    # MiniMessage. A legacy § code is refused at load; the default is used.
     rejection-message: "<red>🔒 The Nether is locked! Requires <yellow>Iron Gear<red> (Smelt an iron ingot). Type <gold>/progress"
 
   the_end:
@@ -77,6 +90,7 @@ dimension-gates:
       - "minecraft:story/mine_diamond"
       - "minecraft:nether/obtain_blaze_rod"
       - "minecraft:nether/find_fortress"
+    # MiniMessage. A legacy § code is refused at load; the default is used.
     rejection-message: "<red>🔒 The End is sealed! Complete survival progression first. Type <gold>/progress"
 
 # 2. Anti-Boosting & Item Progression Gating (Minecraft Tag & Pattern Resolution)
@@ -90,7 +104,13 @@ item-progression:
   gate-dispensers: true               # Prevent dispensers from equipping locked armor onto unqualified players
   gate-nested-bundles: true           # Prevent extracting/spraying locked items from Bundles
   feedback-cooldown-seconds: 3        # Cooldown between action bar warning messages
+  # MiniMessage. A legacy § code is refused at load; the default is used.
   rejection-message: "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}"
+  # Each key below names a tier, and the name is yours to choose. Avoid a colon in it: the
+  # action bar warning above is throttled per tier name, and section 8's Mending gate shares
+  # that throttle under the name "villager:mending". A tier does gate every item it lists
+  # whatever you call it -- this is a WARNING, not an error -- but a tier named the same as
+  # that key would silently swallow one of the two warnings while the other's cooldown runs.
   gated-items:
     iron-tier:
       # Match modes: PREFIX ("IRON_*"), SUFFIX ("*_IRON_ORE"), CONTAINS ("*_IRON_*").
@@ -121,6 +141,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/mine_stone"
       require-playtime-hours: 0
+      # MiniMessage. A legacy § code is refused at load; the default is used.
       hint: "Mine Stone with a wooden pickaxe (Stone Age)"
 
     diamond-tier:
@@ -254,6 +275,18 @@ anti-cheese:
   outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
 
 # 8. Villager Progression
+# Refuses a villager or wandering-trader trade whose result carries Mending until the
+# advancement below is earned. This gate is independent of section 2: it stays on with
+# item-progression.enabled: false. It does borrow two keys from section 2, though --
+# the refusal is worded by item-progression.rejection-message and throttled by
+# item-progression.feedback-cooldown-seconds -- so both still apply here even when
+# item progression itself is switched off. It is waived by the same antispeedrun.bypass.items
+# permission and /asr bypass grant as the item gate.
 villager-progression:
   gate-mending-trade: false
   required-advancement: "minecraft:story/cure_zombie_villager"
+  # Shown as {REQUIREMENT} in the refusal. Left blank, the player is shown the raw
+  # advancement key instead. Update it if you change required-advancement: leaving the
+  # shipped sentence beside a requirement that is no longer the shipped one is a WARNING at
+  # load, because the refusal would then describe something this gate does not ask for.
+  hint: "Cure a Zombie Villager (Zombie Doctor)"

@@ -597,6 +597,133 @@ class PluginConfigTest {
         }
     }
 
+    /**
+     * The rejection lines are deserialised as MiniMessage on a region thread, on every refusal, and
+     * several refusal paths send before they cancel or eject. #116: they went through
+     * {@code r.string} unvalidated while {@code idle-reminder.message} beside them did not.
+     *
+     * <p>Warn and fall back, like the reminder, rather than refusing the document: the fallback is
+     * the shipped rejection for the same gate, so the refusal still happens and still says the
+     * right thing. See {@code ConfigReader#miniMessage}.
+     */
+    @Nested
+    @DisplayName("rejection messages as MiniMessage")
+    class RejectionMessages {
+
+        @Test
+        @DisplayName("every shipped rejection template really does parse")
+        void shippedTemplatesParse() throws Exception {
+            PluginConfig config = shipped();
+
+            for (String message : List.of(
+                    config.dimensionGates().nether().rejectionMessage(),
+                    config.dimensionGates().theEnd().rejectionMessage(),
+                    config.itemProgression().rejectionMessage())) {
+                assertNotNull(MiniMessage.miniMessage().deserialize(message), message);
+            }
+        }
+
+        @Test
+        @DisplayName("operator templates that parse are kept exactly as written")
+        void validTemplatesSurvive() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    dimension-gates:
+                      nether:
+                        rejection-message: "<red>Not yet."
+                      the_end:
+                        rejection-message: "<dark_purple>Later."
+                    item-progression:
+                      rejection-message: "<red>{ITEM} needs {REQUIREMENT}"
+                    """));
+
+            assertEquals("<red>Not yet.", config.dimensionGates().nether().rejectionMessage());
+            assertEquals("<dark_purple>Later.", config.dimensionGates().theEnd().rejectionMessage());
+            assertEquals("<red>{ITEM} needs {REQUIREMENT}",
+                    config.itemProgression().rejectionMessage());
+            assertFalse(mentions(config.warnings(), "rejection-message"),
+                    "nothing to say about templates that parse: " + config.warnings());
+        }
+
+        @Test
+        @DisplayName("a legacy formatting code in a dimension gate warns and falls back to that gate's default")
+        void dimensionGateTemplateFallsBack() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    dimension-gates:
+                      nether:
+                        rejection-message: "§cYou cannot enter the Nether yet."
+                      the_end:
+                        rejection-message: "§5The End is sealed."
+                    """));
+            PluginConfig defaults = PluginConfig.defaults();
+
+            assertEquals(defaults.dimensionGates().nether().rejectionMessage(),
+                    config.dimensionGates().nether().rejectionMessage());
+            assertEquals(defaults.dimensionGates().theEnd().rejectionMessage(),
+                    config.dimensionGates().theEnd().rejectionMessage(),
+                    "each gate falls back to its own default, not to the other gate's");
+            assertTrue(mentions(config.warnings(), "dimension-gates.nether.rejection-message"),
+                    "the warning names the full key path: " + config.warnings());
+            assertTrue(mentions(config.warnings(), "dimension-gates.the_end.rejection-message"),
+                    config.warnings().toString());
+            assertTrue(mentions(config.warnings(), "is not valid MiniMessage"),
+                    config.warnings().toString());
+
+            assertTrue(config.dimensionGates().nether().enabled(),
+                    "a message it cannot render does not switch the gate off");
+            assertNotNull(MiniMessage.miniMessage().deserialize(
+                    config.dimensionGates().nether().rejectionMessage()));
+        }
+
+        @Test
+        @DisplayName("a legacy formatting code in the item rejection warns and falls back")
+        void itemTemplateFallsBack() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      rejection-message: "§c{ITEM} is locked: {REQUIREMENT}"
+                    """));
+
+            assertEquals(PluginConfig.defaults().itemProgression().rejectionMessage(),
+                    config.itemProgression().rejectionMessage());
+            assertTrue(mentions(config.warnings(), "item-progression.rejection-message"),
+                    "the warning names the full key path: " + config.warnings());
+            assertTrue(config.itemProgression().enabled());
+            assertNotNull(MiniMessage.miniMessage().deserialize(
+                    config.itemProgression().rejectionMessage()));
+        }
+
+        @Test
+        @DisplayName("a tier hint with a legacy formatting code warns and falls back to no hint")
+        void tierHintFallsBack() throws Exception {
+            // The hint is interpolated into the rejection line with its tags escaped, and escaping
+            // leaves a section sign alone, so it would throw at the same deserialise.
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      gated-items:
+                        iron-tier:
+                          items:
+                            - "IRON_INGOT"
+                          require-advancements:
+                            - "minecraft:story/mine_stone"
+                          hint: "§eSmelt some iron first"
+                        gold-tier:
+                          items:
+                            - "GOLD_INGOT"
+                          require-advancements:
+                            - "minecraft:story/mine_stone"
+                          hint: "<yellow>tags here are escaped, not rejected"
+                    """));
+
+            List<PluginConfig.ItemTier> tiers = config.itemProgression().gatedItems();
+            assertEquals("", tiers.get(0).hint(),
+                    "a blank hint is the existing 'compose it from the evaluation' case");
+            assertEquals("<yellow>tags here are escaped, not rejected", tiers.get(1).hint());
+            assertTrue(mentions(config.warnings(), "gated-items.iron-tier.hint"),
+                    "the warning names the full key path: " + config.warnings());
+            assertFalse(mentions(config.warnings(), "gated-items.gold-tier.hint"),
+                    config.warnings().toString());
+        }
+    }
+
     @Nested
     @DisplayName("advancement keys")
     class AdvancementKeyReads {
@@ -938,6 +1065,120 @@ class PluginConfigTest {
             assertEquals("", config.villagerProgression().requiredAdvancement());
             assertFalse(mentions(config.warnings(), "villager-progression"),
                     "clearing the key under a gate that is off is not a problem to report");
+        }
+
+        @Test
+        @DisplayName("a tier id containing ':' is a warning, and the tier is still read")
+        void aColonInATierIdIsAWarning() throws Exception {
+            // #113 item 3. The Mending gate throttles its feedback in the item gate's per-tier map
+            // under "villager:mending", so a tier of that name swallows one gate's action bar line
+            // behind the other's cooldown. That is the whole cost: the tier below gates DIAMOND
+            // either way, so the document is not one describing gating this server cannot enforce
+            // and must not stop the plugin. Checked against an operator's id, which a test over the
+            // shipped tiers cannot see.
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      enabled: true
+                      gated-items:
+                        "villager:mending":
+                          items:
+                            - "DIAMOND"
+                          require-advancements:
+                            - "minecraft:story/mine_diamond"
+                    """));
+
+            assertTrue(mentions(config.warnings(), "villager:mending"),
+                    config.warnings().toString());
+            assertEquals(1, config.itemProgression().gatedItems().size());
+            assertEquals(List.of("DIAMOND"),
+                    config.itemProgression().gatedItems().get(0).items());
+            assertEquals(List.of("minecraft:story/mine_diamond"),
+                    config.itemProgression().gatedItems().get(0).requireAdvancements());
+        }
+
+        @Test
+        @DisplayName("a tier id containing ':' is a warning while item progression is off too")
+        void aColonInATierIdIsAWarningWhileItemProgressionIsOff() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    item-progression:
+                      enabled: false
+                      gated-items:
+                        "a:b":
+                          items:
+                            - "DIAMOND"
+                    """));
+
+            assertTrue(mentions(config.warnings(), "\"a:b\""), config.warnings().toString());
+        }
+
+        @Test
+        @DisplayName("the reserved character is the one the Mending feedback key carries")
+        void reservedCharacterMatchesTheMendingKey() {
+            assertTrue(PluginConfig.MENDING_FEEDBACK_KEY.indexOf(
+                    PluginConfig.RESERVED_TIER_ID_CHAR) >= 0);
+        }
+
+        @Test
+        @DisplayName("no shipped tier id contains the reserved character")
+        void noShippedTierIdIsReserved() throws Exception {
+            for (PluginConfig.ItemTier tier : shipped().itemProgression().gatedItems()) {
+                assertTrue(tier.id().indexOf(PluginConfig.RESERVED_TIER_ID_CHAR) < 0, tier.id());
+            }
+        }
+
+        @Test
+        @DisplayName("villager-progression.hint is read, and defaults to a readable line")
+        void villagerHintIsRead() throws Exception {
+            // #113 item 5: without a hint the Mending refusal could only ever name the raw
+            // advancement key.
+            PluginConfig configured = PluginConfig.from(yaml("""
+                    villager-progression:
+                      hint: "Cure a Zombie Villager"
+                    """));
+            assertEquals("Cure a Zombie Villager", configured.villagerProgression().hint());
+            assertFalse(mentions(configured.warnings(), "villager-progression"),
+                    configured.warnings().toString());
+
+            assertFalse(PluginConfig.defaults().villagerProgression().hint().isBlank(),
+                    "the Mending refusal should not default to a raw advancement key");
+
+            PluginConfig cleared = PluginConfig.from(yaml("""
+                    villager-progression:
+                      hint: ""
+                    """));
+            assertEquals("", cleared.villagerProgression().hint());
+        }
+
+        @Test
+        @DisplayName("a shipped hint left beside a changed required-advancement is a warning")
+        void aStaleMendingHintWarns() throws Exception {
+            // #113 item 5's other half: nothing can check that free text describes the key beside
+            // it, but the one pair that cannot be deliberate -- the shipped sentence surviving a
+            // requirement the operator replaced -- is reported rather than left to be noticed by a
+            // player who is told to cure a villager the gate no longer asks about.
+            PluginConfig drifted = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                      required-advancement: "minecraft:story/mine_diamond"
+                    """));
+            assertTrue(mentions(drifted.warnings(), "hint still reads"),
+                    drifted.warnings().toString());
+
+            PluginConfig reworded = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                      required-advancement: "minecraft:story/mine_diamond"
+                      hint: "Mine a diamond"
+                    """));
+            assertFalse(mentions(reworded.warnings(), "hint still reads"),
+                    reworded.warnings().toString());
+
+            PluginConfig shippedPair = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                    """));
+            assertFalse(mentions(shippedPair.warnings(), "hint still reads"),
+                    shippedPair.warnings().toString());
         }
 
         @Test
