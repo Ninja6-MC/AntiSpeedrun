@@ -522,13 +522,30 @@ public final class IdleReminderRules {
             if (entry.result().eligible()) {
                 continue;
             }
-            List<String> clauses = clauses(entry.result());
-            if (clauses.isEmpty()) {
+            Optional<String> outstanding = outstanding(entry.result());
+            if (outstanding.isEmpty()) {
                 continue;
             }
-            return Optional.of(entry.milestone().displayName() + " - " + String.join(" and ", clauses));
+            return Optional.of(entry.milestone().displayName() + " - " + outstanding.get());
         }
         return Optional.empty();
+    }
+
+    /**
+     * What one verdict is still waiting on, phrased for the player rather than the operator.
+     *
+     * <p>Public because it is the half of {@link #nextStep} that {@code /progress} needs per row:
+     * the card names every milestone and what each is short of, where the reminder names only the
+     * first. Both go through this method on purpose. An idle reminder and a card that disagreed
+     * about what a player owes a gate would be a real bug and a confusing one, and the way that
+     * happens is a second implementation written because the first returned the wrong shape.
+     *
+     * @return the clauses joined with "and", or empty when nothing outstanding is actionable
+     * @see #nextStep(List)
+     */
+    public static Optional<String> outstanding(EligibilityResult result) {
+        List<String> clauses = clauses(Objects.requireNonNull(result, "result"));
+        return clauses.isEmpty() ? Optional.empty() : Optional.of(String.join(" and ", clauses));
     }
 
     /** The outstanding requirements of one verdict, in the order a player would tackle them. */
