@@ -182,11 +182,13 @@ final class ConfigReader {
      * still the running state the fallback produces, and here it is the right one: the fallback is
      * the shipped rejection for that same gate, so the refusal goes ahead and the player is told the
      * right thing. The state worth refusing a boot over is the one this prevents rather than the one
-     * it leaves. Several refusal paths send the message before they cancel or eject, so a template
-     * that threw there did not merely lose the message, it could let the refused player through.
-     * Guaranteeing at load that the template parses closes that without stopping a server over its
-     * wording. {@code gated-items.<tier>.hint} is read the same way because it is interpolated into
-     * the item rejection line: escaping neutralises its tags but not a section sign.
+     * it leaves. Several refusal paths used to send the message before they cancelled or ejected,
+     * so a template that threw there did not merely lose the message, it could let the refused
+     * player through. They now refuse first (#130), so a throw would cost only the message, but a
+     * player refused without being told why is still a defect, and guaranteeing at load that the
+     * template parses prevents it without stopping a server over its wording.
+     * {@code gated-items.<tier>.hint} is read the same way because it is interpolated into the
+     * item rejection line: escaping neutralises its tags but not a section sign.
      *
      * <p>The raw configured value is what gets parsed here, not the form the engine hands to
      * MiniMessage: {@code {NEXT_STEP}} is not MiniMessage syntax and the tag it is rewritten to is
@@ -238,8 +240,7 @@ final class ConfigReader {
      *
      * <p>Both halves of the warning go through {@link LogLine#oneLine}, and the value half is the
      * reason that is stated rather than assumed. A value is an arbitrary YAML scalar: a double-quoted
-     * scalar carrying {@code 
-} escapes puts real line breaks inside the quoted prefix, and
+     * scalar carrying {@code \n} escapes puts real line breaks inside the quoted prefix, and
      * {@link ConfigSnapshotHolder} emits each warning as one {@code logger.warning} call, so a value
      * quoted without collapsing turns one recoverable warning into as many console records as it has
      * lines -- indistinguishable from that many separate warnings, while {@code /asr reload} still
@@ -653,15 +654,17 @@ final class ConfigReader {
     private void requireResolvable(String key, String configured, String normalised,
             boolean enforced) throws ConfigLoadException {
         if (!enforced) {
-            warnings.add(qualify(key) + ": \"" + configured + "\" is not an advancement key this "
-                    + "server can resolve (read as \"" + normalised + "\"), so it was dropped. "
-                    + "That is a warning rather than an error only because the gate reading it is "
-                    + "switched off and so gates nothing either way; switching it on with this key "
-                    + "unchanged will stop the plugin at the next start. Fix the spelling.");
+            warnings.add(qualify(key) + ": \"" + quoted(configured) + "\" is not an advancement key "
+                    + "this server can resolve (read as \"" + quoted(normalised) + "\"), so it was "
+                    + "dropped. That is a warning rather than an error only because the gate "
+                    + "reading it is switched off and so gates nothing either way; switching it on "
+                    + "with this key unchanged will stop the plugin at the next start. Fix the "
+                    + "spelling.");
             return;
         }
-        throw new UnenforceableGateException(qualify(key) + ": \"" + configured + "\" is not an advancement "
-                + "key this server can resolve (read as \"" + normalised + "\"; a key is "
+        throw new UnenforceableGateException(qualify(key) + ": \"" + quoted(configured)
+                + "\" is not an advancement key this server can resolve (read as \""
+                + quoted(normalised) + "\"; a key is "
                 + "namespace:path, lower case, using only a-z 0-9 / . _ and -). config.yml has NOT "
                 + "been applied: after a reload the configuration already running stays live, and "
                 + "at startup the plugin does not enable. This is an error rather than a warning "
@@ -683,7 +686,7 @@ final class ConfigReader {
                     return constant;
                 }
             }
-            warnings.add(qualify(key) + ": \"" + value + "\" is not one of "
+            warnings.add(qualify(key) + ": \"" + quoted(value) + "\" is not one of "
                     + Arrays.toString(type.getEnumConstants()) + "; using the default " + def);
             return def;
         }
@@ -768,6 +771,6 @@ final class ConfigReader {
         if (value instanceof List<?>) {
             return "a list";
         }
-        return value.getClass().getSimpleName() + " \"" + value + "\"";
+        return value.getClass().getSimpleName() + " \"" + quoted(String.valueOf(value)) + "\"";
     }
 }

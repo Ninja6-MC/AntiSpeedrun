@@ -52,8 +52,10 @@ public final class VehicleTransit {
      * Triages {@code riders} against {@code blocked}.
      *
      * <p>{@code blocked} is evaluated exactly once per rider and in order, because in production it
-     * is a progression evaluation against a per-player cache and because the message a blocked
-     * rider is shown is sent from the same pass.
+     * is a progression evaluation against a per-player cache, and because the listener records the
+     * verdict it hands back here and later messages each blocked rider from that record, once the
+     * transit is cancelled and the ejection scheduled. Evaluating twice could let the message and
+     * the verdict disagree.
      *
      * @param riders  every player riding the vehicle, directly or through another passenger. An
      *                empty list yields a no-op plan: an empty boat is not gated, since nobody is

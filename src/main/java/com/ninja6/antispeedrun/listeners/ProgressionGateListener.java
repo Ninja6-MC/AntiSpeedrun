@@ -2,6 +2,7 @@ package com.ninja6.antispeedrun.listeners;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -334,8 +335,8 @@ public final class ProgressionGateListener implements Listener {
         }
 
         event.setCancelled(true);
-        reject(player, config, dimension, result);
         pushBack(player);
+        reject(player, config, dimension, result);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -374,6 +375,10 @@ public final class ProgressionGateListener implements Listener {
         }
         DimensionUnlock dimension = destination.get();
 
+        // Recorded in the triage pass rather than re-evaluated in a second loop, so the message and
+        // the verdict cannot disagree about who was blocked. Sent only once the transit is
+        // cancelled and the ejection scheduled, so a message that fails cannot let a rider through.
+        Map<Player, EligibilityResult> refused = new LinkedHashMap<>(2);
         VehicleTransit.Plan<Player> plan = VehicleTransit.plan(riders, rider -> {
             if (waived(rider, dimension)) {
                 return false;
@@ -382,9 +387,7 @@ public final class ProgressionGateListener implements Listener {
             if (result.eligible()) {
                 return false;
             }
-            // Sent from the triage pass rather than a second loop, so the message and the verdict
-            // cannot disagree about who was blocked.
-            reject(rider, config, dimension, result);
+            refused.put(rider, result);
             return true;
         });
         if (plan.isNoOp()) {
@@ -394,6 +397,7 @@ public final class ProgressionGateListener implements Listener {
             event.setCancelled(true);
         }
         ejectAndReposition(vehicle, plan, dimension, to.getWorld());
+        refused.forEach((rider, result) -> reject(rider, config, dimension, result));
     }
 
     // -------------------------------------------------------------------------------------------
@@ -667,12 +671,14 @@ public final class ProgressionGateListener implements Listener {
             return;
         }
 
-        reject(player, config, dimension, result);
+        // The return is scheduled before the player is told why, so a message that fails cannot
+        // leave them standing in a dimension they were refused.
         plugin.getLogger().fine(() -> "Returning " + player.getName() + " from " + arrivedIn.getName()
                 + ": they arrived without passing the " + dimension + " gate, so a transit reached this"
                 + " world without any handler cancelling it. Paper only - Folia does not fire this"
                 + " event for a portal transit, so the backstop is not armed there.");
         returnToSpawn(player, cameFrom);
+        reject(player, config, dimension, result);
     }
 
     /**

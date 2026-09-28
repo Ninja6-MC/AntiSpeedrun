@@ -29,11 +29,22 @@ public final class LogLine {
      * arbitrary YAML scalar may contain one: a value carrying an ANSI sequence would otherwise be
      * replayed into the operator's terminal, where it colours or repositions text that is not the
      * plugin's to colour. {@code \p{Cntrl}} covers {@code ESC} with the rest of C0 and {@code DEL},
-     * and {@code \u0080-\u009f} covers the C1 set, whose {@code CSI} is the single-character form of
-     * the same escape. Each run becomes one space rather than nothing, so removing a line break
-     * cannot silently join two words into one that was never written.
+     * and the range U+0080 to U+009F covers the C1 set, whose {@code CSI} is the single-character
+     * form of the same escape.
+     *
+     * <p>Neither class reaches outside Latin-1, and two more groups need naming. U+2028 LINE
+     * SEPARATOR and U+2029 PARAGRAPH SEPARATOR are line breaks to any viewer that follows Unicode
+     * rather than ASCII, so they split a warning exactly as {@code \n} would. The bidirectional
+     * controls — U+061C, U+200E and U+200F, the embeddings and overrides U+202A to U+202E, and the
+     * isolates U+2066 to U+2069 — are not line breaks, but a viewer that honours them reorders what
+     * follows, so a value carrying U+202E can make the rest of the warning read backwards.
+     *
+     * <p>Each run becomes one space rather than nothing, so removing a line break cannot silently
+     * join two words into one that was never written.
      */
-    private static final Pattern NOT_ONE_LINE = Pattern.compile("[\\s\\p{Cntrl}\\u0080-\\u009f]+");
+    private static final Pattern NOT_ONE_LINE = Pattern.compile(
+            "[\\s\\p{Cntrl}\\x{80}-\\x{9f}\\x{2028}\\x{2029}"
+                    + "\\x{61c}\\x{200e}\\x{200f}\\x{202a}-\\x{202e}\\x{2066}-\\x{2069}]+");
 
     /**
      * {@code text} as a log record may carry it: one line, no control characters, {@code maxChars}

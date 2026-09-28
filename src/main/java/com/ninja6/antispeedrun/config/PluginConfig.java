@@ -407,8 +407,8 @@ public record PluginConfig(
         String advancement = r.advancementKey("required-advancement", DEFAULT_MENDING_ADVANCEMENT,
                 gated);
         // Interpolated into the Mending refusal with its tags escaped, which does not neutralise a
-        // legacy formatting code, and that refusal is sent before the trade is cancelled; see
-        // ConfigReader#miniMessage.
+        // legacy formatting code, so a throw at send time would cost the refused player the
+        // message; see ConfigReader#miniMessage.
         String hint = r.miniMessage("hint", DEFAULT_MENDING_HINT);
         warnOnStaleMendingHint(r, gated, advancement);
         return new VillagerProgression(gated, advancement, hint);
@@ -434,6 +434,11 @@ public record PluginConfig(
      * but the operator did reword it, and that fallback is already reported under its own key.
      */
     private static void warnOnStaleMendingHint(ConfigReader r, boolean gated, String advancement) {
+        // isEmpty() cannot be true here today: with the gate on, advancementKey refuses a blank or
+        // unresolvable key before this is reached, and with it off the first test has returned.
+        // It stays so that loosening that refusal -- to a warning and a dropped key, as the
+        // switched-off path already does -- cannot turn an empty key into "the requirement
+        // changed" and report a stale hint on top of the warning that matters.
         if (!gated || advancement.isEmpty() || advancement.equals(DEFAULT_MENDING_ADVANCEMENT)) {
             return;
         }

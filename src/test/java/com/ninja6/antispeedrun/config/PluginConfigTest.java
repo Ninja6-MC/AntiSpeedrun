@@ -785,7 +785,8 @@ class PluginConfigTest {
 
     /**
      * The rejection lines are deserialised as MiniMessage on a region thread, on every refusal, and
-     * several refusal paths send before they cancel or eject. #116: they went through
+     * several refusal paths used to send before they cancelled or ejected; since #130 they refuse
+     * first, so a throw costs the message rather than the refusal. #116: they went through
      * {@code r.string} unvalidated while {@code idle-reminder.message} beside them did not.
      *
      * <p>Warn and fall back, like the reminder, rather than refusing the document: the fallback is
@@ -1964,8 +1965,8 @@ class PluginConfigTest {
         @DisplayName("a Mending hint with a legacy formatting code warns and falls back")
         void mendingHintFallsBack() throws Exception {
             // #129: the hint is interpolated into the Mending refusal with its tags escaped, which
-            // leaves a section sign in place, and that refusal is sent before the trade is
-            // cancelled -- a throw there let the trade through.
+            // leaves a section sign in place. The trade is cancelled before the refusal is sent
+            // (#130), so a throw there would cost the player the message rather than the gate.
             PluginConfig config = PluginConfig.from(yaml("""
                     villager-progression:
                       gate-mending-trade: true

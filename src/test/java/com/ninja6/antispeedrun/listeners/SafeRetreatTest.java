@@ -840,6 +840,95 @@ class SafeRetreatTest {
         }
 
         /**
+         * A pocket whose only way out is a corridor one block higher, with the block above the
+         * candidate's head either open or not. A step up puts the player's head one block above
+         * where it was, in the cell they are leaving, so that block decides it.
+         */
+        private SafeRetreat.Terrain stepUpEast(boolean headroom) {
+            return blocks((x, y, z) -> {
+                if (z != 0 || x < 0 || x >= 12) {
+                    return '#';
+                }
+                if (x == 0) {
+                    return (y == 30 || y == 31 || (headroom && y == 32)) ? '.' : '#';
+                }
+                return (y == 31 || y == 32) ? '.' : '#';
+            });
+        }
+
+        /**
+         * A pocket whose only way out is a corridor one block lower, with the block at head height
+         * in the lower cell either open or not. A step down has the player's body in that block
+         * before it falls, so that block decides it.
+         */
+        private SafeRetreat.Terrain stepDownEast(boolean clearance) {
+            return blocks((x, y, z) -> {
+                if (z != 0 || x < 0 || x >= 12) {
+                    return '#';
+                }
+                if (x == 0) {
+                    return (y == 30 || y == 31) ? '.' : '#';
+                }
+                return (y == 29 || y == 30 || (clearance && y == 31)) ? '.' : '#';
+            });
+        }
+
+        @Test
+        @DisplayName("a step up is a way out when the block above the head is clear")
+        void stepUpWithHeadroom() {
+            assertEquals(OptionalInt.of(30),
+                    SafeRetreat.groundY(stepUpEast(true), 0, 30, 0, 0, 128));
+        }
+
+        @Test
+        @DisplayName("a step up under a low ceiling is not a way out")
+        void stepUpWithoutHeadroom() {
+            assertEquals(OptionalInt.empty(),
+                    SafeRetreat.groundY(stepUpEast(false), 0, 30, 0, 0, 128));
+        }
+
+        @Test
+        @DisplayName("a step down is a way out when the lower cell is clear at head height")
+        void stepDownWithClearance() {
+            assertEquals(OptionalInt.of(30),
+                    SafeRetreat.groundY(stepDownEast(true), 0, 30, 0, 0, 128));
+        }
+
+        @Test
+        @DisplayName("a step down into a cell blocked at head height is not a way out")
+        void stepDownWithoutClearance() {
+            assertEquals(OptionalInt.empty(),
+                    SafeRetreat.groundY(stepDownEast(false), 0, 30, 0, 0, 128));
+        }
+
+        /**
+         * The documented cost of the one-block step limit, pinned so that changing it is a
+         * decision. A two-block drop is harmless, but the walk does not take it, so a spawn on a
+         * lone pillar is refused and the search moves on down the column.
+         */
+        @Test
+        @DisplayName("a spawn on a pillar with a two-block drop on every side falls through to the cave")
+        void shortDropOnEverySideIsRefused() {
+            // Flat ground topped at 63, a pillar at the spawn topped at 65, a cave at y 30.
+            SafeRetreat.Terrain pillar = blocks((x, y, z) -> {
+                if (y == 30 || y == 31) {
+                    return '.';
+                }
+                if (y <= 63) {
+                    return '#';
+                }
+                return (y <= 65 && x == 0 && z == 0) ? '#' : '.';
+            });
+
+            SafeRetreat.Landing landing =
+                    SafeRetreat.spawnLanding(0.5D, 66.0D, 0.5D, pillar, -64, 320);
+
+            assertTrue(landing.retreated());
+            assertEquals(30.0D, landing.y(), 1.0E-9D,
+                    "the pillar top is refused, so the next candidate down the column wins");
+        }
+
+        /**
          * The rule is shared with the ejection path on purpose. A retreat spot two blocks behind a
          * portal that is sealed is the same trap, and {@link SafeRetreat#landing} has somewhere
          * strictly better to fall back to: the spot the rider occupied a moment ago.
