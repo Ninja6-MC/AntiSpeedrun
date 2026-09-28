@@ -75,6 +75,8 @@ class TeleportCommandLineTest {
                     new ToCoordinates(new WorldOf(new Sender())));
             assertEquals(expected, read("/tp Steve ~ ~10 ~-3.5"));
             assertEquals(expected, read("/tp Steve ^ ^ ^1 90 0"));
+            assertEquals(expected, read("/tp Steve ^-1 ^.5 ^ ~ ~-10"));
+            assertEquals(expected, read("/tp Steve -1.5 ~ .5 facing ^ ^ ^1"));
             assertEquals(expected, read("/tp Steve 0 64 0 facing entity Alex eyes"));
             assertEquals(expected, read("/tp Steve 0 64 0 facing entity Alex"));
             assertEquals(expected, read("/tp Steve 0 64 0 facing 1 2 3"));
@@ -233,6 +235,12 @@ class TeleportCommandLineTest {
             "/tp @a[Sort=Random,limit=1] Alex",
             "/tp @a[\"sort\" = \"RaNdOm\",limit=1] Alex",
             "/tp @R Alex",
+            "/tp @a[predicate=pack:coin_flip,limit=1] Alex",
+            "/tp @a[\"predicate\"=pack:coin_flip] Alex",
+            "/tp @a[PREDICATE = pack:coin_flip] Alex",
+            "/tp @a[predicate=!pack:coin_flip] Alex",
+            "/tp Steve @e[Predicate=pack:coin_flip,limit=1]",
+            "/execute as @a[predicate=pack:coin_flip] in the_nether run tp @s 0 70 0",
             "/execute in the_nether as @r run tp @s 0 70 0",
             "/execute at @e[sort=random,limit=1] run tp Steve ~ ~ ~",
         })
@@ -252,6 +260,24 @@ class TeleportCommandLineTest {
         @DisplayName("a label after run in another case, which Brigadier does not accept")
         void labelCaseAfterRun(String line) {
             unreadable(line, "Brigadier literals are case-sensitive");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+            "/tp ^ ~ ^",
+            "/tp ^1 0 0",
+            "/tp Steve ~ ^ ~",
+            "/tp Steve 1 ^2 3",
+            "/tp Steve 0 70 0 ^ 0",
+            "/tp Steve 0 70 0 90 ^",
+            "/tp Steve 0 70 0 facing ^ 0 0",
+            "/execute in the_nether positioned ~ ^ ~ run tp @s 0 70 0",
+            "/tp Steve ~~ 0 0",
+            "/tp Steve - 0 0",
+        })
+        @DisplayName("coordinates vanilla would refuse: local mixed with world, or local in a rotation")
+        void mixedCoordinates(String line) {
+            unreadable(line, "vanilla takes all three local or none, and no local rotation");
         }
 
         @ParameterizedTest

@@ -62,7 +62,11 @@ public final class TeleportCommandLine {
     /** What the sender needs to run {@code execute}. */
     public static final String EXECUTE_PERMISSION = "minecraft.command.execute";
 
-    private static final Pattern COORDINATE = Pattern.compile("[~^]?(-?(\\d+\\.?\\d*|\\.\\d+))?");
+    /** One world coordinate or rotation angle: absolute, or relative with {@code ~}. Never empty. */
+    private static final Pattern WORLD = Pattern.compile("~(-?(\\d+\\.?\\d*|\\.\\d+))?|-?(\\d+\\.?\\d*|\\.\\d+)");
+
+    /** One local coordinate, {@code ^}, which vanilla accepts only when all three are local. */
+    private static final Pattern LOCAL = Pattern.compile("\\^(-?(\\d+\\.?\\d*|\\.\\d+))?");
 
     private TeleportCommandLine() {
     }
@@ -326,8 +330,8 @@ public final class TeleportCommandLine {
             return true;
         }
         if (n == 2) {
-            return COORDINATE.matcher(rest.get(0)).matches() && !rest.get(0).isEmpty()
-                    && COORDINATE.matcher(rest.get(1)).matches() && !rest.get(1).isEmpty();
+            // A rotation takes no local ("^") component.
+            return WORLD.matcher(rest.get(0)).matches() && WORLD.matcher(rest.get(1)).matches();
         }
         if (n < 3 || !rest.get(0).equals("facing")) {
             return false;
@@ -367,27 +371,30 @@ public final class TeleportCommandLine {
      * Whether a selector could pick at random, so that two resolutions of it can disagree.
      *
      * <p>Deliberately blunt: any selector whose text contains {@code random} in any case, however it
-     * is quoted or spaced, and {@code @r}. Brigadier accepts quoted option names and several kinds of
+     * is quoted or spaced, and {@code @r}; and any selector naming a {@code predicate}, which a
+     * datapack can make random. Brigadier accepts quoted option names and several kinds of
      * whitespace around {@code =}, and a narrower match was bypassed by exactly those. A selector
      * refused here that was not random ({@code name=random}) costs only the note.
      */
     private static boolean random(String token) {
         String folded = token.toLowerCase(Locale.ROOT);
-        return folded.startsWith("@") && (folded.startsWith("@r") || folded.contains("random"));
+        return folded.startsWith("@") && (folded.startsWith("@r") || folded.contains("random")
+                // A predicate can be random too -- a datapack's random_chance -- and which
+                // predicates exist is not visible from here.
+                || folded.contains("predicate"));
     }
 
-    /** Whether the three tokens from {@code from} are a coordinate triple. */
+    /**
+     * Whether the three tokens from {@code from} are a coordinate triple as vanilla reads one:
+     * all three local ({@code ^}), or none of them.
+     */
     private static boolean coordinates(List<String> args, int from) {
         if (args.size() < from + 3) {
             return false;
         }
-        for (int k = from; k < from + 3; k++) {
-            String token = args.get(k);
-            if (token.isEmpty() || !COORDINATE.matcher(token).matches()) {
-                return false;
-            }
-        }
-        return true;
+        List<String> triple = args.subList(from, from + 3);
+        return triple.stream().allMatch(token -> LOCAL.matcher(token).matches())
+                || triple.stream().allMatch(token -> WORLD.matcher(token).matches());
     }
 
     /** How many tokens {@code execute positioned} takes, or 0 if it cannot be read. */
