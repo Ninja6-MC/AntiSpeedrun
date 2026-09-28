@@ -145,9 +145,10 @@ public final class DimensionGateRules {
      * because on Folia one route does not announce itself at all: a vehicle carrying a passenger
      * through a portal fires neither {@code EntityPortalEvent} nor {@code PlayerPortalEvent}
      * (PaperMC/Folia#453), so there is no transit to cancel and the only evidence the gate ever gets
-     * is the player turning up on the other side. Whether Folia reports even that is a question
-     * about the listener, not about this verdict — see {@code
-     * ProgressionGateListener#onPlayerChangedWorld} for the answer #114 found in the source.
+     * is the player turning up on the other side. Which event reports that arrival on both
+     * platforms is a question about the listener, not about this verdict — see {@code
+     * ProgressionGateListener#onPlayerAddedToWorld}, and #127 for why it is no longer
+     * {@code PlayerChangedWorldEvent}.
      *
      * <p>The whole difficulty is telling that arrival apart from the several legitimate ways an
      * ineligible player reaches the Nether, and the answer is that each of those leaves a trace:
@@ -175,15 +176,15 @@ public final class DimensionGateRules {
      * <p>What is left over — ineligible, unwaived, and nobody decided anything — is the transit no
      * event reported. That is the bypass, and it fails closed.
      *
-     * <p><strong>A cross-world respawn lands here too, and is meant to.</strong> CraftBukkit fires
-     * {@code PlayerChangedWorldEvent} from {@code PlayerList#respawn} when the respawn world differs
-     * from the death world, and that path fires no {@code PlayerTeleportEvent}, so it leaves no
-     * note. A player who dies in the Overworld and respawns at a Nether anchor therefore arrives
-     * {@code decided == false} and, if ineligible and unwaived, is returned. That is the intended
-     * answer rather than an oversight: a respawn anchor set while the player was waived — under an
-     * {@code /asr bypass} grant that has since lapsed, or before an {@code /asr lock} — is a
-     * standing re-entry into a dimension the gate currently closes to them, and the gate is not a
-     * one-time toll. They keep the anchor; only the arrival is undone.
+     * <p><strong>A cross-world respawn lands here too, and is meant to.</strong> A respawn in a
+     * world other than the death world adds the player to that world like any transit, and that
+     * path fires no {@code PlayerTeleportEvent}, so it leaves no note. A player who dies in the
+     * Overworld and respawns at a Nether anchor therefore arrives {@code decided == false} and, if
+     * ineligible and unwaived, is returned. That is the intended answer rather than an oversight:
+     * a respawn anchor set while the player was waived — under an {@code /asr bypass} grant that
+     * has since lapsed, or before an {@code /asr lock} — is a standing re-entry into a dimension the
+     * gate currently closes to them, and the gate is not a one-time toll. They keep the anchor;
+     * only the arrival is undone.
      *
      * @param decided  whether an upstream handler already dealt with this arrival
      * @param waived   as {@link #waived(boolean, boolean, boolean)}
@@ -191,6 +192,34 @@ public final class DimensionGateRules {
      */
     public static Arrival arrival(boolean decided, boolean waived, boolean eligible) {
         return decided || waived || eligible ? Arrival.ALLOWED : Arrival.REJECTED;
+    }
+
+    /**
+     * The world a player has just left, if being added to {@code arrivedIn} is a change of world at
+     * all — #127.
+     *
+     * <p>The backstop is told only that a player was added to a world, which happens on login, on
+     * a move between Folia regions inside one world, and on every dimension change and cross-world
+     * respawn. Only the last two are arrivals to judge, and the listener tells them apart by the
+     * world it last saw the player added to:
+     *
+     * <ul>
+     *   <li><strong>Nothing on record</strong> — the player's first add this session, which is the
+     *       login. Not judged: see the listener on why a login is not a transit.</li>
+     *   <li><strong>The same world</strong> — a move inside the world that crossed a region
+     *       boundary on Folia. Not a change of world.</li>
+     *   <li><strong>Another world</strong> — a change of world, and the one returned is where the
+     *       player came from.</li>
+     * </ul>
+     *
+     * @param lastSeenIn the world the player was last added to, or {@code null} if none is on record
+     * @param arrivedIn  the world they are being added to now
+     */
+    public static Optional<UUID> departure(UUID lastSeenIn, UUID arrivedIn) {
+        Objects.requireNonNull(arrivedIn, "arrivedIn");
+        return lastSeenIn == null || lastSeenIn.equals(arrivedIn)
+                ? Optional.empty()
+                : Optional.of(lastSeenIn);
     }
 
     /**

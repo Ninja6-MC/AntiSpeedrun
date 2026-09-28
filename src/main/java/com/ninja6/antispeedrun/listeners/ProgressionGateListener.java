@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
@@ -22,11 +23,11 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPortalEvent;
-import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.util.Vector;
 
+import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
@@ -50,11 +51,11 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *       cross a dimension boundary. Two handlers on the one event, and the split is deliberate:
  *       {@link #onPlayerTeleport} cancels at {@code HIGH}, {@link #onPlayerTeleportSettled} records
  *       an exemption at {@code MONITOR}, where the destination can no longer change.</li>
- *   <li><strong>{@link PlayerChangedWorldEvent}</strong> (#100) — the backstop. Not a route in at
- *       all but the arrival itself, checked after the fact because Folia has a route in that fires
- *       none of the three above. See {@link #onPlayerChangedWorld}, and in particular its
- *       <em>Does Folia fire this at all?</em> section: read against Folia's source, it does not, so
- *       on Folia this backstop is not armed.</li>
+ *   <li><strong>{@link EntityAddToWorldEvent}</strong> (#100, #127) — the backstop. Not a route in
+ *       at all but the arrival itself, checked after the fact because Folia has routes in that fire
+ *       none of the three above. It was {@code PlayerChangedWorldEvent} until #127, which Folia
+ *       never fires; see {@link #onPlayerAddedToWorld} for why this event is the one both
+ *       platforms fire.</li>
  * </ul>
  *
  * <p>Everything that decides anything lives in {@link DimensionGateRules}, {@link VehicleTransit}
@@ -66,7 +67,8 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *
  * <ul>
  *   <li>All four events are single-entity events, so Folia calls them on the region owning that
- *       entity. Evaluating progression for a player, reading their bypass grant from their PDC and
+ *       entity — for {@link EntityAddToWorldEvent}, the region that owns the position it is being
+ *       added at. Evaluating progression for a player, reading their bypass grant from their PDC and
  *       nudging their velocity are therefore all legal inline.</li>
  *   <li>A vehicle's passengers are in the vehicle's region by construction, so
  *       {@link #onEntityPortal} may evaluate them without hopping.</li>
@@ -197,7 +199,7 @@ public final class ProgressionGateListener implements Listener {
      * earned and are <em>not</em> waived for, per gate, and <em>which world</em> it decided that
      * about.
      *
-     * <p>This is the memory {@link #onPlayerChangedWorld} needs and nothing else reads. A world
+     * <p>This is the memory {@link #onPlayerAddedToWorld} needs and nothing else reads. A world
      * change carries no cause and no history, so on its own it cannot tell the two deliberate
      * exemptions — an operator's {@code /tp} and a rider the vehicle path is already repositioning
      * — apart from the Folia transit that reports nothing. Each of those leaves a note here on its
@@ -249,10 +251,45 @@ public final class ProgressionGateListener implements Listener {
      */
     private final PlayerStateMap<Map<DimensionUnlock, DimensionGateRules.Decision>> decisions;
 
+    /**
+     * The world each player was last added to, by UID — the "from" that
+     * {@link EntityAddToWorldEvent} does not carry.
+     *
+     * <p>Written by {@link #onPlayerAddedToWorld} on every add, so it follows the player through
+     * every dimension change, respawn and cross-region move. Only the player's own region ever
+     * writes their entry, and it does so inside the handler, so the read and the write cannot
+     * interleave with another add for the same player. Registered with
+     * {@link com.ninja6.antispeedrun.progression.PlayerStateRegistry} for quit cleanup — finding
+     * R-08 — which is also what makes a rejoin read as a join rather than a world change.
+     */
+    private final PlayerStateMap<UUID> lastWorld;
+
     public ProgressionGateListener(AntiSpeedrunPlugin plugin) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.lastFeedback = plugin.playerState().register("dimension-gate-feedback");
         this.decisions = plugin.playerState().register("dimension-gate-decisions");
+        this.lastWorld = plugin.playerState().register("dimension-gate-last-world");
+        seedLastWorld();
+    }
+
+    /**
+     * Records where every player already online is standing, for an enable while the server is
+     * running.
+     *
+     * <p>Those players were added to their world before this listener existed, so without this
+     * their next dimension change would find nothing on record and read as a join, which the
+     * backstop does not judge. Each read runs on the player's own {@code EntityScheduler}, the
+     * only thread that may ask a Folia player which world they are in, and uses
+     * {@code putIfAbsent} so an add that got there first is not overwritten with an older answer.
+     */
+    private void seedLastWorld() {
+        for (Player online : plugin.getServer().getOnlinePlayers()) {
+            online.getScheduler().run(plugin, task -> {
+                if (online.isOnline()) {
+                    lastWorld.putIfAbsent(online.getUniqueId(), online.getWorld().getUID());
+                }
+            }, null);
+        }
     }
 
     // -------------------------------------------------------------------------------------------
@@ -297,10 +334,12 @@ public final class ProgressionGateListener implements Listener {
      * harmless: the vehicle path is what actually separates a mounted rider from the portal, and a
      * velocity nudge on a passenger would be inert even if it tried.
      *
-     * <p>One upstream caveat, which is what {@link #onPlayerChangedWorld} exists for: Folia's
+     * <p>One upstream caveat, which is what {@link #onPlayerAddedToWorld} exists for: Folia's
      * asynchronous portal path fires <em>neither</em> event for a vehicle carrying a passenger
      * (PaperMC/Folia#453). Nothing this handler could do differently would see a transit it is never
-     * told about, so #100 stopped trying to intercept that case and checks the arrival instead.
+     * told about, so #100 stopped trying to intercept that case and checks the arrival instead. On
+     * Folia 1.21.4 the gap is wider than #453 describes; see <em>What Folia reports</em> on that
+     * handler.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerPortal(PlayerPortalEvent event) {
@@ -313,7 +352,7 @@ public final class ProgressionGateListener implements Listener {
             // What is deliberately *not* done is writing a note. An unresolved destination cannot
             // name the world it is failing open into, so any note would have to cover every gate
             // and every world -- a pass spendable on a transit that decided nothing, which is the
-            // unreported Folia vehicle transit onPlayerChangedWorld exists to catch. #92's
+            // unreported Folia vehicle transit onPlayerAddedToWorld exists to catch. #92's
             // fail-open is "this transit is not cancelled", and that survives the return below;
             // it was never "this player is cleared for wherever they turn up next".
             return;
@@ -416,7 +455,7 @@ public final class ProgressionGateListener implements Listener {
      * is no portal to climb out of.
      *
      * <p>A cause <em>outside</em> {@link #GATED_CAUSES} is exempt, and that exemption has to survive
-     * {@link #onPlayerChangedWorld}, which sees the resulting arrival with no idea what caused it.
+     * {@link #onPlayerAddedToWorld}, which sees the resulting arrival with no idea what caused it.
      * Writing it down is not this handler's job, though — see {@link #onPlayerTeleportSettled}.
      * Nothing is recorded here, because nothing is settled here.
      */
@@ -511,53 +550,71 @@ public final class ProgressionGateListener implements Listener {
     }
 
     // -------------------------------------------------------------------------------------------
-    // #100 - the backstop, for the transit Folia never reports
+    // #100, #127 - the backstop, for the transits Folia never reports
     // -------------------------------------------------------------------------------------------
 
     /**
-     * A player who is already standing in another dimension — the gate's last line, and the only
-     * one that runs after the fact.
+     * A player who has just been put into a world — the gate's last line, and the only one that
+     * runs after the fact.
      *
      * <h2>Why a fourth handler exists at all</h2>
      *
      * On Folia a player riding a boat, minecart or camel through a portal is carried across by an
      * asynchronous transit that fires <em>neither</em> {@link EntityPortalEvent} nor
      * {@link PlayerPortalEvent} (PaperMC/Folia#453). There is no event to cancel, no vehicle to
-     * triage and no destination to inspect: the first and only thing this plugin is told is that the
-     * player's world changed. That is a live bypass of a P0 gate on one of the two supported
-     * platforms, so #100 closes it here rather than waiting on the server.
+     * triage and no destination to inspect: the first and only thing this plugin can be told is that
+     * the player is now in another world. That is a live bypass of a P0 gate on one of the two
+     * supported platforms, so #100 closes it here rather than waiting on the server.
      *
      * <p>Paper does not have the hole — a passenger cannot start a portal transit of its own, so the
      * vehicle's transit produces both events and {@link #onEntityPortal} handles it — but this
      * handler is registered on both platforms deliberately. A backstop that only armed itself on
      * Folia would need to detect Folia, and the detection would be the thing that broke.
      *
-     * <h2>Does Folia fire this at all? Read against the source: no</h2>
+     * <h2>Why this event and not {@code PlayerChangedWorldEvent} — #127</h2>
      *
-     * Everything above rests on Folia firing {@code PlayerChangedWorldEvent} for the transit it
-     * does not report. #114 asked where that was established. Nowhere, it turns out, and reading
-     * the servers' source says it does not happen:
+     * #100 put the backstop on {@code PlayerChangedWorldEvent}, and #114 found that Folia never
+     * fires it: Paper fires it only from {@code ServerPlayer#teleport(TeleportTransition)} and
+     * {@code PlayerList#respawn}, Folia's region-threading patch makes the first throw and replaces
+     * both with {@code Entity#placeInAsync}, {@code ServerPlayer#placeSingleSync} and a respawn of
+     * its own, and none of those fires it. So until #127 the backstop acted on Paper only.
+     *
+     * <p>{@link EntityAddToWorldEvent} is fired from the one step every one of those paths shares:
+     * putting the player into the destination world. Paper fires it from
+     * {@code ServerLevel.EntityCallbacks#onTrackingStart}, which runs whenever an entity is added to
+     * a level's entity lookup. On Paper the dimension change reaches that through
+     * {@code ServerLevel#addDuringTeleport}, immediately before the {@code PlayerChangedWorldEvent}
+     * this handler replaces, and a respawn through {@code addRespawnedPlayer}. On Folia
+     * {@code placeSingleSync} calls {@code addDuringTeleport} too, for a portal transit and a
+     * {@code teleportAsync} alike, and Folia's patch to {@code onTrackingStart} only prepends its own
+     * bookkeeping. Read on Paper's and Folia's {@code ver/1.21.4}, the API this plugin compiles
+     * against, and observed on a live Folia 1.21.4 server for a login, a respawn, and a Nether
+     * portal crossed on foot and in a boat — #127 records how.
+     *
+     * <p>The event does not say where the player came from, which the gate needs twice over: to
+     * tell a dimension change from a same-world move, and to know where to send them back.
+     * {@link #lastWorld} answers that, and {@link DimensionGateRules#departure} turns it into the
+     * source world, or into nothing when there was no change to judge. The event fires for every
+     * entity added to every world, chunk loads included, so a non-player costs one
+     * {@code instanceof}.
+     *
+     * <h2>What Folia reports, and what that makes of this handler there</h2>
+     *
+     * The same reading of Folia 1.21.4 says the gap is wider than #453. Folia's
+     * {@code Entity#handlePortal} no longer calls {@code getPortalDestination}, which is where Paper
+     * fires both portal events, and neither Folia patch set fires either event anywhere else; its
+     * {@code Entity#teleportAsync} fires no {@code PlayerTeleportEvent} either. So on Folia the three
+     * handlers above are not called for a portal, on foot or mounted, nor for a pearl, and this
+     * handler is the gate. Two consequences follow, both fail-closed:
      *
      * <ul>
-     *   <li>Paper fires this event in exactly two places,
-     *       {@code ServerPlayer#teleport(TeleportTransition)} and {@code PlayerList#respawn}. A code
-     *       search of PaperMC/Paper finds no other call site.</li>
-     *   <li>Folia's region-threading patch makes both of them throw
-     *       {@code UnsupportedOperationException} ("Must use teleportAsync while in region
-     *       threading") before they reach the event, and replaces them with an asynchronous path —
-     *       {@code Entity#placeInAsync}, {@code ServerPlayer#placeSingleSync}, and a
-     *       {@code ServerPlayer#respawn} of its own — that fires no {@code PlayerChangedWorldEvent}
-     *       anywhere. Checked on Folia's {@code ver/1.21.4} branch, which matches the API this
-     *       plugin compiles against, and again on {@code ver/26.1.x}; neither patch set mentions the
-     *       event.</li>
+     *   <li>An ineligible player who walks into a portal on Folia is returned to the source world's
+     *       spawn from the other side, rather than nudged back out of the portal.</li>
+     *   <li>{@link #onPlayerTeleportSettled} never runs on Folia, so a cross-dimension teleport by
+     *       {@code /tp} or another plugin leaves no note, and an ineligible, unwaived player moved
+     *       that way is returned. The {@link #GATED_CAUSES} allow-list cannot be honoured on a
+     *       server that never says what caused a teleport.</li>
      * </ul>
-     *
-     * <p>So on Folia this handler is not called for a portal transit, a {@code teleportAsync} or a
-     * respawn, and the unreported vehicle transit #100 is about is still open there. On Paper it
-     * runs as described, as a second line behind {@link #onEntityPortal}. That is a reading of the
-     * upstream source rather than an observation on a running server and should be confirmed on
-     * one; if it holds, the backstop needs a different signal on Folia, which is a design decision
-     * rather than a comment.
      *
      * <h2>Not double-handling what Paper already caught</h2>
      *
@@ -576,7 +633,10 @@ public final class ProgressionGateListener implements Listener {
      *       ejected and is repositioning. The second is the Paper double-handling case exactly —
      *       a mixed crew's transit is not cancelled, so a blocked rider really does arrive in the
      *       Nether for a tick before the deferred ejection puts them back, and without the note this
-     *       handler would teleport them somewhere else first.</li>
+     *       handler would teleport them somewhere else first. Both notes are written by events that
+     *       fire before the player is added to the destination world, so moving from
+     *       {@code PlayerChangedWorldEvent} to this event changes nothing about which arrivals find
+     *       one.</li>
      *   <li>The arrival is <strong>not gated</strong> — leaving the Nether, an Overworld-to-Overworld
      *       multiverse hop, a datapack dimension. {@link DimensionGateRules#gatedDestination}
      *       answers that, on kinds rather than worlds, as everywhere else in this class.</li>
@@ -587,34 +647,30 @@ public final class ProgressionGateListener implements Listener {
      *
      * <h2>A fifth arrival that is not a transit, and is returned on purpose</h2>
      *
-     * CraftBukkit fires this event from {@code PlayerList#respawn} when the respawn world differs
-     * from the death world, and that path fires no {@code PlayerTeleportEvent} at all, so it leaves
-     * no note. A player who dies in the Overworld and respawns at a Nether anchor therefore reaches
-     * the check with nothing recorded, and if they are ineligible and unwaived they are returned to
-     * the Overworld. That is the answer this handler intends, not a case it forgot: an anchor set
-     * while the player was waived is a standing re-entry into a dimension the gate now closes to
-     * them, and the gate is not a one-time toll. The anchor survives; only the arrival is undone,
-     * and they are told why like anyone else.
+     * A respawn in another world adds the player to it like any transit, and that path fires no
+     * {@code PlayerTeleportEvent} at all, so it leaves no note. A player who dies in the Overworld
+     * and respawns at a Nether anchor therefore reaches the check with nothing recorded, and if they
+     * are ineligible and unwaived they are returned to the Overworld. That is the answer this
+     * handler intends, not a case it forgot: an anchor set while the player was waived is a standing
+     * re-entry into a dimension the gate now closes to them, and the gate is not a one-time toll.
+     * The anchor survives; only the arrival is undone, and they are told why like anyone else.
      *
-     * <p>The other non-transit case goes the other way, and only because the server does not offer
-     * it: a player who logs out in the Nether and logs back in is <em>not</em> changing world, so
-     * this event does not fire and the gate never sees them. That is a hole by omission rather than
-     * a decision, and closing it would mean checking on join — a different handler, and #100's
-     * scope is the transit Folia does not report.
+     * <p>Logging in goes the other way. Joining adds the player to a world too, but there is no
+     * earlier world on record for this session, so {@link DimensionGateRules#departure} reports no
+     * change and a player who logs out in the Nether and back in is not judged. That is a hole by
+     * omission rather than a decision, and closing it would mean checking on join — #100's scope is
+     * the transit Folia does not report.
      *
      * <h2>Folia region threading</h2>
      *
-     * {@code PlayerChangedWorldEvent} is a single-entity event, so were Folia to fire it, it would be
-     * on the region that now owns the player, in the destination world. It does not fire it for a
-     * portal transit — see <em>Does Folia fire this at all?</em> above — so what follows is what keeps
-     * the handler legal on Folia if that ever changes, and is the reason the block reads below go to a
-     * scheduler on Paper too. Legal inline, and all of it done inline: the
-     * progression evaluation (a cache read), the bypass grant (this player's own PDC), the
-     * dimension-unlock override (in memory), the ledger (in memory), and the message. Illegal, and
-     * therefore not done inline: reading a block in the world they came from — the source world
-     * belongs to another region and this thread may not touch it. There is no captured origin
-     * behind the portal either, because nothing announced the transit, so the return point is the
-     * source world's spawn.
+     * The event is fired by the thread adding the player to the destination world, which on Folia
+     * is the region that owns their new position, and on Paper is the main thread. Legal inline,
+     * and all of it done inline: the progression evaluation (a cache read), the bypass grant (this
+     * player's own PDC), the dimension-unlock override (in memory), the ledgers (in memory), and the
+     * message. Illegal, and therefore not done inline: reading a block in the world they came from —
+     * the source world belongs to another region and this thread may not touch it. There is no
+     * captured origin behind the portal either, because nothing announced the transit, so the return
+     * point is the source world's spawn.
      *
      * <p>{@code getSpawnLocation()} on the source world is not an exception to that rule: a world's
      * spawn is level data held on the {@code World} object, not a block read, so it neither loads a
@@ -637,21 +693,33 @@ public final class ProgressionGateListener implements Listener {
      * spawn is handed back as it stands only when no candidate in range passes.
      *
      * <p>The return itself is deferred to the player's own {@code EntityScheduler} and performed
-     * with {@code teleportAsync}, by way of {@link #scheduleEjection}. Deferred because moving a
-     * player from inside the notification that they have just been moved is the same hazard R-09
-     * describes; {@code teleportAsync} because the destination is in another world, and
-     * {@code Entity#teleport} throws on Folia the moment it leaves the region.
+     * with {@code teleportAsync}, by way of {@link #scheduleEjection}. Deferred because this event
+     * fires <em>during</em> the move — on Folia before the passenger tree is even restored — and
+     * moving a player from inside that is the same hazard R-09 describes; {@code teleportAsync}
+     * because the destination is in another world, and {@code Entity#teleport} throws on Folia the
+     * moment it leaves the region.
      *
      * <p>{@code HIGHEST} rather than {@code MONITOR}: this handler acts, and {@code MONITOR} is for
-     * observers. It is nonetheless the last priority that acts, so a hub or spawn plugin with its
-     * own world-change handling has already had its say. The event is not cancellable, so the
-     * priority buys ordering and nothing else.
+     * observers. The event is not cancellable, so the priority buys ordering and nothing else.
      */
     @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
-        Player player = event.getPlayer();
-        World arrivedIn = player.getWorld();
-        World cameFrom = event.getFrom();
+    public void onPlayerAddedToWorld(EntityAddToWorldEvent event) {
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        World arrivedIn = event.getWorld();
+        UUID id = player.getUniqueId();
+        UUID lastSeenIn = lastWorld.get(id).orElse(null);
+        lastWorld.put(id, arrivedIn.getUID());
+        Optional<UUID> departed = DimensionGateRules.departure(lastSeenIn, arrivedIn.getUID());
+        if (departed.isEmpty()) {
+            return;
+        }
+        // Null when the world they left has since been unloaded. Its kind is then unknown, which
+        // kindOf reads as CUSTOM, so an arrival in the Nether or the End is still gated; the
+        // return goes to the server's primary world instead.
+        World cameFrom = plugin.getServer().getWorld(departed.get());
+
         PluginConfig config = plugin.configuration();
         Optional<DimensionUnlock> destination = DimensionGateRules.gatedDestination(
                 kindOf(cameFrom), kindOf(arrivedIn), config);
@@ -671,13 +739,13 @@ public final class ProgressionGateListener implements Listener {
             return;
         }
 
+        World returnTo = cameFrom != null ? cameFrom : plugin.getServer().getWorlds().get(0);
         // The return is scheduled before the player is told why, so a message that fails cannot
         // leave them standing in a dimension they were refused.
         plugin.getLogger().fine(() -> "Returning " + player.getName() + " from " + arrivedIn.getName()
-                + ": they arrived without passing the " + dimension + " gate, so a transit reached this"
-                + " world without any handler cancelling it. Paper only - Folia does not fire this"
-                + " event for a portal transit, so the backstop is not armed there.");
-        returnToSpawn(player, cameFrom);
+                + " to " + returnTo.getName() + ": they arrived without passing the " + dimension
+                + " gate, so a transit reached this world without any handler cancelling it.");
+        returnToSpawn(player, returnTo);
         reject(player, config, dimension, result);
     }
 
@@ -715,7 +783,7 @@ public final class ProgressionGateListener implements Listener {
 
     /**
      * Records that this player has been let into {@code destination} without earning it, so that
-     * {@link #onPlayerChangedWorld} does not overturn the decision a moment later.
+     * {@link #onPlayerAddedToWorld} does not overturn the decision a moment later.
      *
      * <p>Both arguments are needed and neither is redundant: the gate says which requirement was
      * skipped, the world says which arrival the note is good for. {@link DimensionGateRules.Decision}

@@ -339,9 +339,9 @@ class DimensionGateRulesTest {
         /**
          * A world change that is not a transit, decided deliberately rather than by omission.
          *
-         * <p>CraftBukkit fires {@code PlayerChangedWorldEvent} from {@code PlayerList#respawn} when
-         * the respawn world differs from the death world, and that path fires no
-         * {@code PlayerTeleportEvent}, so it can leave no note. A player respawning at a Nether
+         * <p>A respawn in a world other than the death world adds the player to it like any
+         * transit, so the backstop sees it, and that path fires no {@code PlayerTeleportEvent}, so
+         * it can leave no note. A player respawning at a Nether
          * anchor they set while waived therefore arrives undecided, and the gate returns them. This
          * pins that as the intended answer: the anchor is a standing re-entry into a dimension the
          * gate currently closes, and re-reading eligibility and the waiver is what lets a player who
@@ -359,6 +359,43 @@ class DimensionGateRulesTest {
             assertEquals(DimensionGateRules.Arrival.ALLOWED,
                     DimensionGateRules.arrival(false, false, true),
                     "and so does one who has since earned the gate");
+        }
+    }
+
+    /**
+     * Which world-adds are arrivals to judge — #127.
+     *
+     * <p>The backstop moved from {@code PlayerChangedWorldEvent}, which Folia never fires, to
+     * {@code EntityAddToWorldEvent}, which says only which world a player is being added to. That
+     * also fires on login and, on Folia, on a move between regions of one world, so whether an add
+     * is a change of world at all is now decided here, from the world the player was last added to.
+     */
+    @Nested
+    @DisplayName("telling an arrival from any other add -- #127")
+    class Departure {
+
+        private static final UUID OVERWORLD = UUID.randomUUID();
+        private static final UUID NETHER_WORLD = UUID.randomUUID();
+
+        @Test
+        @DisplayName("the first add on record is a login, not an arrival")
+        void firstAddIsNotAnArrival() {
+            assertTrue(DimensionGateRules.departure(null, NETHER_WORLD).isEmpty(),
+                    "a player who logs in standing in the Nether has come from nowhere on record");
+        }
+
+        @Test
+        @DisplayName("an add to the world already on record is a move inside it")
+        void sameWorldIsNotAnArrival() {
+            assertTrue(DimensionGateRules.departure(NETHER_WORLD, NETHER_WORLD).isEmpty(),
+                    "a Folia region crossing inside the Nether re-adds the player to the Nether");
+        }
+
+        @Test
+        @DisplayName("an add to another world names the world that was left")
+        void otherWorldIsAnArrivalFromIt() {
+            assertEquals(Optional.of(OVERWORLD), DimensionGateRules.departure(OVERWORLD, NETHER_WORLD),
+                    "the source world is what the gate is judged from and where a return goes");
         }
     }
 

@@ -302,10 +302,13 @@ class VehicleTransitTest {
          * capture, no cancellation and no ejection. Everyone simply arrives, and the world-change
          * backstop is the only thing that runs.
          *
-         * <p>This harness assumes the arrival is reported. Read against Folia's source, it is not:
-         * Folia's asynchronous dimension change fires no {@code PlayerChangedWorldEvent} (#114, set
-         * out on {@code ProgressionGateListener#onPlayerChangedWorld}). These cases therefore pin
-         * the backstop's verdict and bookkeeping, not that it is armed on Folia.
+         * <p>This harness assumes the arrival is reported. Until #127 it was not: the backstop sat
+         * on {@code PlayerChangedWorldEvent}, which Folia's asynchronous dimension change never
+         * fires (#114). It now sits on {@code EntityAddToWorldEvent}, which both platforms fire as
+         * the player is put into the destination world — set out on
+         * {@code ProgressionGateListener#onPlayerAddedToWorld}. These cases pin the backstop's
+         * verdict and bookkeeping; that the event arrives on a live Folia server is not something a
+         * unit test can show.
          */
         private void runUnreportedTransit(List<Rider> riders) {
             runUnreportedTransit(riders, NETHER);
@@ -319,7 +322,7 @@ class VehicleTransitTest {
         }
 
         /**
-         * {@code ProgressionGateListener#onPlayerChangedWorld}, re-enacted over a rider double.
+         * {@code ProgressionGateListener#onPlayerAddedToWorld}, re-enacted over a rider double.
          *
          * <p>The same mirror caveat as {@link #runTransit} applies, and for the same reason: a
          * {@code Player} cannot be constructed off a server. What is <em>not</em> a mirror is the
