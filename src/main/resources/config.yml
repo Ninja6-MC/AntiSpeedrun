@@ -61,11 +61,12 @@ profile: SMP_STANDARD
 #                  The reasoning behind the split is in issue #91.
 
 # Message templates are MiniMessage, and they are parsed when this file is loaded. That
-# covers every rejection-message, every item tier hint, journey-book.title and
-# idle-reminder.message. Write colour and style as tags -- <red>, <gold>, <bold>.
-# A tier hint is the exception: it is checked the same way at load, but it is shown as
-# plain text, so a tag written in it appears to the player as written instead of being
-# applied. Style the {REQUIREMENT} it fills in from the rejection-message around it.
+# covers every rejection-message, every item tier hint, villager-progression.hint,
+# journey-book.title and idle-reminder.message. Write colour and style as tags -- <red>,
+# <gold>, <bold>. Hints are the exception, both the item tier ones and
+# villager-progression.hint: they are checked the same way at load, but shown as plain
+# text, so a tag written in one appears to the player as written instead of being
+# applied. Style the {REQUIREMENT} a hint fills in from the rejection-message around it.
 #
 # A legacy section-sign code is not MiniMessage. A template containing one is refused at
 # load, with a WARNING naming the key. A message or title is replaced by the shipped
@@ -302,6 +303,6 @@ villager-progression:
   # advancement key instead. Update it if you change required-advancement: while
   # gate-mending-trade is true, leaving the shipped sentence beside a requirement that is no
   # longer the shipped one is a WARNING at load, because the refusal would then describe
-  # something this gate does not ask for. MiniMessage. A legacy § code is refused at load;
-  # the default is used.
+  # something this gate does not ask for. Plain text; tags show as written. A legacy § code
+  # is refused at load and the default is used.
   hint: "Cure a Zombie Villager (Zombie Doctor)"

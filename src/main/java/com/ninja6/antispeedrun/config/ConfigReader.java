@@ -186,8 +186,9 @@ final class ConfigReader {
      * so a template that threw there did not merely lose the message, it could let the refused
      * player through. They now refuse first (#130), so a throw would cost only the message, but a
      * player refused without being told why is still a defect, and guaranteeing at load that the
-     * template parses prevents it without stopping a server over its wording. {@code gated-items.<tier>.hint} is read the same way because it is interpolated into
-     * the item rejection line: escaping neutralises its tags but not a section sign.
+     * template parses prevents it without stopping a server over its wording.
+     * {@code gated-items.<tier>.hint} is read the same way because it is interpolated into the
+     * item rejection line: escaping neutralises its tags but not a section sign.
      *
      * <p>The raw configured value is what gets parsed here, not the form the engine hands to
      * MiniMessage: {@code {NEXT_STEP}} is not MiniMessage syntax and the tag it is rewritten to is
@@ -655,9 +656,10 @@ final class ConfigReader {
         if (!enforced) {
             warnings.add(qualify(key) + ": \"" + quoted(configured) + "\" is not an advancement key "
                     + "this server can resolve (read as \"" + quoted(normalised) + "\"), so it was "
-                    + "dropped. That is a warning rather than an error only because the gate reading it is "
-                    + "switched off and so gates nothing either way; switching it on with this key "
-                    + "unchanged will stop the plugin at the next start. Fix the spelling.");
+                    + "dropped. That is a warning rather than an error only because the gate "
+                    + "reading it is switched off and so gates nothing either way; switching it on "
+                    + "with this key unchanged will stop the plugin at the next start. Fix the "
+                    + "spelling.");
             return;
         }
         throw new UnenforceableGateException(qualify(key) + ": \"" + quoted(configured)
