@@ -636,6 +636,66 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("a multi-line value stays one warning, not one warning per line in it")
+        void multiLineValueStaysOneLine() throws Exception {
+            // A value is an arbitrary YAML scalar, and a double-quoted scalar's \n is a real line
+            // break. ConfigSnapshotHolder emits each warning as one logger.warning call, so a value
+            // quoted without collapsing turns one recoverable warning into as many console records as
+            // the value has lines -- while /asr reload still reports it as one. The section sign is the
+            // same operator mistake malformedTemplateFallsBack covers; the line breaks are what makes
+            // the quoted prefix multi-line.
+            String template = "a\\nb\\nc\\r\\nd\\te".repeat(20) + "§e";
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      message: "%s"
+                    """.formatted(template)));
+
+            assertEquals(PluginConfig.defaults().idleReminder().message(),
+                    config.idleReminder().message());
+            String warning = config.warnings().stream()
+                    .filter(w -> w.contains("idle-reminder.message"))
+                    .findFirst()
+                    .orElseThrow();
+            assertFalse(warning.contains("\n") || warning.contains("\r"),
+                    "one warning is one log record, so no half of it may carry a line break: "
+                            + warning.replace("\n", "\\n").replace("\r", "\\r"));
+            assertEquals(1, warning.lines().count(),
+                    "the whole warning is a single line: " + warning);
+            assertTrue(warning.contains("is not valid MiniMessage"),
+                    "and it is still the warning it was: " + warning);
+        }
+
+        @Test
+        @DisplayName("an ESC or C0 character in the value reaches neither half of the warning")
+        void controlCharactersDoNotSurvive() throws Exception {
+            // \s does not match ESC, so a value carrying an ANSI sequence would be replayed straight
+            // into the operator's terminal -- through the quoted value and again through the parse
+            // message, which embeds the input. Both halves have to neutralise it. \e is SnakeYAML's
+            // escape for ESC; \a is BEL and \0 is NUL, the rest of C0 that is not whitespace.
+            String template = "\\e[31mred\\e[0m\\a\\0 goal§e";
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      message: "%s"
+                    """.formatted(template)));
+
+            String warning = config.warnings().stream()
+                    .filter(w -> w.contains("idle-reminder.message"))
+                    .findFirst()
+                    .orElseThrow();
+            for (int i = 0; i < warning.length(); i++) {
+                char at = warning.charAt(i);
+                assertFalse(at == 0x1b || at == 0x07 || at == 0x00 || (at < 0x20 && at != '\t')
+                                || at == 0x7f,
+                        "a control character U+%04X survived at %d: %s"
+                                .formatted((int) at, i, warning.replaceAll("\\p{Cntrl}", "?")));
+            }
+            assertFalse(warning.contains("\t"),
+                    "including the whitespace controls: " + warning);
+            assertTrue(warning.contains("[31mred"),
+                    "the operator still sees what they wrote, minus the escape: " + warning);
+        }
+
+        @Test
         @DisplayName("a template nested deep enough to overflow the stack warns and falls back")
         void deeplyNestedTemplateFallsBack() throws Exception {
             // MiniMessage parses nested tags recursively. On a small stack a template nested this

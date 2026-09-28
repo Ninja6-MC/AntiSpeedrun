@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
+import com.ninja6.antispeedrun.logging.LogLine;
+
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 /**
@@ -196,7 +198,7 @@ final class ConfigReader {
             // nested a few thousand deep overflows the stack rather than throwing a parse error.
             // It is the same verdict -- this template cannot be rendered -- and deserves the same
             // fallback rather than failing the whole load.
-            warnings.add(qualify(key) + ": \"" + abbreviated(value) + "\" is not valid MiniMessage ("
+            warnings.add(qualify(key) + ": \"" + quoted(value) + "\" is not valid MiniMessage ("
                     + diagnosis(malformed) + "); using the default");
             return def;
         }
@@ -220,22 +222,20 @@ final class ConfigReader {
     private static final int WARNED_VALUE_CHARS = 120;
 
     /**
-     * The text as a warning may quote it: itself when short, a marked prefix when not.
+     * The rejected value as a warning quotes it, on one line and bounded.
      *
-     * <p>The cut lands on a code-point boundary. A plain {@code substring} at a fixed char index can
-     * fall between the halves of a surrogate pair and put a lone surrogate in the log, where it is no
-     * longer the character the operator wrote. Backing off one char when the last kept char is a high
-     * surrogate whose low half is being cut costs one comparison and keeps the prefix well-formed.
+     * <p>Both halves of the warning go through {@link LogLine#oneLine}, and the value half is the
+     * reason that is stated rather than assumed. A value is an arbitrary YAML scalar: a double-quoted
+     * scalar carrying {@code 
+} escapes puts real line breaks inside the quoted prefix, and
+     * {@link ConfigSnapshotHolder} emits each warning as one {@code logger.warning} call, so a value
+     * quoted without collapsing turns one recoverable warning into as many console records as it has
+     * lines -- indistinguishable from that many separate warnings, while {@code /asr reload} still
+     * reports one. The same call strips the control characters {@code \s} does not match, so an
+     * operator value carrying an ANSI escape cannot be replayed into the console through either half.
      */
-    private static String abbreviated(String text) {
-        if (text.length() <= WARNED_VALUE_CHARS) {
-            return text;
-        }
-        int cut = WARNED_VALUE_CHARS;
-        if (Character.isHighSurrogate(text.charAt(cut - 1)) && Character.isLowSurrogate(text.charAt(cut))) {
-            cut--;
-        }
-        return text.substring(0, cut) + "... [truncated, " + text.length() + " chars]";
+    private static String quoted(String value) {
+        return LogLine.oneLine(value, WARNED_VALUE_CHARS);
     }
 
     /**
@@ -254,7 +254,8 @@ final class ConfigReader {
         if (message == null || message.isBlank()) {
             return type;
         }
-        return type + ": " + abbreviated(message.replaceAll("\\s+", " ").trim());
+        String rendered = LogLine.oneLine(message, WARNED_VALUE_CHARS);
+        return rendered.isEmpty() ? type : type + ": " + rendered;
     }
 
     boolean bool(String key, boolean def) {

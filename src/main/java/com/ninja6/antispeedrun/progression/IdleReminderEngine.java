@@ -15,6 +15,7 @@ import org.bukkit.plugin.Plugin;
 
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.PluginConfig.IdleReminder;
+import com.ninja6.antispeedrun.logging.LogLine;
 
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import net.kyori.adventure.text.Component;
@@ -328,6 +329,15 @@ public final class IdleReminderEngine {
     private static final int LOGGED_FRAMES = 8;
 
     /**
+     * How many frames of a wrapped fault's own stack the log carries.
+     *
+     * <p>One, because the wrapper's eight already say where the plugin was and the cause's innermost
+     * frame is the line that actually threw. A second budget of eight would double the ceiling to say
+     * it twice.
+     */
+    private static final int LOGGED_CAUSE_FRAMES = 1;
+
+    /**
      * How much of a failed attempt's message the log carries.
      *
      * <p>The {@code SEND} arm exists for a MiniMessage failure the load-time validation does not
@@ -345,36 +355,48 @@ public final class IdleReminderEngine {
      * lines a minute. The frames that identify the fault are the innermost ones, and after eight of a
      * recursive overflow the ninth says nothing the eighth did not; the count of what was elided says
      * how deep it went.
+     *
+     * <p>A cause is described the same way rather than named. Where the send wraps the real fault the
+     * message and the throwing frame are the cause's, and the wrapper's eight frames identify only the
+     * plugin code that re-threw; a line that says
+     * {@code RuntimeException ... caused by NullPointerException} and stops there carries nothing to
+     * act on. The cause's message goes through the same bound as the wrapper's and its own stack
+     * contributes {@link #LOGGED_CAUSE_FRAMES}, so the ceiling rises by a known amount rather than by
+     * however deep the wrapped stack was.
+     *
+     * <p>Package-private so that the bound is asserted rather than assumed. It is the same arithmetic
+     * as {@code ConfigReader}'s quoted value, now via {@link LogLine}; the last regression on this
+     * bound reached review twice because only one of the two paths had a test.
      */
-    private static String traced(Throwable thrown) {
-        StringBuilder trace = new StringBuilder(thrown.getClass().getName());
-        String message = thrown.getMessage();
-        if (message != null && !message.isBlank()) {
-            String collapsed = message.replaceAll("\\s+", " ").trim();
-            if (collapsed.length() > LOGGED_MESSAGE_CHARS) {
-                int cut = LOGGED_MESSAGE_CHARS;
-                if (Character.isHighSurrogate(collapsed.charAt(cut - 1))
-                        && Character.isLowSurrogate(collapsed.charAt(cut))) {
-                    cut--;
-                }
-                collapsed = collapsed.substring(0, cut)
-                        + "... [truncated, " + message.length() + " chars]";
-            }
-            trace.append(": ").append(collapsed);
-        }
-        StackTraceElement[] frames = thrown.getStackTrace();
-        int shown = Math.min(LOGGED_FRAMES, frames.length);
-        for (int i = 0; i < shown; i++) {
-            trace.append(" at ").append(frames[i]);
-        }
-        if (frames.length > shown) {
-            trace.append(" ... ").append(frames.length - shown).append(" more frames");
-        }
+    static String traced(Throwable thrown) {
+        StringBuilder trace = new StringBuilder();
+        describe(trace, thrown, LOGGED_FRAMES);
         Throwable cause = thrown.getCause();
         if (cause != null && cause != thrown) {
-            trace.append(" caused by ").append(cause.getClass().getName());
+            trace.append(" caused by ");
+            describe(trace, cause, LOGGED_CAUSE_FRAMES);
         }
         return trace.toString();
+    }
+
+    /** One throwable's type, bounded message and innermost {@code frameBudget} frames. */
+    private static void describe(StringBuilder into, Throwable thrown, int frameBudget) {
+        into.append(thrown.getClass().getName());
+        String message = thrown.getMessage();
+        if (message != null && !message.isBlank()) {
+            String rendered = LogLine.oneLine(message, LOGGED_MESSAGE_CHARS);
+            if (!rendered.isEmpty()) {
+                into.append(": ").append(rendered);
+            }
+        }
+        StackTraceElement[] frames = thrown.getStackTrace();
+        int shown = Math.min(frameBudget, frames.length);
+        for (int i = 0; i < shown; i++) {
+            into.append(" at ").append(frames[i]);
+        }
+        if (frames.length > shown) {
+            into.append(" ... ").append(frames.length - shown).append(" more frames");
+        }
     }
 
     /** The player's position, in the Bukkit-free terms {@link IdleReminderRules} compares. */
