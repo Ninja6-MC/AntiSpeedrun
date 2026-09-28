@@ -76,6 +76,8 @@ class TeleportCommandLineTest {
             assertEquals(expected, read("/tp Steve ~ ~10 ~-3.5"));
             assertEquals(expected, read("/tp Steve ^ ^ ^1 90 0"));
             assertEquals(expected, read("/tp Steve 0 64 0 facing entity Alex eyes"));
+            assertEquals(expected, read("/tp Steve 0 64 0 facing entity Alex"));
+            assertEquals(expected, read("/tp Steve 0 64 0 facing 1 2 3"));
         }
 
         @ParameterizedTest
@@ -142,10 +144,8 @@ class TeleportCommandLineTest {
             Teleport expected = new Teleport(EXECUTE_TP, new Sender(),
                     new ToCoordinates(new Dimension("minecraft:the_nether")));
             assertEquals(expected, read("/execute in the_nether positioned 0 70 0 run tp @s ~ ~ ~"));
-            assertEquals(expected, read("/execute in the_nether positioned as Alex run tp @s ~ ~ ~"));
             assertEquals(expected, read("/execute in the_nether positioned over world_surface run tp @s ~ ~ ~"));
             assertEquals(expected, read("/execute in the_nether rotated 90 0 anchored eyes align xz run tp @s ~ ~ ~"));
-            assertEquals(expected, read("/execute in the_nether rotated as Alex facing entity Alex feet run tp @s ~ ~ ~"));
             assertEquals(expected, read("/execute in the_nether facing 1 2 3 run tp @s ~ ~ ~"));
         }
 
@@ -223,6 +223,16 @@ class TeleportCommandLineTest {
             "/tp @a[sort=random,limit=1] Alex",
             "/tp @e[type=player, sort = random] Alex",
             "/tp @p[sort=\"random\"] Alex",
+            "/tp @a[\"sort\"=random,limit=1] Alex",
+            "/tp @a['sort'=random,limit=1] Alex",
+            "/tp @a[sort= random,limit=1] Alex",
+            "/tp @a[sort=	random,limit=1] Alex",
+            "/tp @a[sort= random,limit=1] Alex",
+            "/tp @a[sort=　random,limit=1] Alex",
+            "/tp @a[sort=RANDOM,limit=1] Alex",
+            "/tp @a[Sort=Random,limit=1] Alex",
+            "/tp @a[\"sort\" = \"RaNdOm\",limit=1] Alex",
+            "/tp @R Alex",
             "/execute in the_nether as @r run tp @s 0 70 0",
             "/execute at @e[sort=random,limit=1] run tp Steve ~ ~ ~",
         })
@@ -242,6 +252,33 @@ class TeleportCommandLineTest {
         @DisplayName("a label after run in another case, which Brigadier does not accept")
         void labelCaseAfterRun(String line) {
             unreadable(line, "Brigadier literals are case-sensitive");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+            "/tp Steve 0 70 0 junk",
+            "/tp Steve 0 70 0 90",
+            "/tp Steve 0 70 0 90 0 junk",
+            "/tp Steve 0 70 0 facing",
+            "/tp Steve 0 70 0 facing 1 2",
+            "/tp Steve 0 70 0 facing entity Alex head",
+            "/tp Steve 0 70 0 facing entity Alex eyes junk",
+        })
+        @DisplayName("extra tokens after the coordinates")
+        void trailingTokens(String line) {
+            unreadable(line, "vanilla takes only a rotation or a facing there");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+            "/execute in the_nether positioned as Alex run tp @s ~ ~ ~",
+            "/execute in the_nether rotated as Alex run tp @s ~ ~ ~",
+            "/execute in the_nether facing entity Alex feet run tp @s ~ ~ ~",
+            "/execute facing entity @r eyes in the_nether run tp @s 0 70 0",
+        })
+        @DisplayName("an execute subcommand that takes a selector only to move or turn the position")
+        void selectorModifiers(String line) {
+            unreadable(line, "the selector would have to be read and is not");
         }
 
         @ParameterizedTest

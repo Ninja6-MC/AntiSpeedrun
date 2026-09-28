@@ -259,8 +259,20 @@ public final class TeleportCommandLine {
                         i += 2;
                     }
                     case "anchored" -> i += 2;
-                    case "rotated" -> i += 3;
-                    case "facing" -> i += 4;
+                    // The forms that take a selector ("rotated as", "facing entity") are not
+                    // followed: that selector would have to be read too, and nothing here needs it.
+                    case "rotated" -> {
+                        if (i + 2 >= tokens.size() || tokens.get(i + 1).equals("as")) {
+                            return Optional.empty();
+                        }
+                        i += 3;
+                    }
+                    case "facing" -> {
+                        if (!coordinates(tokens, i + 1)) {
+                            return Optional.empty();
+                        }
+                        i += 4;
+                    }
                     default -> {
                         return Optional.empty();
                     }
@@ -295,12 +307,36 @@ public final class TeleportCommandLine {
             return ref(args.get(1), executor, contextMoved)
                     .map(to -> new Teleport(Set.of(), first.get(), new ToEntity(to)));
         }
-        if (coordinates(args, 1)) {
-            // <targets> <location> and whatever rotation or facing follows, none of which moves
-            // the destination into another dimension.
+        if (coordinates(args, 1) && tail(args.subList(4, n))) {
+            // <targets> <location> and the rotation or facing vanilla allows after it, none of
+            // which moves the destination into another dimension.
             return Optional.of(new Teleport(Set.of(), first.get(), new ToCoordinates(place)));
         }
         return Optional.empty();
+    }
+
+    /**
+     * Whether what follows {@code <targets> <location>} is one of vanilla's three tails: nothing, a
+     * rotation, {@code facing <x y z>}, or {@code facing entity <entity> [eyes|feet]}. The entity
+     * there only turns the player, so it is checked for shape and not read.
+     */
+    private static boolean tail(List<String> rest) {
+        int n = rest.size();
+        if (n == 0) {
+            return true;
+        }
+        if (n == 2) {
+            return COORDINATE.matcher(rest.get(0)).matches() && !rest.get(0).isEmpty()
+                    && COORDINATE.matcher(rest.get(1)).matches() && !rest.get(1).isEmpty();
+        }
+        if (n < 3 || !rest.get(0).equals("facing")) {
+            return false;
+        }
+        if (n == 4 && coordinates(rest, 1)) {
+            return true;
+        }
+        return rest.get(1).equals("entity")
+                && (n == 3 || (n == 4 && (rest.get(3).equals("eyes") || rest.get(3).equals("feet"))));
     }
 
     /**
@@ -327,17 +363,17 @@ public final class TeleportCommandLine {
         return Optional.of(new Token(token));
     }
 
-    /** Whether a selector picks at random, so that two resolutions of it can disagree. */
+    /**
+     * Whether a selector could pick at random, so that two resolutions of it can disagree.
+     *
+     * <p>Deliberately blunt: any selector whose text contains {@code random} in any case, however it
+     * is quoted or spaced, and {@code @r}. Brigadier accepts quoted option names and several kinds of
+     * whitespace around {@code =}, and a narrower match was bypassed by exactly those. A selector
+     * refused here that was not random ({@code name=random}) costs only the note.
+     */
     private static boolean random(String token) {
-        if (!token.startsWith("@")) {
-            return false;
-        }
-        if (token.startsWith("@r")) {
-            return true;
-        }
-        String compact = token.replaceAll("\s", "").toLowerCase(Locale.ROOT);
-        return compact.contains("sort=random") || compact.contains("sort=\"random\"")
-                || compact.contains("sort='random'");
+        String folded = token.toLowerCase(Locale.ROOT);
+        return folded.startsWith("@") && (folded.startsWith("@r") || folded.contains("random"));
     }
 
     /** Whether the three tokens from {@code from} are a coordinate triple. */
@@ -360,7 +396,7 @@ public final class TeleportCommandLine {
             return 0;
         }
         String next = tokens.get(from);
-        if (next.equals("as") || next.equals("over")) {
+        if (next.equals("over")) {
             return 2;
         }
         return coordinates(tokens, from) ? 3 : 0;
