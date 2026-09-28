@@ -182,10 +182,11 @@ final class ConfigReader {
      * still the running state the fallback produces, and here it is the right one: the fallback is
      * the shipped rejection for that same gate, so the refusal goes ahead and the player is told the
      * right thing. The state worth refusing a boot over is the one this prevents rather than the one
-     * it leaves. Several refusal paths send the message before they cancel or eject, so a template
-     * that threw there did not merely lose the message, it could let the refused player through.
-     * Guaranteeing at load that the template parses closes that without stopping a server over its
-     * wording. {@code gated-items.<tier>.hint} is read the same way because it is interpolated into
+     * it leaves. Several refusal paths used to send the message before they cancelled or ejected,
+     * so a template that threw there did not merely lose the message, it could let the refused
+     * player through. They now refuse first (#130), so a throw would cost only the message, but a
+     * player refused without being told why is still a defect, and guaranteeing at load that the
+     * template parses prevents it without stopping a server over its wording. {@code gated-items.<tier>.hint} is read the same way because it is interpolated into
      * the item rejection line: escaping neutralises its tags but not a section sign.
      *
      * <p>The raw configured value is what gets parsed here, not the form the engine hands to
