@@ -167,7 +167,9 @@ public final class DimensionGateRules {
      *   <li><strong>{@code decided}</strong> — a handler upstream already let this player into this
      *       dimension even though they are neither eligible nor waived. There are exactly two of
      *       those, both deliberate: a teleport whose cause this plugin does not regulate (an
-     *       operator's {@code /tp}, a warp plugin — see {@code GATED_CAUSES}), and a rider the
+     *       operator's {@code /tp}, a warp plugin — see {@code GATED_CAUSES}; on Folia, which names
+     *       no cause, a {@code /tp} read off the command line or a teleport another plugin announced
+     *       — #135), and a rider the
      *       vehicle path has already ejected and is repositioning. Without this the backstop would
      *       overturn both. A note is only ever good for the arrival it was written against — see
      *       {@link Decision}, which is what {@code decided} has to be derived through.</li>
@@ -199,15 +201,18 @@ public final class DimensionGateRules {
      * all — #127.
      *
      * <p>The backstop is told only that a player was added to a world, which happens on login, on
-     * a move between Folia regions inside one world, and on every dimension change and cross-world
-     * respawn. Only the last two are arrivals to judge, and the listener tells them apart by the
-     * world it last saw the player added to:
+     * every dimension change and cross-world respawn, and on Folia on the two re-adds into the same
+     * world. Only the dimension change and the cross-world respawn are arrivals to judge, and the
+     * listener tells them apart by the world it last saw the player added to:
      *
      * <ul>
      *   <li><strong>Nothing on record</strong> — the player's first add this session, which is the
      *       login. Not judged: see the listener on why a login is not a transit.</li>
-     *   <li><strong>The same world</strong> — a move inside the world that crossed a region
-     *       boundary on Folia. Not a change of world.</li>
+     *   <li><strong>The same world</strong> — on Folia 1.21.4, a {@code placeSingleSync} into the
+     *       world the player is already in: a {@code teleportAsync} to a position another region
+     *       owns, or a respawn in the same world. Walking across a region boundary is not one of
+     *       these; the player stays in the world's entity lookup and is not re-added. Not a change
+     *       of world either way.</li>
      *   <li><strong>Another world</strong> — a change of world, and the one returned is where the
      *       player came from.</li>
      * </ul>

@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -111,6 +112,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     /** Whether a player has already received the journey book, held in their container. */
     private volatile JourneyBookStore journeyBook;
 
+    /** The dimension gate, kept for {@link #expectTeleport}. */
+    private volatile ProgressionGateListener dimensionGate;
+
     /**
      * Serialises {@link #applyConfiguration()}. A private monitor rather than {@code synchronized}
      * on the method, because that would take the plugin instance's own monitor — and a
@@ -199,7 +203,8 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // both stores have to exist before the first event can reach it. Registering it earlier
         // would open a window in which a player walking into a portal during startup NPEs the
         // handler -- narrow, but the kind of window that only ever fires in production.
-        getServer().getPluginManager().registerEvents(new ProgressionGateListener(this), this);
+        this.dimensionGate = new ProgressionGateListener(this);
+        getServer().getPluginManager().registerEvents(dimensionGate, this);
 
         // The item gate, registered here for the same reason and with one of its own: it reads
         // bypasses() on every pickup and every container click, and it reads itemGates(), which
@@ -302,6 +307,23 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     public JourneyBookStore journeyBook() {
         return journeyBook;
+    }
+
+    /**
+     * For another plugin: says that {@code player} is about to be teleported into
+     * {@code destination} on purpose, so the dimension gate does not return them (#135).
+     *
+     * <p>Needed on Folia only, where {@code teleportAsync} fires no {@code PlayerTeleportEvent}
+     * and a deliberate teleport is otherwise indistinguishable from a transit nothing reported. Call
+     * it immediately before the teleport; it covers that one arrival for a few seconds and nothing
+     * else. See {@link ProgressionGateListener#expectTeleport}. Safe from any thread; does nothing
+     * before this plugin has enabled.
+     */
+    public void expectTeleport(Player player, World destination) {
+        ProgressionGateListener gate = dimensionGate;
+        if (gate != null) {
+            gate.expectTeleport(player, destination);
+        }
     }
 
     /**
