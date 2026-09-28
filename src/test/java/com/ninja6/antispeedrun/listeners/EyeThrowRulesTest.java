@@ -65,38 +65,59 @@ class EyeThrowRulesTest {
 
     @Nested
     @DisplayName("what counts as a throw")
-    class IsThrow {
+    class Respond {
+
+        private static final EyeThrowRules.Click AIR = EyeThrowRules.Click.RIGHT_AIR;
+        private static final EyeThrowRules.Click BLOCK = EyeThrowRules.Click.RIGHT_BLOCK;
 
         @Test
-        @DisplayName("a right click in the air throws")
+        @DisplayName("a right click in the air is a throw, refused and explained")
         void air() {
-            assertTrue(EyeThrowRules.isThrow(EyeThrowRules.Click.RIGHT_AIR, false));
-            assertTrue(EyeThrowRules.isThrow(EyeThrowRules.Click.RIGHT_AIR, true),
-                    "the frame flag means nothing without a clicked block");
+            for (boolean frame : new boolean[] {false, true}) {
+                for (boolean takes : new boolean[] {false, true}) {
+                    assertEquals(EyeThrowRules.Response.DENY_AND_EXPLAIN,
+                            EyeThrowRules.respond(AIR, frame, takes),
+                            "the block flags mean nothing without a clicked block");
+                }
+            }
         }
 
         @Test
-        @DisplayName("a right click on an ordinary block, or on a filled frame, throws")
+        @DisplayName("a right click on an ordinary block, or on a filled frame, is a throw")
         void block() {
-            assertTrue(EyeThrowRules.isThrow(EyeThrowRules.Click.RIGHT_BLOCK, false));
+            assertEquals(EyeThrowRules.Response.DENY_AND_EXPLAIN,
+                    EyeThrowRules.respond(BLOCK, false, false));
+        }
+
+        /**
+         * The review nit on #144: a chest opened with an eye in hand is not a throw, so the player is
+         * told nothing, but the item use is still denied in case the block declines the click.
+         */
+        @Test
+        @DisplayName("a block that takes the click itself is denied silently, not explained")
+        void interactableBlock() {
+            assertEquals(EyeThrowRules.Response.DENY_SILENTLY,
+                    EyeThrowRules.respond(BLOCK, false, true));
         }
 
         @Test
-        @DisplayName("setting an eye into an empty frame is not a throw")
+        @DisplayName("setting an eye into an empty frame is left alone")
         void emptyFrame() {
-            assertFalse(EyeThrowRules.isThrow(EyeThrowRules.Click.RIGHT_BLOCK, true));
+            assertEquals(EyeThrowRules.Response.IGNORE, EyeThrowRules.respond(BLOCK, true, false));
+            assertEquals(EyeThrowRules.Response.IGNORE, EyeThrowRules.respond(BLOCK, true, true));
         }
 
         @Test
         @DisplayName("a left click never uses the eye")
         void other() {
-            assertFalse(EyeThrowRules.isThrow(EyeThrowRules.Click.OTHER, false));
+            assertEquals(EyeThrowRules.Response.IGNORE,
+                    EyeThrowRules.respond(EyeThrowRules.Click.OTHER, false, false));
         }
 
         @Test
         @DisplayName("null click is a programming error")
         void nullClick() {
-            assertThrows(NullPointerException.class, () -> EyeThrowRules.isThrow(null, false));
+            assertThrows(NullPointerException.class, () -> EyeThrowRules.respond(null, false, false));
         }
     }
 

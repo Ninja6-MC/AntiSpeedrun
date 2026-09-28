@@ -33,7 +33,8 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * cancelling the entity's spawn — would leave nothing that says which player threw it.
  *
  * <p>{@code useInteractedBlock} is left as it was. A player holding an eye who right-clicks a chest
- * or a door still opens it; only the throw that would have followed is withheld. And a right click
+ * or a door still opens it, and is told nothing, since nothing was thrown; see
+ * {@link EyeThrowRules.Response#DENY_SILENTLY}. And a right click
  * on a block covers the throw that follows it: the server answers the use-item packet the client
  * sends after a block click with the verdict this event already reached for that block, so there is
  * no second event for the throw to slip through.
@@ -89,12 +90,14 @@ public final class EyeThrowListener implements Listener {
             return;
         }
         PluginConfig config = plugin.configuration();
-        if (!EyeThrowRules.armed(config)
-                || !EyeThrowRules.isThrow(click(event.getAction()), emptyFrame(event.getClickedBlock()))) {
+        if (!EyeThrowRules.armed(config)) {
             return;
         }
         Player player = event.getPlayer();
-        if (waived(player)) {
+        Block clicked = event.getClickedBlock();
+        EyeThrowRules.Response response = EyeThrowRules.respond(
+                click(event.getAction()), emptyFrame(clicked), takesClick(clicked, player));
+        if (response == EyeThrowRules.Response.IGNORE || waived(player)) {
             return;
         }
         EligibilityResult result = plugin.progression().evaluate(
@@ -104,7 +107,25 @@ public final class EyeThrowListener implements Listener {
         }
         // Refuse first, then explain: a message that throws costs the explanation, not the refusal.
         event.setUseItemInHand(Event.Result.DENY);
-        notify(player, config);
+        if (response == EyeThrowRules.Response.DENY_AND_EXPLAIN) {
+            notify(player, config);
+        }
+    }
+
+    /**
+     * Whether the clicked block handles the click itself, so the eye would not be used at all.
+     *
+     * <p>{@code Material#isInteractable} is broader than vanilla in places — a fence counts, for
+     * leads — which only ever errs towards silence: the use is denied either way, and at worst a
+     * throw a block declined goes unexplained. It never lets a throw through.
+     *
+     * <p>The method is deprecated in the 1.21.4 API, whose non-deprecated counterpart sits on the
+     * still-experimental {@code BlockType}. The suppression is scoped to this method because an
+     * approximation is all this needs.
+     */
+    @SuppressWarnings("deprecation")
+    private static boolean takesClick(Block block, Player player) {
+        return block != null && !player.isSneaking() && block.getType().isInteractable();
     }
 
     private static EyeThrowRules.Click click(Action action) {
