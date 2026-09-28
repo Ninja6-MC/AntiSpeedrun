@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -599,8 +600,11 @@ public final class ProgressionGateListener implements Listener {
      *
      * <h2>Folia region threading</h2>
      *
-     * {@code PlayerChangedWorldEvent} is a single-entity event, so Folia calls it on the region that
-     * now owns the player, in the destination world. Legal inline, and all of it done inline: the
+     * {@code PlayerChangedWorldEvent} is a single-entity event, so were Folia to fire it, it would be
+     * on the region that now owns the player, in the destination world. It does not fire it for a
+     * portal transit — see <em>Does Folia fire this at all?</em> above — so what follows is what keeps
+     * the handler legal on Folia if that ever changes, and is the reason the block reads below go to a
+     * scheduler on Paper too. Legal inline, and all of it done inline: the
      * progression evaluation (a cache read), the bypass grant (this player's own PDC), the
      * dimension-unlock override (in memory), the ledger (in memory), and the message. Illegal, and
      * therefore not done inline: reading a block in the world they came from — the source world
@@ -614,9 +618,19 @@ public final class ProgressionGateListener implements Listener {
      *
      * <p>The spawn is not a landing, though. For a {@code NETHER -> THE_END} arrival it is the
      * Nether's spawn, which is routinely inside netherrack. {@link #returnToSpawn} therefore hands
-     * the block reads to the region scheduler <em>for the spawn location</em> — the one thread
-     * allowed to make them — and lets {@link SafeRetreat#spawnLanding} find standable ground in
+     * the block reads to the region scheduler <em>for the spawn location</em> — the thread that owns
+     * the spawn's own chunk — and lets {@link SafeRetreat#spawnLanding} find standable ground in
      * that column before anyone is moved.
+     *
+     * <p>That search is not confined to the one column. Establishing that a candidate is not a
+     * sealed pocket means looking a few blocks around it, and at a chunk border those blocks are in
+     * a chunk this thread was never handed — another region's on Folia, and on Paper a chunk that
+     * reading would load, or generate, synchronously from inside a region task. So the probe answers
+     * {@link SafeRetreat.Terrain#isReadable} for itself rather than leaving the invariant to a
+     * comment: a block outside the chunks the calling thread owns is never read, and the search
+     * treats it as a wall. The degradation is a candidate declined, and a declined candidate is
+     * not a fallback: the search moves on to the next-nearest one in the spawn column, and the
+     * spawn is handed back as it stands only when no candidate in range passes.
      *
      * <p>The return itself is deferred to the player's own {@code EntityScheduler} and performed
      * with {@code teleportAsync}, by way of {@link #scheduleEjection}. Deferred because moving a
@@ -655,8 +669,9 @@ public final class ProgressionGateListener implements Listener {
 
         reject(player, config, dimension, result);
         plugin.getLogger().fine(() -> "Returning " + player.getName() + " from " + arrivedIn.getName()
-                + ": they arrived without passing the " + dimension + " gate, which on Folia means a"
-                + " vehicle carried them through a portal the server reported no event for.");
+                + ": they arrived without passing the " + dimension + " gate, so a transit reached this"
+                + " world without any handler cancelling it. Paper only - Folia does not fire this"
+                + " event for a portal transit, so the backstop is not armed there.");
         returnToSpawn(player, cameFrom);
     }
 
@@ -670,14 +685,17 @@ public final class ProgressionGateListener implements Listener {
      * {@link #scheduleEjection}, as every other return in this class is. On Paper both schedulers
      * run on the main thread and the hops cost a tick of delay and nothing else.
      *
-     * <p>{@code maxY} is capped at the world's logical height so that a deep Nether spawn is not
-     * resolved onto the roof.
+     * <p>{@code maxY} comes from {@link SafeRetreat#searchCeiling}, which caps the search at the
+     * world's logical height so that a deep Nether spawn is not resolved onto the roof. The
+     * arithmetic lives there rather than here because it is the one part of this method a test can
+     * reach without a running server.
      */
     private void returnToSpawn(Player player, World world) {
         Location spawn = world.getSpawnLocation();
         plugin.getServer().getRegionScheduler().execute(plugin, spawn, () -> {
             int minY = world.getMinHeight();
-            int maxY = Math.min(world.getMaxHeight(), minY + world.getLogicalHeight());
+            int maxY = SafeRetreat.searchCeiling(minY, world.getMaxHeight(),
+                    world.getLogicalHeight());
             SafeRetreat.Landing landing = SafeRetreat.spawnLanding(spawn.getX(), spawn.getY(),
                     spawn.getZ(), terrainOf(world), minY, maxY);
             if (!landing.retreated()) {
@@ -995,9 +1013,14 @@ public final class ProgressionGateListener implements Listener {
     /**
      * The {@link SafeRetreat.Terrain} probe over a live world.
      *
-     * <p>Only ever read on the thread that owns the blocks asked about: by {@link #returnPointFor}
-     * on the event thread, before any transfer resolves, for a column two blocks from the vehicle;
-     * and by {@link #returnToSpawn} on the region scheduler for the spawn location.
+     * <p>Only ever read on the thread that owns the blocks asked about, and that is enforced here
+     * rather than asserted: {@link SafeRetreat.Terrain#isReadable} answers {@code false} for any
+     * block outside a chunk the calling thread owns, and {@link SafeRetreat} treats such a block as
+     * a wall. Which thread that is depends on the caller — {@link #returnPointFor} probes on the
+     * event thread, before any transfer resolves, starting from a column two blocks from the
+     * vehicle; {@link #returnToSpawn} probes on the region scheduler for the spawn location. Neither
+     * starting column is the whole of what the search asks about, because deciding that a spot is
+     * not a sealed pocket means looking a few blocks around it.
      *
      * <p>Each method answers one plain question about one block. In particular {@code isPassable}
      * is Bukkit's collision question and nothing more: lava and water are passable, and it is
@@ -1007,6 +1030,24 @@ public final class ProgressionGateListener implements Listener {
      */
     private static SafeRetreat.Terrain terrainOf(World world) {
         return new SafeRetreat.Terrain() {
+            /**
+             * Both halves are load-bearing and neither implies the other.
+             *
+             * <p>{@code isOwnedByCurrentRegion} is the Folia question: on Folia it is false for a
+             * chunk another region owns, and on Paper, which has one region, it is the main-thread
+             * check. {@code isChunkLoaded} is the Paper question: an owned chunk that is not
+             * resident is one {@code getBlockAt} would load, or generate, synchronously from inside
+             * a region task — and for a Nether spawn the neighbours of the spawn chunk are not kept
+             * alive. Asking before reading costs two lookups and no chunk work.
+             */
+            @Override
+            public boolean isReadable(int x, int y, int z) {
+                int chunkX = x >> 4;
+                int chunkZ = z >> 4;
+                return Bukkit.isOwnedByCurrentRegion(world, chunkX, chunkZ)
+                        && world.isChunkLoaded(chunkX, chunkZ);
+            }
+
             @Override
             public boolean isPassable(int x, int y, int z) {
                 return world.getBlockAt(x, y, z).isPassable();
