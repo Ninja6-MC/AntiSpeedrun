@@ -4,10 +4,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
-import java.util.logging.Level;
 
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -15,6 +15,7 @@ import org.bukkit.plugin.Plugin;
 
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.PluginConfig.IdleReminder;
+import com.ninja6.antispeedrun.logging.LogLine;
 
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import net.kyori.adventure.text.Component;
@@ -119,6 +120,10 @@ public final class IdleReminderEngine {
     /** Where each armed player was last seen, and when they were last spoken to. */
     private final PlayerStateMap<IdleReminderRules.State> tracked;
 
+    /** Keeps a failing reminder to one log line a minute, whatever the configured cooldown. */
+    private final IdleReminderRules.FailureLogThrottle failureLog =
+            new IdleReminderRules.FailureLogThrottle();
+
     /**
      * @param plugin        the owning plugin, for the scheduler
      * @param configuration reads the live configuration snapshot; the task calls it once per poll,
@@ -151,6 +156,13 @@ public final class IdleReminderEngine {
      * <p>Idempotent. Called on join, for players already online when the plugin enables, and for
      * every online player after an {@code /asr reload} — which is the only thing that can switch the
      * feature off under an armed task, or back on under a player who was never armed.
+     *
+     * <p><strong>Death and respawn need no call here.</strong> Paper retires an entity's scheduler
+     * from {@code Entity#setRemoved}, but skips it for a {@code ServerPlayer}, whose scheduler is
+     * retired only by {@code PlayerList#remove} — the quit. Respawn reuses the same player entity
+     * rather than constructing a new one, so the task armed at join keeps running through a death.
+     * Read from the Paper 1.21.4 sources this plugin compiles against ({@code build.gradle.kts}
+     * pins {@code paper-api:1.21.4}); {@link UnlockWatch} relies on the same fact.
      */
     public void refresh(Player player, PluginConfig config) {
         Objects.requireNonNull(player, "player");
@@ -255,9 +267,9 @@ public final class IdleReminderEngine {
         // poll, are both IdleReminderRules#advance's -- they are decisions about when the cooldown
         // is earned, not wiring, and they are unit-tested there without a Bukkit type in sight.
         IdleReminderRules.State next = IdleReminderRules.advance(previous, where, now, settings,
-                () -> IdleReminderRules.nextStep(progressOf(player, config))
-                        .ifPresent(step -> deliver(player, settings, step)),
-                thrown -> reportDeliveryFailure(player, thrown));
+                () -> IdleReminderRules.nextStep(progressOf(player, config)),
+                step -> deliver(player, settings, step),
+                (stage, thrown) -> reportFailure(player, stage, thrown, now));
         tracked.put(id, next);
     }
 
@@ -277,18 +289,114 @@ public final class IdleReminderEngine {
     }
 
     /**
-     * Logs a delivery that threw, once per {@code cooldown-minutes} per player rather than per poll.
+     * Logs a reminder attempt that threw, at most once per stage per
+     * {@link IdleReminderRules#FAILURE_LOG_FLOOR_MILLIS} across the whole server.
      *
-     * <p>The rate is what {@link IdleReminderRules#advance} buys: the cooldown is stamped before the
-     * delivery is attempted, so a template that throws produces one line per cooldown window and not
-     * one per second. {@code idle-reminder.message} is validated at config load, so reaching here at
-     * all means either a MiniMessage failure mode the validation does not model or a fault in the
-     * send itself; both are worth a line, and neither is worth the player's poll.
+     * <p>Two limits apply, and the second is what makes the rate unconditional. The cooldown is
+     * stamped before the attempt ({@link IdleReminderRules#advance}), so one player produces at most
+     * one failure per {@code max(cooldown-minutes, stand-still-seconds)}; but {@code cooldown-minutes}
+     * may be 0, which on its own would put a stack trace in the log every second.
+     * {@link IdleReminderRules.FailureLogThrottle} floors that per {@link IdleReminderRules.Stage},
+     * and the line it admits says how many of that stage's failures it dropped.
+     *
+     * <p>The message depends on the {@link IdleReminderRules.Stage}. A failure to send points at
+     * {@code idle-reminder.message}, which is validated at config load, so reaching here means a
+     * MiniMessage failure mode the validation does not model or a fault in the send itself. A failure
+     * to evaluate is not the operator's template at all, and says so.
      */
-    private void reportDeliveryFailure(Player player, RuntimeException thrown) {
-        plugin.getLogger().log(Level.WARNING,
-                "idle-reminder: could not deliver the reminder to " + player.getName()
-                        + "; check idle-reminder.message in config.yml", thrown);
+    private void reportFailure(Player player, IdleReminderRules.Stage stage, Throwable thrown,
+                               long nowMillis) {
+        OptionalLong admitted = failureLog.admit(stage, nowMillis);
+        if (admitted.isEmpty()) {
+            return;
+        }
+        String line = switch (stage) {
+            case EVALUATE -> "idle-reminder: could not work out the next step for " + player.getName()
+                    + "; progression evaluation failed, which is a plugin fault rather than a "
+                    + "configuration one";
+            case SEND -> "idle-reminder: could not deliver the reminder to " + player.getName()
+                    + "; check idle-reminder.message in config.yml";
+        };
+        long dropped = admitted.getAsLong();
+        if (dropped > 0L) {
+            line += " (" + dropped + " further idle-reminder "
+                    + (dropped == 1L ? "failure" : "failures") + " not logged since the last line)";
+        }
+        plugin.getLogger().warning(line + " -- " + traced(thrown));
+    }
+
+    /** How many frames of a failed attempt's stack the log carries. */
+    private static final int LOGGED_FRAMES = 8;
+
+    /**
+     * How many frames of a wrapped fault's own stack the log carries.
+     *
+     * <p>One, because the wrapper's eight already say where the plugin was and the cause's innermost
+     * frame is the line that actually threw. A second budget of eight would double the ceiling to say
+     * it twice.
+     */
+    private static final int LOGGED_CAUSE_FRAMES = 1;
+
+    /**
+     * How much of a failed attempt's message the log carries.
+     *
+     * <p>The {@code SEND} arm exists for a MiniMessage failure the load-time validation does not
+     * model, and MiniMessage builds a parse message by embedding the whole template, so this is
+     * bounded for the same reason the frames are.
+     */
+    private static final int LOGGED_MESSAGE_CHARS = 200;
+
+    /**
+     * The throwable as one bounded line, rather than as a stack trace of any length.
+     *
+     * <p>Handing the throwable to {@code Logger#log} prints every frame it has, which undoes the
+     * floor the throttle pays for: the {@code StackOverflowError} this class now admits carries up to
+     * 1024 frames of MiniMessage recursion, so one admitted failure a minute is still a thousand log
+     * lines a minute. The frames that identify the fault are the innermost ones, and after eight of a
+     * recursive overflow the ninth says nothing the eighth did not; the count of what was elided says
+     * how deep it went.
+     *
+     * <p>A cause is described the same way rather than named. Where the send wraps the real fault the
+     * message and the throwing frame are the cause's, and the wrapper's eight frames identify only the
+     * plugin code that re-threw; a line that says
+     * {@code RuntimeException ... caused by NullPointerException} and stops there carries nothing to
+     * act on. The cause's message goes through the same bound as the wrapper's and its own stack
+     * contributes {@link #LOGGED_CAUSE_FRAMES}, so the ceiling rises by a known amount rather than by
+     * however deep the wrapped stack was.
+     *
+     * <p>Package-private so that the bound is asserted rather than assumed. It is the same arithmetic
+     * as {@code ConfigReader}'s quoted value, now via {@link LogLine}; the last regression on this
+     * bound reached review twice because only one of the two paths had a test.
+     */
+    static String traced(Throwable thrown) {
+        StringBuilder trace = new StringBuilder();
+        describe(trace, thrown, LOGGED_FRAMES);
+        Throwable cause = thrown.getCause();
+        if (cause != null && cause != thrown) {
+            trace.append(" caused by ");
+            describe(trace, cause, LOGGED_CAUSE_FRAMES);
+        }
+        return trace.toString();
+    }
+
+    /** One throwable's type, bounded message and innermost {@code frameBudget} frames. */
+    private static void describe(StringBuilder into, Throwable thrown, int frameBudget) {
+        into.append(thrown.getClass().getName());
+        String message = thrown.getMessage();
+        if (message != null && !message.isBlank()) {
+            String rendered = LogLine.oneLine(message, LOGGED_MESSAGE_CHARS);
+            if (!rendered.isEmpty()) {
+                into.append(": ").append(rendered);
+            }
+        }
+        StackTraceElement[] frames = thrown.getStackTrace();
+        int shown = Math.min(frameBudget, frames.length);
+        for (int i = 0; i < shown; i++) {
+            into.append(" at ").append(frames[i]);
+        }
+        if (frames.length > shown) {
+            into.append(" ... ").append(frames.length - shown).append(" more frames");
+        }
     }
 
     /** The player's position, in the Bukkit-free terms {@link IdleReminderRules} compares. */
