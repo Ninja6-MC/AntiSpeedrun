@@ -238,8 +238,7 @@ final class ConfigReader {
      *
      * <p>Both halves of the warning go through {@link LogLine#oneLine}, and the value half is the
      * reason that is stated rather than assumed. A value is an arbitrary YAML scalar: a double-quoted
-     * scalar carrying {@code 
-} escapes puts real line breaks inside the quoted prefix, and
+     * scalar carrying {@code \n} escapes puts real line breaks inside the quoted prefix, and
      * {@link ConfigSnapshotHolder} emits each warning as one {@code logger.warning} call, so a value
      * quoted without collapsing turns one recoverable warning into as many console records as it has
      * lines -- indistinguishable from that many separate warnings, while {@code /asr reload} still
@@ -653,15 +652,16 @@ final class ConfigReader {
     private void requireResolvable(String key, String configured, String normalised,
             boolean enforced) throws ConfigLoadException {
         if (!enforced) {
-            warnings.add(qualify(key) + ": \"" + configured + "\" is not an advancement key this "
-                    + "server can resolve (read as \"" + normalised + "\"), so it was dropped. "
-                    + "That is a warning rather than an error only because the gate reading it is "
+            warnings.add(qualify(key) + ": \"" + quoted(configured) + "\" is not an advancement key "
+                    + "this server can resolve (read as \"" + quoted(normalised) + "\"), so it was "
+                    + "dropped. That is a warning rather than an error only because the gate reading it is "
                     + "switched off and so gates nothing either way; switching it on with this key "
                     + "unchanged will stop the plugin at the next start. Fix the spelling.");
             return;
         }
-        throw new UnenforceableGateException(qualify(key) + ": \"" + configured + "\" is not an advancement "
-                + "key this server can resolve (read as \"" + normalised + "\"; a key is "
+        throw new UnenforceableGateException(qualify(key) + ": \"" + quoted(configured)
+                + "\" is not an advancement key this server can resolve (read as \""
+                + quoted(normalised) + "\"; a key is "
                 + "namespace:path, lower case, using only a-z 0-9 / . _ and -). config.yml has NOT "
                 + "been applied: after a reload the configuration already running stays live, and "
                 + "at startup the plugin does not enable. This is an error rather than a warning "
@@ -683,7 +683,7 @@ final class ConfigReader {
                     return constant;
                 }
             }
-            warnings.add(qualify(key) + ": \"" + value + "\" is not one of "
+            warnings.add(qualify(key) + ": \"" + quoted(value) + "\" is not one of "
                     + Arrays.toString(type.getEnumConstants()) + "; using the default " + def);
             return def;
         }
@@ -768,6 +768,6 @@ final class ConfigReader {
         if (value instanceof List<?>) {
             return "a list";
         }
-        return value.getClass().getSimpleName() + " \"" + value + "\"";
+        return value.getClass().getSimpleName() + " \"" + quoted(String.valueOf(value)) + "\"";
     }
 }

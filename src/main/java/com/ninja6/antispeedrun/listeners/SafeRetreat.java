@@ -485,6 +485,14 @@ public final class SafeRetreat {
      * across a gap is still refused, although a player could get out of it; that is the remaining
      * distance between this and a real path.
      *
+     * <p>The one-block limit binds on the way down too, and there it refuses somewhere harmless. A
+     * drop of two or three blocks costs a player nothing, but the walk does not take it, so a
+     * candidate whose every way out is such a drop is refused like a sealed pocket. The case that
+     * matters is a spawn on a small outcrop or a lone pillar with a short drop on every side: it is
+     * refused, and {@code groundY} goes on to the next candidate in the column, which may be a cave
+     * below. Allowing longer drops would need the walk to tell a short fall from a lethal one, and
+     * it does not attempt that.
+     *
      * <p>Open space above the head is not an escape either. A one-block shaft through forty blocks
      * of stone is a way out only for a player who happens to be carrying blocks to pillar with, and
      * a return through a gate makes no promise about their inventory.

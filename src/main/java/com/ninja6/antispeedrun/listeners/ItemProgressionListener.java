@@ -12,6 +12,7 @@ import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Cancellable;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -306,17 +307,16 @@ public final class ItemProgressionListener implements Listener {
             return;
         }
 
-        Verdict verdict = refuse(player, moving.getType());
+        Verdict verdict = refuse(player, moving.getType(), event);
         if (verdict == Verdict.REFUSED) {
-            event.setCancelled(true);
             return;
         }
         // Strictly after the material gate and only when it let the stack through, so a stack that
         // is both above tier and enchanted with Mending produces one refusal rather than two --
         // #54's no-double-messaging constraint, which the javadoc on onTradeSelect recorded from the
         // item-gate side before this gate existed.
-        if (mendingWithdrawal(topType, subject, rawSlot) && refuseMending(player, moving, verdict)) {
-            event.setCancelled(true);
+        if (mendingWithdrawal(topType, subject, rawSlot)) {
+            refuseMending(player, moving, verdict, event);
         }
     }
 
@@ -402,14 +402,11 @@ public final class ItemProgressionListener implements Listener {
             return;
         }
         ItemStack result = recipes.get(index).getResult();
-        Verdict verdict = refuse(player, result.getType());
+        Verdict verdict = refuse(player, result.getType(), event);
         if (verdict == Verdict.REFUSED) {
-            event.setCancelled(true);
             return;
         }
-        if (refuseMending(player, result, verdict)) {
-            event.setCancelled(true);
-        }
+        refuseMending(player, result, verdict, event);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -417,8 +414,8 @@ public final class ItemProgressionListener implements Listener {
     // -------------------------------------------------------------------------------------------
 
     /**
-     * Whether this player must be refused this stack because it carries Mending, telling them why
-     * if so.
+     * Refuses this player this stack if it carries Mending and they have not earned it, cancelling
+     * {@code event} and then telling them why.
      *
      * <p>Ordered so that a default server pays nothing: {@code gate-mending-trade} is {@code false}
      * out of the box, and while it is, this returns on a single volatile config read without
@@ -437,29 +434,32 @@ public final class ItemProgressionListener implements Listener {
      * already had {@link #waived} asked about it, and asking again would be a second permission
      * check and a second bypass PDC read for the same player in the same event.
      *
+     * <p>The event is cancelled before the player is messaged, as in {@link #refuse}, so that a
+     * message that fails to send cannot leave the refusal unmade.
+     *
      * @param prior what {@link #refuse} concluded about the same stack; never
      *              {@link Verdict#REFUSED}, because a refused stack never reaches this gate
-     * @return {@code true} when the caller should cancel its event
+     * @param event cancelled here when the stack is refused
      */
-    private boolean refuseMending(Player player, ItemStack stack, Verdict prior) {
+    private void refuseMending(Player player, ItemStack stack, Verdict prior, Cancellable event) {
         PluginConfig config = plugin.configuration();
         if (!MendingTradeRules.armed(config) || prior == Verdict.WAIVED) {
-            return false;
+            return;
         }
         if (prior == Verdict.UNGATED && waived(player)) {
-            return false;
+            return;
         }
         if (!MendingTradeRules.carriesMending(enchantmentKeys(stack))) {
-            return false;
+            return;
         }
         EligibilityResult result = plugin.progression().evaluate(
                 player, config, MendingTradeRules.requirement(config));
         if (result.eligible()) {
-            return false;
+            return;
         }
+        event.setCancelled(true);
         reject(player, config, MendingTradeRules.FEEDBACK_KEY,
                 config.villagerProgression().hint(), result, stack.getType());
-        return true;
     }
 
     /**
@@ -578,7 +578,8 @@ public final class ItemProgressionListener implements Listener {
     // -------------------------------------------------------------------------------------------
 
     /**
-     * Whether this player must be refused this material, telling them why if so.
+     * Refuses this player this material if its tier is out of reach, cancelling {@code event} and
+     * then telling them why.
      *
      * <p>The whole gate for the three container-side channels, in the order that makes the common
      * case cheap: the table lookup is an array read that allocates nothing, and it comes before the
@@ -589,10 +590,16 @@ public final class ItemProgressionListener implements Listener {
      * carrying a stamp, and none of these three channels has one — a stack in a chest is a stack,
      * and §4's rule is precisely that provenance does not survive being put down.
      *
-     * @return {@link Verdict#REFUSED} when the caller should cancel its event; any other value
-     *         says how far the check got, so {@link #refuseMending} can reuse the waiver
+     * <p>The event is cancelled before {@link #reject} runs, never after it. A message that throws
+     * — a malformed {@code rejection-message}, a disconnecting player — then costs the player their
+     * explanation and nothing else, rather than escaping the handler with the event still
+     * uncancelled and letting the stack through.
+     *
+     * @param event cancelled here when the material is refused
+     * @return {@link Verdict#REFUSED} when {@code event} was cancelled; any other value says how
+     *         far the check got, so {@link #refuseMending} can reuse the waiver
      */
-    private Verdict refuse(Player player, Material material) {
+    private Verdict refuse(Player player, Material material, Cancellable event) {
         PluginConfig config = plugin.configuration();
         ItemTier tier = gatedTier(material, config);
         if (tier == null) {
@@ -606,6 +613,7 @@ public final class ItemProgressionListener implements Listener {
         if (result.eligible()) {
             return Verdict.ADMITTED;
         }
+        event.setCancelled(true);
         reject(player, config, tier.id(), tier.hint(), result, material);
         return Verdict.REFUSED;
     }
@@ -629,7 +637,7 @@ public final class ItemProgressionListener implements Listener {
         /** A gated material, not waived, and the player qualifies for its tier. */
         ADMITTED,
 
-        /** A gated material the player may not have. The caller cancels. */
+        /** A gated material the player may not have. The event has been cancelled. */
         REFUSED
     }
 
