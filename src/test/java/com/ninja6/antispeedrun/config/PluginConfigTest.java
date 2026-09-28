@@ -1961,6 +1961,65 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("a Mending hint with a legacy formatting code warns and falls back")
+        void mendingHintFallsBack() throws Exception {
+            // #129: the hint is interpolated into the Mending refusal with its tags escaped, which
+            // leaves a section sign in place, and that refusal is sent before the trade is
+            // cancelled -- a throw there let the trade through.
+            PluginConfig config = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                      hint: "§eCure a Zombie Villager"
+                    """));
+
+            assertEquals("Cure a Zombie Villager (Zombie Doctor)",
+                    config.villagerProgression().hint());
+            assertTrue(mentions(config.warnings(), "villager-progression.hint"),
+                    "the warning names the full key path: " + config.warnings());
+            assertNotNull(MiniMessage.miniMessage()
+                    .deserialize(config.villagerProgression().hint()));
+        }
+
+        @Test
+        @DisplayName("a rejected Mending hint is not also reported as a stale hint")
+        void aRejectedMendingHintIsNotAStaleHint() throws Exception {
+            // The fallback is the shipped sentence, and the requirement beside it was changed,
+            // but the operator did reword the hint. One warning, on the key that is wrong.
+            PluginConfig legacy = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                      required-advancement: "minecraft:story/mine_diamond"
+                      hint: "§bMine a diamond"
+                    """));
+            assertTrue(mentions(legacy.warnings(), "villager-progression.hint"),
+                    legacy.warnings().toString());
+            assertFalse(mentions(legacy.warnings(), "hint still reads"),
+                    legacy.warnings().toString());
+
+            PluginConfig wrongType = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                      required-advancement: "minecraft:story/mine_diamond"
+                      hint:
+                        - "Mine a diamond"
+                    """));
+            assertTrue(mentions(wrongType.warnings(), "villager-progression.hint"),
+                    wrongType.warnings().toString());
+            assertFalse(mentions(wrongType.warnings(), "hint still reads"),
+                    wrongType.warnings().toString());
+
+            PluginConfig verbatim = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: true
+                      required-advancement: "minecraft:story/mine_diamond"
+                      hint: "Cure a Zombie Villager (Zombie Doctor)"
+                    """));
+            assertTrue(mentions(verbatim.warnings(), "hint still reads"),
+                    "the shipped sentence written out is still the shipped sentence: "
+                            + verbatim.warnings());
+        }
+
+        @Test
         @DisplayName("a stale Mending hint is not reported while gate-mending-trade is off")
         void aStaleMendingHintIsSilentWhileTheGateIsOff() throws Exception {
             // A switched-off section 8 refuses nothing, so the shipped sentence beside a retuned

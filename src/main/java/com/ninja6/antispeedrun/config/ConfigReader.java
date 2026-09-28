@@ -716,6 +716,16 @@ final class ConfigReader {
         return value;
     }
 
+    /**
+     * Whether {@code key} is absent or holds exactly {@code def}: the operator has not changed it.
+     * Unlike comparing a resolved value with the default, a value that was rejected and fell back
+     * does not read as unchanged. Records no warning; the read of the value itself does that.
+     */
+    boolean leftAtDefault(String key, String def) {
+        Object raw = section.get(key);
+        return raw == null || def.equals(raw);
+    }
+
     /** The keys declared on this section, in document order. */
     Set<String> keys() {
         return section.keys();

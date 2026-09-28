@@ -294,5 +294,6 @@ villager-progression:
   # advancement key instead. Update it if you change required-advancement: while
   # gate-mending-trade is true, leaving the shipped sentence beside a requirement that is no
   # longer the shipped one is a WARNING at load, because the refusal would then describe
-  # something this gate does not ask for.
+  # something this gate does not ask for. MiniMessage. A legacy § code is refused at load;
+  # the default is used.
   hint: "Cure a Zombie Villager (Zombie Doctor)"

@@ -406,8 +406,11 @@ public record PluginConfig(
         boolean gated = r.bool("gate-mending-trade", false);
         String advancement = r.advancementKey("required-advancement", DEFAULT_MENDING_ADVANCEMENT,
                 gated);
-        String hint = r.string("hint", DEFAULT_MENDING_HINT);
-        warnOnStaleMendingHint(r, gated, advancement, hint);
+        // Interpolated into the Mending refusal with its tags escaped, which does not neutralise a
+        // legacy formatting code, and that refusal is sent before the trade is cancelled; see
+        // ConfigReader#miniMessage.
+        String hint = r.miniMessage("hint", DEFAULT_MENDING_HINT);
+        warnOnStaleMendingHint(r, gated, advancement);
         return new VillagerProgression(gated, advancement, hint);
     }
 
@@ -425,13 +428,16 @@ public record PluginConfig(
      * <p>A switched-off gate refuses nothing, so the sentence it would show can never render and
      * there is nothing to warn about. A blank or unresolvable key is not drift either. It already
      * carries a warning or a refusal of its own, and adding this one on top would bury it.
+     *
+     * <p>The check is on what the operator wrote, not on the hint that was resolved from it. A
+     * reworded hint that fails to parse, or is not a string, resolves to the shipped sentence too,
+     * but the operator did reword it, and that fallback is already reported under its own key.
      */
-    private static void warnOnStaleMendingHint(ConfigReader r, boolean gated, String advancement,
-            String hint) {
+    private static void warnOnStaleMendingHint(ConfigReader r, boolean gated, String advancement) {
         if (!gated || advancement.isEmpty() || advancement.equals(DEFAULT_MENDING_ADVANCEMENT)) {
             return;
         }
-        if (!hint.equals(DEFAULT_MENDING_HINT)) {
+        if (!r.leftAtDefault("hint", DEFAULT_MENDING_HINT)) {
             return;
         }
         r.note("hint still reads \"" + DEFAULT_MENDING_HINT + "\" while required-advancement is now "
