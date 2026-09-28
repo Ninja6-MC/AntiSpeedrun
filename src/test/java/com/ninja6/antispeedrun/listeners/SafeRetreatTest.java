@@ -795,6 +795,51 @@ class SafeRetreatTest {
         }
 
         /**
+         * A refusal is not a fallback. {@link SafeRetreat#spawnLanding} moves on to the next-nearest
+         * candidate, so an escape check that refused a good surface spawn sent the player to the
+         * first cave below it. On a diagonal slope no neighbour is at the same level, so a walk that
+         * could not step up or down refused every spot on it.
+         */
+        @Test
+        @DisplayName("a spawn on a diagonal slope stays on the slope, not in the cave below it")
+        void diagonalSlopeKeepsTheSurface() {
+            // Ground top at 64 + x + z, and a cave two blocks high at y 30 under all of it.
+            SafeRetreat.Terrain slope = blocks((x, y, z) -> {
+                if (y == 30 || y == 31) {
+                    return '.';
+                }
+                return y <= 64 + x + z ? '#' : '.';
+            });
+
+            SafeRetreat.Landing landing =
+                    SafeRetreat.spawnLanding(0.5D, 65.0D, 0.5D, slope, -64, 320);
+
+            assertTrue(landing.retreated());
+            assertEquals(65.0D, landing.y(), 1.0E-9D, "the spawn is on open ground already");
+        }
+
+        @Test
+        @DisplayName("a spawn on a one-block rise stays on the rise, not in the cave below it")
+        void oneBlockRiseKeepsTheSurface() {
+            // Flat ground topped at 63, one block raised to 64 at the spawn, a cave at y 30.
+            SafeRetreat.Terrain rise = blocks((x, y, z) -> {
+                if (y == 30 || y == 31) {
+                    return '.';
+                }
+                if (y <= 63) {
+                    return '#';
+                }
+                return (y == 64 && x == 0 && z == 0) ? '#' : '.';
+            });
+
+            SafeRetreat.Landing landing =
+                    SafeRetreat.spawnLanding(0.5D, 65.0D, 0.5D, rise, -64, 320);
+
+            assertTrue(landing.retreated());
+            assertEquals(65.0D, landing.y(), 1.0E-9D, "the spawn is on open ground already");
+        }
+
+        /**
          * The rule is shared with the ejection path on purpose. A retreat spot two blocks behind a
          * portal that is sealed is the same trap, and {@link SafeRetreat#landing} has somewhere
          * strictly better to fall back to: the spot the rider occupied a moment ago.

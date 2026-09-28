@@ -56,12 +56,19 @@ public final class SafeRetreat {
     private static final int ESCAPE_RADIUS = 3;
 
     /**
+     * How far, in blocks, the walk may climb or descend from a candidate before it counts as having
+     * left it. Each step changes level by at most one, so inside {@link #ESCAPE_RADIUS} a walk that
+     * gets this far has gone up or down a staircase rather than round a pocket.
+     */
+    private static final int ESCAPE_CLIMB = ESCAPE_RADIUS * 2;
+
+    /**
      * How many cells that walk will stand in before it stops asking. A space offering this many
      * places to stand is not the shape the check refuses, so spending the budget counts as an
      * escape — which is what bounds the cost whatever the terrain: twenty-four cells expanded, four
-     * neighbours each, at most nine probe calls to settle a neighbour, so under a thousand block
-     * reads for a candidate, and none at all for the overwhelming majority, which the floor or the
-     * headroom refuses before the walk starts.
+     * neighbours each, three levels per neighbour and at most twelve probe calls to settle a level,
+     * so a few thousand block reads for a candidate at the very worst, and none at all for the
+     * overwhelming majority, which the floor or the headroom refuses before the walk starts.
      */
     private static final int ESCAPE_BUDGET = 24;
 
@@ -69,6 +76,12 @@ public final class SafeRetreat {
     private static final int[] STEP_X = {1, -1, 0, 0};
 
     private static final int[] STEP_Z = {0, 0, 1, -1};
+
+    /** Width of the box the walk is bounded to, in cells, along x and along z. */
+    private static final int ESCAPE_SPAN = ESCAPE_RADIUS * 2 + 1;
+
+    /** Height of that box, in levels. */
+    private static final int ESCAPE_LEVELS = ESCAPE_CLIMB * 2 + 1;
 
     /** A direction shorter than this is treated as no direction at all. */
     private static final double EPSILON = 1.0E-4D;
@@ -178,10 +191,12 @@ public final class SafeRetreat {
          * to answer. Both arise for the same reason — the search looks a few blocks out of the
          * candidate, and at a chunk border that leaves the chunk the caller was handed.
          *
-         * <p>Refusing to look is safe in the one direction that matters. A block that cannot be
-         * established is a wall, so a candidate whose surroundings are unknown is declined, and both
-         * entry points have somewhere known-survivable to fall back to: the spawn as it stands, or
-         * the spot the rider occupied a moment ago.
+         * <p>A block that cannot be established is a wall, so a candidate whose surroundings are
+         * unknown is declined rather than accepted on a guess. Declining a candidate is not the end
+         * of the search: {@code groundY} moves on to the next-nearest one in the column, which may
+         * be further from where it started. Only when no candidate in range passes do the entry
+         * points hand back what they were given — the spawn as it stands, or the spot the rider
+         * occupied a moment ago.
          *
          * <p>Defaults to {@code true}, which is the right answer for a probe over data that is
          * always readable — the tests' fabricated terrain, and anything else that is not a world.
@@ -377,7 +392,7 @@ public final class SafeRetreat {
             // rather than merely unsuitable, so neither can become suitable by looking harder.
             return false;
         }
-        return footing(terrain, x, y, z) && escapable(terrain, x, y, z);
+        return footing(terrain, x, y, z) && escapable(terrain, x, y, z, minY, maxY);
     }
 
     /**
@@ -389,6 +404,37 @@ public final class SafeRetreat {
                 && terrain.isSolid(x, y - 1, z)
                 && !terrain.isHazard(x, y - 1, z)
                 && roomToStand(terrain, x, y, z);
+    }
+
+    /**
+     * Whether a player standing in the cell at {@code from} can move into the cell at {@code to},
+     * one block across and at most one block up or down, the way a player walks.
+     *
+     * <p>The cell moved into must be one they could stand in, {@link #footing} and all. A step up
+     * also needs the block above their head clear in the cell they leave, because that is where the
+     * jump puts it; a step down needs the block at head height clear in the cell they drop into,
+     * because that is where their body is before it falls. Every block either asks about goes
+     * through {@link Terrain#isReadable} like any other.
+     */
+    private static boolean canStep(Terrain terrain, int fromX, int fromY, int fromZ,
+                                   int toX, int toY, int toZ, int minY, int maxY) {
+        if (toY - 1 < minY || toY + 1 >= maxY || !footing(terrain, toX, toY, toZ)) {
+            return false;
+        }
+        if (toY > fromY) {
+            return clear(terrain, fromX, fromY + 2, fromZ);
+        }
+        if (toY < fromY) {
+            return clear(terrain, toX, fromY + 1, toZ);
+        }
+        return true;
+    }
+
+    /** Whether a body can be in this one block, unharmed, and the probe will say so. */
+    private static boolean clear(Terrain terrain, int x, int y, int z) {
+        return terrain.isReadable(x, y, z)
+                && terrain.isPassable(x, y, z)
+                && !terrain.isHazard(x, y, z);
     }
 
     /** Whether the probe will answer for all three blocks a standing player's cell is made of. */
@@ -416,8 +462,9 @@ public final class SafeRetreat {
      * Whether a player standing at {@code (x, y, z)} could walk out of it.
      *
      * <p>A breadth-first walk over the cells a player can stand in, out from the candidate and
-     * bounded twice over: {@link #ESCAPE_RADIUS} blocks horizontally, {@link #ESCAPE_BUDGET} cells.
-     * Reaching either bound is an escape — a space more than three blocks across, or one offering
+     * bounded twice over: a box {@link #ESCAPE_RADIUS} blocks out horizontally and
+     * {@link #ESCAPE_CLIMB} up or down, and {@link #ESCAPE_BUDGET} cells. Reaching either bound is an
+     * escape — a space more than three blocks across, or one offering
      * two dozen separate places to stand, is not the shape this refuses — and only a walk that runs
      * out of anywhere new to stand while still inside both bounds refuses the candidate. A sealed
      * pocket is therefore refused at every size up to the bound, rather than only when it is a
@@ -429,11 +476,14 @@ public final class SafeRetreat {
      * to die rather than a way out, and the check this replaced asked only whether a body fitted,
      * so it counted one as a doorway.
      *
-     * <p>The walk stays on one level. Stepping up or down a block is movement a player has, so a
-     * pocket whose only opening has a sill in it is refused although its occupant could leave. That
-     * is the conservative direction — a refusal falls back to the spawn as it stands, or to the spot
-     * the rider already occupied — and it is what keeps the worst case a fixed, small number of
-     * block reads on a region thread.
+     * <p>The walk moves the way a player does: one block across, and up or down by at most one
+     * block on the way, as {@link #canStep} describes. It has to. A refusal here is not a fallback
+     * to anything safe: {@code groundY} moves on to the next-nearest candidate, and over a whole
+     * spawn column that can be a cave thirty blocks below a perfectly good hillside. A walk that
+     * stayed on one level refused exactly that hillside — on a diagonal slope, or on a one-block
+     * rise, no neighbour is at the same level. A pocket that needs a two-block climb or a jump
+     * across a gap is still refused, although a player could get out of it; that is the remaining
+     * distance between this and a real path.
      *
      * <p>Open space above the head is not an escape either. A one-block shaft through forty blocks
      * of stone is a way out only for a player who happens to be carrying blocks to pillar with, and
@@ -444,45 +494,57 @@ public final class SafeRetreat {
      * inside rock instead. A block the probe declines to answer for is a wall; see
      * {@link Terrain#isReadable}.
      */
-    private static boolean escapable(Terrain terrain, int x, int y, int z) {
-        int span = ESCAPE_RADIUS * 2 + 1;
-        int origin = ESCAPE_RADIUS * span + ESCAPE_RADIUS;
-        boolean[] seen = new boolean[span * span];
+    private static boolean escapable(Terrain terrain, int x, int y, int z, int minY, int maxY) {
+        boolean[] seen = new boolean[ESCAPE_SPAN * ESCAPE_SPAN * ESCAPE_LEVELS];
         int[] pending = new int[ESCAPE_BUDGET];
+        int origin = cellOf(0, 0, 0);
         seen[origin] = true;
         pending[0] = origin;
         int tail = 1;
         for (int head = 0; head < tail; head++) {
-            int dx = pending[head] % span - ESCAPE_RADIUS;
-            int dz = pending[head] / span - ESCAPE_RADIUS;
+            int cell = pending[head];
+            int dx = cell % ESCAPE_SPAN - ESCAPE_RADIUS;
+            int dz = cell / ESCAPE_SPAN % ESCAPE_SPAN - ESCAPE_RADIUS;
+            int dy = cell / (ESCAPE_SPAN * ESCAPE_SPAN) - ESCAPE_CLIMB;
             for (int step = 0; step < STEP_X.length; step++) {
                 int nx = dx + STEP_X[step];
                 int nz = dz + STEP_Z[step];
-                if (Math.max(Math.abs(nx), Math.abs(nz)) > ESCAPE_RADIUS) {
-                    if (footing(terrain, x + nx, y, z + nz)) {
+                for (int rise = -1; rise <= 1; rise++) {
+                    int ny = dy + rise;
+                    // Asked before the seen check, not after: whether a cell can be entered depends
+                    // on the cell it is entered from, so one refused from here may be open from
+                    // somewhere else.
+                    if (!canStep(terrain, x + dx, y + dy, z + dz, x + nx, y + ny, z + nz,
+                            minY, maxY)) {
+                        continue;
+                    }
+                    if (Math.max(Math.abs(nx), Math.abs(nz)) > ESCAPE_RADIUS
+                            || Math.abs(ny) > ESCAPE_CLIMB) {
                         // Standable ground outside the box the walk is bounded to: open terrain
                         // rather than a pocket, and no reason to keep looking.
                         return true;
                     }
-                    continue;
+                    int next = cellOf(nx, ny, nz);
+                    if (seen[next]) {
+                        continue;
+                    }
+                    seen[next] = true;
+                    if (tail == pending.length) {
+                        // Somewhere new to stand with the budget already spent: too much room to be
+                        // the shape this refuses, so the candidate is kept rather than dropped for
+                        // want of a larger budget.
+                        return true;
+                    }
+                    pending[tail++] = next;
                 }
-                int cell = (nz + ESCAPE_RADIUS) * span + (nx + ESCAPE_RADIUS);
-                if (seen[cell]) {
-                    continue;
-                }
-                seen[cell] = true;
-                if (!footing(terrain, x + nx, y, z + nz)) {
-                    continue;
-                }
-                if (tail == pending.length) {
-                    // Somewhere new to stand with the budget already spent: too much room to be the
-                    // shape this refuses, so the candidate is kept rather than dropped for want of
-                    // a larger budget.
-                    return true;
-                }
-                pending[tail++] = cell;
             }
         }
         return false;
+    }
+
+    /** The walk's index for the cell at this offset from the candidate, inside its box. */
+    private static int cellOf(int dx, int dy, int dz) {
+        return ((dy + ESCAPE_CLIMB) * ESCAPE_SPAN + (dz + ESCAPE_RADIUS)) * ESCAPE_SPAN
+                + (dx + ESCAPE_RADIUS);
     }
 }

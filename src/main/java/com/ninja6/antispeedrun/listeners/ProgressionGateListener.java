@@ -628,8 +628,9 @@ public final class ProgressionGateListener implements Listener {
      * reading would load, or generate, synchronously from inside a region task. So the probe answers
      * {@link SafeRetreat.Terrain#isReadable} for itself rather than leaving the invariant to a
      * comment: a block outside the chunks the calling thread owns is never read, and the search
-     * treats it as a wall. The degradation is a candidate declined, and the fallback is the spawn as
-     * it stands.
+     * treats it as a wall. The degradation is a candidate declined, and a declined candidate is
+     * not a fallback: the search moves on to the next-nearest one in the spawn column, and the
+     * spawn is handed back as it stands only when no candidate in range passes.
      *
      * <p>The return itself is deferred to the player's own {@code EntityScheduler} and performed
      * with {@code teleportAsync}, by way of {@link #scheduleEjection}. Deferred because moving a
