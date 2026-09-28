@@ -266,4 +266,18 @@ class ProgressCardTest {
                     UUID.nameUUIDFromBytes("Steve".getBytes())));
         }
     }
+
+    @Nested
+    @DisplayName("the console refusal")
+    class ConsoleRefusal {
+
+        @Test
+        @DisplayName("names the operator's command with a literal <player>, not an HTML entity")
+        void placeholderReadsAsWritten() {
+            String plain = PLAIN.serialize(MINI.deserialize(ProgressCommand.CONSOLE_REFUSAL));
+
+            assertTrue(plain.contains("/asr inspect <player>"), plain);
+            assertFalse(plain.contains("&lt;"), plain);
+        }
+    }
 }

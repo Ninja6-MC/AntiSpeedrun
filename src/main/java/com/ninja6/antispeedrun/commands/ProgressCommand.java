@@ -48,6 +48,15 @@ public final class ProgressCommand implements CommandExecutor, TabCompleter {
 
     private static final MiniMessage MINI = MiniMessage.miniMessage();
 
+    /**
+     * What the console is told, as MiniMessage. {@code <player>} is escaped with a backslash:
+     * MiniMessage does not decode HTML entities, so {@code &lt;player&gt;} would reach the
+     * operator exactly as written.
+     */
+    static final String CONSOLE_REFUSAL =
+            "<red>/progress shows your own progression, so it needs a player. "
+                    + "From the console, use <yellow>/asr inspect \\<player><red>.";
+
     private final AntiSpeedrunPlugin plugin;
 
     public ProgressCommand(AntiSpeedrunPlugin plugin) {
@@ -72,9 +81,7 @@ public final class ProgressCommand implements CommandExecutor, TabCompleter {
         if (!(sender instanceof Player player)) {
             // Not an oversight and not worth a fallback: the card is about the sender's own
             // progression, and the console has none. The operator's command is /asr inspect.
-            sender.sendMessage(MINI.deserialize(
-                    "<red>/progress shows your own progression, so it needs a player. "
-                            + "From the console, use <yellow>/asr inspect &lt;player&gt;<red>."));
+            sender.sendMessage(MINI.deserialize(CONSOLE_REFUSAL));
             return;
         }
 
