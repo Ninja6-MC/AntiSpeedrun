@@ -216,6 +216,35 @@ class TeleportCommandLineTest {
         }
 
         @ParameterizedTest
+        @ValueSource(strings = {
+            "/tp @r Alex",
+            "/tp @r[limit=2] 0 70 0",
+            "/tp Steve @r",
+            "/tp @a[sort=random,limit=1] Alex",
+            "/tp @e[type=player, sort = random] Alex",
+            "/tp @p[sort=\"random\"] Alex",
+            "/execute in the_nether as @r run tp @s 0 70 0",
+            "/execute at @e[sort=random,limit=1] run tp Steve ~ ~ ~",
+        })
+        @DisplayName("a random selector, which the caller and the command would each draw differently")
+        void random(String line) {
+            unreadable(line, "the player noted need not be the player teleported");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+            "/execute in the_nether run TP @s 0 70 0",
+            "/execute in the_nether run Teleport @s 0 70 0",
+            "/execute in the_nether run MINECRAFT:tp @s 0 70 0",
+            "/execute in the_nether run minecraft:TP @s 0 70 0",
+            "/execute as Steve run EXECUTE in the_nether run tp @s 0 70 0",
+        })
+        @DisplayName("a label after run in another case, which Brigadier does not accept")
+        void labelCaseAfterRun(String line) {
+            unreadable(line, "Brigadier literals are case-sensitive");
+        }
+
+        @ParameterizedTest
         @ValueSource(strings = {"/tp @a[name=\"Steve] Alex", "/tp @a[distance=..5 Alex", "/tp @a] Alex"})
         @DisplayName("an unbalanced selector")
         void unbalanced(String line) {

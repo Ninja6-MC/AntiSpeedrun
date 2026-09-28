@@ -184,7 +184,10 @@ public final class TeleportCommandLine {
             if (i >= tokens.size()) {
                 return Optional.empty();
             }
-            String label = stripNamespace(tokens.get(i).toLowerCase(Locale.ROOT));
+            // Only the typed label is case-folded, because that is the one Bukkit's command map
+            // looks up in lower case. A label after "run" is read by Brigadier, whose literals are
+            // case-sensitive, so "run TP" is not a teleport and must not be read as one.
+            String label = stripNamespace(i == 0 ? tokens.get(i).toLowerCase(Locale.ROOT) : tokens.get(i));
             if (label.equals("tp") || label.equals("teleport")) {
                 permissions.add(TELEPORT_PERMISSION);
                 return teleport(tokens.subList(i + 1, tokens.size()), executor, place, contextMoved)
@@ -306,15 +309,35 @@ public final class TeleportCommandLine {
      * <p>An exact {@code @s} is the current executor. Any other selector is left for the caller to
      * resolve in the sender's context, which is only the command's context while {@code execute}
      * has moved neither the executor nor the position.
+     *
+     * <p>A random selector — {@code @r}, or any selector sorted {@code random} — is never read. The
+     * caller would draw its own sample, and the command draws another: the note would land on a
+     * player the server did not teleport, where an unreported transit could spend it.
      */
     private static Optional<Ref> ref(String token, Ref executor, boolean contextMoved) {
         if (token.equals("@s")) {
             return Optional.of(executor);
         }
+        if (random(token)) {
+            return Optional.empty();
+        }
         if (token.startsWith("@") && contextMoved) {
             return Optional.empty();
         }
         return Optional.of(new Token(token));
+    }
+
+    /** Whether a selector picks at random, so that two resolutions of it can disagree. */
+    private static boolean random(String token) {
+        if (!token.startsWith("@")) {
+            return false;
+        }
+        if (token.startsWith("@r")) {
+            return true;
+        }
+        String compact = token.replaceAll("\s", "").toLowerCase(Locale.ROOT);
+        return compact.contains("sort=random") || compact.contains("sort=\"random\"")
+                || compact.contains("sort='random'");
     }
 
     /** Whether the three tokens from {@code from} are a coordinate triple. */

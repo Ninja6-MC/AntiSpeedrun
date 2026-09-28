@@ -979,9 +979,12 @@ public final class ProgressionGateListener implements Listener {
      * skipped, the world says which arrival the note is good for. {@link DimensionGateRules.Decision}
      * carries the reasoning for the second.
      *
-     * <p>Called only from a handler that has established the transit is actually going ahead. A note
+     * <p>Called from a handler that has established the transit is actually going ahead — a note
      * written on an intention is the defect {@link #onPlayerTeleportSettled} was moved to
-     * {@code MONITOR} to avoid.
+     * {@code MONITOR} to avoid — with one exception. {@link #expectTeleport}, and through it
+     * {@link #noteCommandTeleport}, write before a deliberate teleport on Folia, because there is no
+     * settled point after it to write at; {@link #noteCommandTeleport} sets out what bounds a note
+     * written that way.
      */
     private void noteDecision(Player player, DimensionUnlock dimension, World destination) {
         DimensionGateRules.note(
