@@ -92,5 +92,5 @@ permissions:
     description: Bypasses item pickup, dispenser, and container restrictions
     default: false
   antispeedrun.bypass.anticheese:
-    description: Bypasses anti-cheese combat restrictions
+    description: Bypasses anti-cheese restrictions (boss combat and early Eye of Ender throws)
     default: false

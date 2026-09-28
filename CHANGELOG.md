@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `anti-cheese.block-early-eye-throwing`, which until now was parsed and read by nothing, refuses an
+  Eye of Ender throw until the player has earned `minecraft:nether/find_fortress`. The item use is
+  denied at the interaction, so the eye stays in the hand and no Eye of Ender entity spawns; setting
+  an eye into an empty End Portal frame is not a throw and is left alone. Waived by
+  `antispeedrun.bypass.anticheese`, an `/asr bypass` grant, or `/asr unlock the_end`. The refusal
+  line is the new `anti-cheese.early-eye-rejection-message`, validated as MiniMessage at load like
+  every other rejection message.
 - Brand vector master (`docs/assets/icon-master.svg`) and automated multi-resolution icon suite
   (`scripts/export-icons.mjs`) featuring the Progression Crown and Tri-Realm Apex, with CI drift
   gate enforcement (`.github/workflows/icons.yml`).

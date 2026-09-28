@@ -113,6 +113,9 @@ public record PluginConfig(
                     + "Type <gold>/progress";
     private static final String DEFAULT_ITEM_REJECTION =
             "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}";
+    private static final String DEFAULT_EARLY_EYE_REJECTION =
+            "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> "
+                    + "first. Type <gold>/progress";
     private static final String DEFAULT_MENDING_HINT = "Cure a Zombie Villager (Zombie Doctor)";
     private static final String DEFAULT_MENDING_ADVANCEMENT =
             "minecraft:story/cure_zombie_villager";
@@ -392,13 +395,17 @@ public record PluginConfig(
 
     private static AntiCheese parseAntiCheese(ConfigReader r) {
         r.expect("enabled", "block-bed-anchor-boss-damage", "max-single-hit-boss-damage",
-                "block-early-eye-throwing", "block-exit-portal-crystal-place",
-                "block-gateway-pre-dragon", "outer-end-radius", "outer-end-poll-seconds");
+                "block-early-eye-throwing", "early-eye-rejection-message",
+                "block-exit-portal-crystal-place", "block-gateway-pre-dragon", "outer-end-radius",
+                "outer-end-poll-seconds");
         return new AntiCheese(
                 r.bool("enabled", true),
                 r.bool("block-bed-anchor-boss-damage", true),
                 r.decimal("max-single-hit-boss-damage", 12.0D),
                 r.bool("block-early-eye-throwing", true),
+                // Not r.string, for the same reason as a dimension gate's rejection-message:
+                // EyeThrowListener deserialises it on a region thread on every refused throw.
+                r.miniMessage("early-eye-rejection-message", DEFAULT_EARLY_EYE_REJECTION),
                 r.bool("block-exit-portal-crystal-place", true),
                 r.bool("block-gateway-pre-dragon", true),
                 r.atLeast("outer-end-radius", 500, 1),
@@ -738,7 +745,10 @@ public record PluginConfig(
      * @param blockBedAnchorBossDamage    cancels {@code BAD_RESPAWN_POINT} against bosses; default {@code true}
      * @param maxSingleHitBossDamage      time-to-kill budget, not just an anti-one-shot guard;
      *                                    default {@code 12.0}
-     * @param blockEarlyEyeThrowing       default {@code true}
+     * @param blockEarlyEyeThrowing       refuses an Eye of Ender throw until the player has found a
+     *                                    Nether Fortress (#7); default {@code true}
+     * @param earlyEyeRejectionMessage    MiniMessage sent to the action bar when a throw is refused;
+     *                                    validated at load like every rejection message
      * @param blockExitPortalCrystalPlace default {@code true}
      * @param blockGatewayPreDragon       default {@code true}
      * @param outerEndRadius              enforced until the world's first dragon dies; default {@code 500}
@@ -749,10 +759,14 @@ public record PluginConfig(
             boolean blockBedAnchorBossDamage,
             double maxSingleHitBossDamage,
             boolean blockEarlyEyeThrowing,
+            String earlyEyeRejectionMessage,
             boolean blockExitPortalCrystalPlace,
             boolean blockGatewayPreDragon,
             int outerEndRadius,
             int outerEndPollSeconds) {
+        public AntiCheese {
+            Objects.requireNonNull(earlyEyeRejectionMessage, "earlyEyeRejectionMessage");
+        }
     }
 
     /**

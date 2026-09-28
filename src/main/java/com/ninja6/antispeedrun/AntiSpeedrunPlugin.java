@@ -24,6 +24,7 @@ import com.ninja6.antispeedrun.config.UnenforceableGateException;
 import com.ninja6.antispeedrun.gating.GateCollisionException;
 import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.gating.MaterialGates;
+import com.ninja6.antispeedrun.listeners.EyeThrowListener;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
@@ -211,6 +212,10 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // only holds a compiled table once applyConfiguration() above has run. Both are in place
         // by this line.
         getServer().getPluginManager().registerEvents(new ItemProgressionListener(this), this);
+
+        // The early Eye of Ender rule (#7). After the stores for the same reason as the two gates
+        // above: it reads bypasses() and dimensionUnlocks() on every refused throw.
+        getServer().getPluginManager().registerEvents(new EyeThrowListener(this), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");

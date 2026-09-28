@@ -202,6 +202,8 @@ anti-cheese:
   # 17-hit fight. Raise it for a faster fight; lower it to force sustained combat.
   max-single-hit-boss-damage: 12.0
   block-early-eye-throwing: true
+  # MiniMessage. A legacy § code is refused at load; the default is used.
+  early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
   block-exit-portal-crystal-place: true
   block-gateway-pre-dragon: true       # Block bridging, pearling & chorus fruit to the Outer End
   outer-end-radius: 500                # Boundary enforced until the world's first dragon dies
