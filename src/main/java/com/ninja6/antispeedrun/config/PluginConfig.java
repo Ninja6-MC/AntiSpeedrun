@@ -407,7 +407,7 @@ public record PluginConfig(
         String advancement = r.advancementKey("required-advancement", DEFAULT_MENDING_ADVANCEMENT,
                 gated);
         String hint = r.string("hint", DEFAULT_MENDING_HINT);
-        warnOnStaleMendingHint(r, advancement, hint);
+        warnOnStaleMendingHint(r, gated, advancement, hint);
         return new VillagerProgression(gated, advancement, hint);
     }
 
@@ -422,11 +422,13 @@ public record PluginConfig(
      * key — is how an operator phrases the same requirement in their own words, and warning about it
      * would fire on every server that touched the line.
      *
-     * <p>A blank or unresolvable key is not drift. It already carries a warning or a refusal of its
-     * own, and adding this one on top would bury it.
+     * <p>A switched-off gate refuses nothing, so the sentence it would show can never render and
+     * there is nothing to warn about. A blank or unresolvable key is not drift either. It already
+     * carries a warning or a refusal of its own, and adding this one on top would bury it.
      */
-    private static void warnOnStaleMendingHint(ConfigReader r, String advancement, String hint) {
-        if (advancement.isEmpty() || advancement.equals(DEFAULT_MENDING_ADVANCEMENT)) {
+    private static void warnOnStaleMendingHint(ConfigReader r, boolean gated, String advancement,
+            String hint) {
+        if (!gated || advancement.isEmpty() || advancement.equals(DEFAULT_MENDING_ADVANCEMENT)) {
             return;
         }
         if (!hint.equals(DEFAULT_MENDING_HINT)) {

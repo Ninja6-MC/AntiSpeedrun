@@ -1749,4 +1749,66 @@ class PluginConfigTest {
             assertFalse(section.contains("b"));
         }
     }
+
+    @Nested
+    @DisplayName("review follow-ups from #121 and #122")
+    class ReviewFollowUps {
+
+        @Test
+        @DisplayName("journey-book.title is read as MiniMessage and falls back on a legacy code")
+        void journeyBookTitleIsMiniMessage() throws Exception {
+            PluginConfig kept = PluginConfig.from(yaml("""
+                    journey-book:
+                      title: "<aqua>Field Notes"
+                    """));
+            assertEquals("<aqua>Field Notes", kept.journeyBook().title());
+            assertFalse(mentions(kept.warnings(), "journey-book.title"), kept.warnings().toString());
+
+            PluginConfig legacy = PluginConfig.from(yaml("""
+                    journey-book:
+                      title: "§6Field Notes"
+                    """));
+            assertEquals(PluginConfig.defaults().journeyBook().title(), legacy.journeyBook().title());
+            assertTrue(mentions(legacy.warnings(), "journey-book.title"),
+                    "the warning names the full key path: " + legacy.warnings());
+            assertNotNull(MiniMessage.miniMessage().deserialize(legacy.journeyBook().title()));
+        }
+
+        @Test
+        @DisplayName("a stale Mending hint is not reported while gate-mending-trade is off")
+        void aStaleMendingHintIsSilentWhileTheGateIsOff() throws Exception {
+            // A switched-off section 8 refuses nothing, so the shipped sentence beside a retuned
+            // requirement can never reach a player.
+            PluginConfig off = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: false
+                      required-advancement: "minecraft:story/mine_diamond"
+                    """));
+            assertFalse(mentions(off.warnings(), "hint still reads"), off.warnings().toString());
+        }
+
+        @Test
+        @DisplayName("a blank or unresolvable Mending key is not reported as a stale hint")
+        void aMissingMendingKeyIsNotAStaleHint() throws Exception {
+            // advancementKey returns "" for both under a switched-off gate. Reading "" as a
+            // retuned requirement would stack a second warning on the unresolvable key's own.
+            PluginConfig blank = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: false
+                      required-advancement: ""
+                    """));
+            assertFalse(mentions(blank.warnings(), "hint still reads"), blank.warnings().toString());
+
+            PluginConfig unresolvable = PluginConfig.from(yaml("""
+                    villager-progression:
+                      gate-mending-trade: false
+                      required-advancement: "Not A Key!"
+                    """));
+            assertTrue(mentions(unresolvable.warnings(),
+                            "villager-progression.required-advancement"),
+                    unresolvable.warnings().toString());
+            assertFalse(mentions(unresolvable.warnings(), "hint still reads"),
+                    unresolvable.warnings().toString());
+        }
+    }
 }
