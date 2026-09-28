@@ -15,16 +15,21 @@ import java.util.logging.Level;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.command.BlockCommandSender;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPortalEvent;
+import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.util.Vector;
 
 import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
@@ -203,7 +208,10 @@ public final class ProgressionGateListener implements Listener {
      * change carries no cause and no history, so on its own it cannot tell the two deliberate
      * exemptions — an operator's {@code /tp} and a rider the vehicle path is already repositioning
      * — apart from the Folia transit that reports nothing. Each of those leaves a note here on its
-     * way past; the backstop consumes it.
+     * way past; the backstop consumes it. On Folia the {@code /tp} note is written from the command
+     * line or by a plugin through {@link #expectTeleport}, because no teleport event fires there
+     * (#135); see {@link #noteCommandTeleport} for what bounds a note written before the teleport
+     * has happened.
      *
      * <h2>A note belongs to one transit, and three rules keep it there</h2>
      *
@@ -219,7 +227,9 @@ public final class ProgressionGateListener implements Listener {
      *       this class exists to catch.</li>
      *   <li><strong>It is written where the outcome is settled</strong>, never on an intention. See
      *       {@link #onPlayerTeleportSettled}: a teleport a later handler cancels or redirects must
-     *       leave nothing behind.</li>
+     *       leave nothing behind. The exception is the deliberate teleport on Folia, which has no
+     *       settled point to write at: {@link #noteCommandTeleport} and {@link #expectTeleport}
+     *       write before the teleport, and say what bounds that instead.</li>
      *   <li><strong>It expires and it is consumed.</strong> One arrival per note, and none at all
      *       after {@link DimensionGateRules#DECISION_WINDOW_MILLIS}.</li>
      * </ul>
@@ -550,6 +560,180 @@ public final class ProgressionGateListener implements Listener {
     }
 
     // -------------------------------------------------------------------------------------------
+    // #135 - deliberate teleports on Folia, which fire no PlayerTeleportEvent
+    // -------------------------------------------------------------------------------------------
+
+    /**
+     * A player's command line, read for a vanilla {@code /tp} before it runs.
+     *
+     * <p>This is how an operator's cross-dimension {@code /tp} is told apart from an unreported
+     * transit on Folia, where {@link #onPlayerTeleportSettled} never runs because
+     * {@code teleportAsync} fires no {@code PlayerTeleportEvent}. {@link TeleportCommandLine} says
+     * why the command line is the only place left to see the difference, and which forms it reads.
+     *
+     * <p>{@code MONITOR} with {@code ignoreCancelled}, for the reason {@link #onPlayerTeleportSettled}
+     * gives: a command another plugin refuses must leave nothing behind. On Paper the same
+     * {@code /tp} fires {@code PlayerTeleportEvent} as well and the settled handler writes the same
+     * note again, which replaces this one; the command hook is registered on both platforms for the
+     * reason the backstop is, not because Paper needs it.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
+        noteCommandTeleport(event.getPlayer(), event.getMessage());
+    }
+
+    /** The same, for the console, RCON and command blocks. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onServerCommand(ServerCommandEvent event) {
+        noteCommandTeleport(event.getSender(), event.getCommand());
+    }
+
+    /**
+     * Notes every player a teleport command is about to move into a gated dimension.
+     *
+     * <h2>What bounds a note written here</h2>
+     *
+     * This is written on an intention — the command has not run yet — which {@link #decisions}
+     * otherwise forbids. Three things keep it from being a pass:
+     *
+     * <ul>
+     *   <li><strong>The sender must be able to teleport.</strong> Every permission
+     *       {@link TeleportCommandLine.Teleport#permissions} names, which is what Paper's vanilla
+     *       command wrapper checks. Without this a player could type a teleport they are refused
+     *       and spend the note on a boat through the portal. With it, only someone who could have
+     *       moved the player across the gate anyway can write one.</li>
+     *   <li><strong>It is bound to the destination world and to the named players</strong>, as every
+     *       note is, and it expires and is consumed like any other.</li>
+     *   <li><strong>An unreadable line writes nothing.</strong> A selector, a destination or a
+     *       dimension that does not resolve to exactly one answer is dropped, so the arrival is
+     *       judged as before.</li>
+     * </ul>
+     *
+     * <p>What remains is a teleport the server refuses after this has run — a malformed line that
+     * reads cleanly here, or a destination outside the world border. That leaves a note on a player
+     * an operator just tried to move into that world, spendable only by an unreported transit into
+     * the same world through the same gate inside {@link DimensionGateRules#DECISION_WINDOW_MILLIS}.
+     * The same remainder {@link #decisions} already documents for a teleport that is settled but
+     * never completes.
+     *
+     * <h2>Folia</h2>
+     *
+     * A player's command runs on their region, the console's on the global region. Neither owns the
+     * players a command may name. What this reads of them — which world they are in — is the
+     * entity's level reference, which Folia does not thread-check; a stale read names the wrong
+     * world, and a note for the wrong world covers nothing. Resolving a selector goes through the
+     * same vanilla code the command itself is about to run on this thread. The ledger is concurrent.
+     */
+    private void noteCommandTeleport(CommandSender sender, String commandLine) {
+        Optional<TeleportCommandLine.Teleport> parsed = TeleportCommandLine.parse(commandLine);
+        if (parsed.isEmpty()) {
+            return;
+        }
+        TeleportCommandLine.Teleport teleport = parsed.get();
+        for (String permission : teleport.permissions()) {
+            if (!sender.hasPermission(permission)) {
+                return;
+            }
+        }
+        Optional<World> destination = destinationWorld(sender, teleport.destination());
+        if (destination.isEmpty()) {
+            return;
+        }
+        for (Entity target : entities(sender, teleport.targets())) {
+            if (target instanceof Player player) {
+                expectTeleport(player, destination.get());
+            }
+        }
+    }
+
+    /**
+     * Tells the gate that {@code player} is about to be teleported into {@code destination} on
+     * purpose, so that the arrival is not returned — #135.
+     *
+     * <p>For a plugin that moves players between dimensions. On Paper it is unnecessary: the
+     * teleport fires {@code PlayerTeleportEvent}, and {@link #onPlayerTeleportSettled} notes any
+     * cause this plugin does not regulate. On Folia {@code teleportAsync} fires nothing, so without
+     * this call the arrival of a player who has not met the gate is indistinguishable from the
+     * unreported vehicle transit, and is returned.
+     *
+     * <p>Call it immediately before the teleport. It covers one arrival, in that world, within
+     * {@link DimensionGateRules#DECISION_WINDOW_MILLIS}; a teleport that does not happen leaves
+     * the note to expire. It does nothing for a destination the player's current dimension does not
+     * gate. Safe from any thread: it reads the world the player is in, and writes a concurrent map.
+     *
+     * @param player      who is being moved
+     * @param destination the world they are being moved into
+     */
+    public void expectTeleport(Player player, World destination) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(destination, "destination");
+        DimensionGateRules.gatedDestination(kindOf(player.getWorld()), kindOf(destination),
+                        plugin.configuration())
+                .ifPresent(gate -> noteDecision(player, gate, destination));
+    }
+
+    /** The world a command's destination is in, if it resolves to exactly one. */
+    private Optional<World> destinationWorld(CommandSender sender,
+                                             TeleportCommandLine.Destination destination) {
+        if (destination instanceof TeleportCommandLine.ToEntity toEntity) {
+            List<Entity> found = entities(sender, toEntity.entity());
+            return found.size() == 1 ? Optional.of(found.get(0).getWorld()) : Optional.empty();
+        }
+        TeleportCommandLine.Place place = ((TeleportCommandLine.ToCoordinates) destination).place();
+        if (place instanceof TeleportCommandLine.Dimension dimension) {
+            NamespacedKey key = NamespacedKey.fromString(dimension.key());
+            return key == null ? Optional.empty() : Optional.ofNullable(plugin.getServer().getWorld(key));
+        }
+        TeleportCommandLine.Ref of = ((TeleportCommandLine.WorldOf) place).entity();
+        if (of instanceof TeleportCommandLine.Sender && !(sender instanceof Entity)) {
+            // A command block runs in its own world; the console and RCON in the overworld.
+            return Optional.of(sender instanceof BlockCommandSender block
+                    ? block.getBlock().getWorld()
+                    : plugin.getServer().getWorlds().get(0));
+        }
+        List<Entity> found = entities(sender, of);
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        World world = found.get(0).getWorld();
+        for (Entity entity : found) {
+            if (!entity.getWorld().equals(world)) {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(world);
+    }
+
+    /**
+     * The entities a command token names, or none if it does not resolve.
+     *
+     * <p>A name or UUID is looked up among online players only. Vanilla would accept any entity
+     * for a UUID, but only a player can be gated, and looking an arbitrary entity up by UUID is not
+     * a read Folia lets any thread make.
+     */
+    private List<Entity> entities(CommandSender sender, TeleportCommandLine.Ref ref) {
+        if (ref instanceof TeleportCommandLine.Sender) {
+            return sender instanceof Entity self ? List.of(self) : List.of();
+        }
+        String text = ((TeleportCommandLine.Token) ref).text();
+        if (text.startsWith("@")) {
+            try {
+                return plugin.getServer().selectEntities(sender, text);
+            } catch (IllegalArgumentException | IllegalStateException unresolvable) {
+                // A selector that does not parse, or one Folia will not evaluate on this thread.
+                return List.of();
+            }
+        }
+        Player player;
+        try {
+            player = plugin.getServer().getPlayer(UUID.fromString(text));
+        } catch (IllegalArgumentException notUuid) {
+            player = plugin.getServer().getPlayerExact(text);
+        }
+        return player == null ? List.of() : List.of(player);
+    }
+
+    // -------------------------------------------------------------------------------------------
     // #100, #127 - the backstop, for the transits Folia never reports
     // -------------------------------------------------------------------------------------------
 
@@ -610,10 +794,15 @@ public final class ProgressionGateListener implements Listener {
      * <ul>
      *   <li>An ineligible player who walks into a portal on Folia is returned to the source world's
      *       spawn from the other side, rather than nudged back out of the portal.</li>
-     *   <li>{@link #onPlayerTeleportSettled} never runs on Folia, so a cross-dimension teleport by
-     *       {@code /tp} or another plugin leaves no note, and an ineligible, unwaived player moved
-     *       that way is returned. The {@link #GATED_CAUSES} allow-list cannot be honoured on a
-     *       server that never says what caused a teleport.</li>
+     *   <li>{@link #onPlayerTeleportSettled} never runs on Folia, so the {@link #GATED_CAUSES}
+     *       allow-list cannot be honoured on a server that never says what caused a teleport. A
+     *       cross-dimension teleport is exempt on Folia only when something else vouched for it
+     *       first (#135): a vanilla {@code /tp} read off the command line by
+     *       {@link #onPlayerCommand} or {@link #onServerCommand}, or a plugin calling
+     *       {@link #expectTeleport}. Anything else — a {@code /tp} form the command reader does not
+     *       follow, another plugin's teleport that does not call in, a pearl — is returned from an
+     *       ineligible, unwaived player, because at the arrival it is indistinguishable from the
+     *       unreported vehicle transit.</li>
      * </ul>
      *
      * <h2>Not double-handling what Paper already caught</h2>
@@ -629,7 +818,8 @@ public final class ProgressionGateListener implements Listener {
      *   <li>The player is <strong>waived</strong> — permission, {@code /asr bypass},
      *       {@code /asr unlock}. Also re-read.</li>
      *   <li>An <strong>exemption was recorded</strong> in {@link #decisions} <em>for this world</em>:
-     *       an ungated teleport cause, or a rider {@link #onEntityPortal} has already
+     *       an ungated teleport cause (on Folia, a {@code /tp} or a plugin that vouched for it —
+     *       #135), or a rider {@link #onEntityPortal} has already
      *       ejected and is repositioning. The second is the Paper double-handling case exactly —
      *       a mixed crew's transit is not cancelled, so a blocked rider really does arrive in the
      *       Nether for a tick before the deferred ejection puts them back, and without the note this

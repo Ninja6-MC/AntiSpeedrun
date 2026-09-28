@@ -388,7 +388,7 @@ class DimensionGateRulesTest {
         @DisplayName("an add to the world already on record is a move inside it")
         void sameWorldIsNotAnArrival() {
             assertTrue(DimensionGateRules.departure(NETHER_WORLD, NETHER_WORLD).isEmpty(),
-                    "a Folia region crossing inside the Nether re-adds the player to the Nether");
+                    "a teleportAsync into another region of the Nether, or a respawn there, re-adds the player to the Nether");
         }
 
         @Test
