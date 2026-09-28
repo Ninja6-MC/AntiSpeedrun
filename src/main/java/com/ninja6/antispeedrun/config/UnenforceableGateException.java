@@ -45,7 +45,7 @@ package com.ninja6.antispeedrun.config;
  *
  * <h2>What this deliberately does not cover</h2>
  *
- * <p>Two exemptions, both for the same reason: neither describes gating this server would fail to
+ * <p>Three exemptions, all for the same reason: none describes gating this server would fail to
  * enforce, and refusing a boot over a configuration that is still enforceable is a false refusal.
  *
  * <ul>
@@ -56,6 +56,9 @@ package com.ninja6.antispeedrun.config;
  *       default is non-empty: the gate falls back to requiring the shipped advancements rather than
  *       what the file says, which is worth the wrong-type warning it already gets, but it is still
  *       requiring something.</li>
+ *   <li>An item tier id containing {@link PluginConfig#RESERVED_TIER_ID_CHAR}. The tier gates every
+ *       item it names; what the character can cost is one throttled refusal line, so it is a
+ *       warning — see {@code PluginConfig#warnOnReservedTierId}.</li>
  * </ul>
  */
 public class UnenforceableGateException extends ConfigLoadException {

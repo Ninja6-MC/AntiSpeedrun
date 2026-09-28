@@ -65,12 +65,13 @@ profile: SMP_STANDARD
 # idle-reminder.message. Write colour and style as tags -- <red>, <gold>, <bold>.
 #
 # A legacy section-sign code is not MiniMessage. A template containing one is refused at
-# load and the shipped default for that same key is used in its place, with a WARNING
-# naming the key. Nothing else changes: the gate still refuses the player, and the player
-# still sees a correct message -- the one shipped with the plugin rather than the one you
-# wrote. Fix the template and reload. Parsing at load is why a mistyped template is
-# reported once at startup instead of throwing on a region thread every time somebody is
-# turned away.
+# load, with a WARNING naming the key. A message or title is replaced by the shipped
+# default for that same key. A tier hint is dropped instead: its default is blank, since
+# a tier you add yourself ships no hint, so the rejection line names what is still
+# outstanding in its place. Nothing else changes: the gate still refuses the player, and
+# the player still sees a correct message -- just not the one you wrote. Fix the template
+# and reload. Parsing at load is why a mistyped template is reported once at startup
+# instead of throwing on a region thread every time somebody is turned away.
 
 # 1. Dimension Progression Gates
 dimension-gates:
@@ -141,7 +142,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/mine_stone"
       require-playtime-hours: 0
-      # MiniMessage. A legacy § code is refused at load; the default is used.
+      # MiniMessage. A legacy § code is refused at load and the hint is dropped.
       hint: "Mine Stone with a wooden pickaxe (Stone Age)"
 
     diamond-tier:
@@ -156,6 +157,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/smelt_iron"
       require-playtime-hours: 0
+      # MiniMessage. A legacy § code is refused at load and the hint is dropped.
       hint: "Smelt Iron Ingot"
       # NOTE (audit R-16): story/smelt_iron is also the Nether gate prerequisite, so
       # diamonds and the Nether currently unlock at the same moment. Deliberate?
@@ -174,6 +176,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/smelt_iron"
       require-playtime-hours: 0
+      # MiniMessage. A legacy § code is refused at load and the hint is dropped.
       hint: "Unlock the Nether Gate"
 
     end-tier:
@@ -192,6 +195,7 @@ item-progression:
         - "minecraft:nether/find_fortress"
       require-playtime-hours: 0          # Was 20.0 - contradicted the advancement-driven End gate above.
       require-account-age-days: 0        # Was 7 - see the getFirstPlayed caveat in section 2.1.
+      # MiniMessage. A legacy § code is refused at load and the hint is dropped.
       hint: "Unlock The End Gate"
 
     netherite-tier:
@@ -213,6 +217,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/mine_diamond"
         - "minecraft:nether/obtain_blaze_rod"
+      # MiniMessage. A legacy § code is refused at load and the hint is dropped.
       hint: "Mine Diamonds & Explore the Nether"
 
 # 3. Armor Trim & Smithing Template Progression
@@ -286,7 +291,8 @@ villager-progression:
   gate-mending-trade: false
   required-advancement: "minecraft:story/cure_zombie_villager"
   # Shown as {REQUIREMENT} in the refusal. Left blank, the player is shown the raw
-  # advancement key instead. Update it if you change required-advancement: leaving the
-  # shipped sentence beside a requirement that is no longer the shipped one is a WARNING at
-  # load, because the refusal would then describe something this gate does not ask for.
+  # advancement key instead. Update it if you change required-advancement: while
+  # gate-mending-trade is true, leaving the shipped sentence beside a requirement that is no
+  # longer the shipped one is a WARNING at load, because the refusal would then describe
+  # something this gate does not ask for.
   hint: "Cure a Zombie Villager (Zombie Doctor)"
