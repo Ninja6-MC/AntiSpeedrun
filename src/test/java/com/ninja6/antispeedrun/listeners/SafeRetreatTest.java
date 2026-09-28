@@ -101,6 +101,63 @@ class SafeRetreatTest {
                 (x == px && z == pz && (y == py || y == py + 1)) ? '.' : '#');
     }
 
+    /**
+     * Solid rock with a {@code 1 x 2} corridor running east from {@code (px, py, pz)} for
+     * {@code length} blocks — a pocket with a genuine way out of it, which is what the assertions
+     * about sealed ones need as a control.
+     */
+    private static SafeRetreat.Terrain corridorEast(int px, int py, int pz, int length) {
+        return blocks((x, y, z) -> (z == pz && x >= px && x < px + length
+                && (y == py || y == py + 1)) ? '.' : '#');
+    }
+
+    /**
+     * Solid rock with a sealed room {@code width} blocks square and two high, its south-west corner
+     * at {@code (px, py, pz)}. One block wide is the ore pocket; wider is the same trap, and the
+     * shape a check that only asked about the four immediate neighbours accepted.
+     */
+    private static SafeRetreat.Terrain sealedRoom(int px, int py, int pz, int width) {
+        return blocks((x, y, z) -> (x >= px && x < px + width && z >= pz && z < pz + width
+                && (y == py || y == py + 1)) ? '.' : '#');
+    }
+
+    /**
+     * {@code base}, with every block at {@code x >= fromX} one the probe will not answer for — a
+     * chunk another Folia region owns, or one Paper would have to load to read. The search must treat
+     * those as walls rather than reading them anyway.
+     */
+    private static SafeRetreat.Terrain unreadableEastOf(SafeRetreat.Terrain base, int fromX) {
+        return new SafeRetreat.Terrain() {
+            @Override
+            public boolean isReadable(int x, int y, int z) {
+                return x < fromX;
+            }
+
+            @Override
+            public boolean isPassable(int x, int y, int z) {
+                return readable(x, "isPassable") && base.isPassable(x, y, z);
+            }
+
+            @Override
+            public boolean isSolid(int x, int y, int z) {
+                return readable(x, "isSolid") && base.isSolid(x, y, z);
+            }
+
+            @Override
+            public boolean isHazard(int x, int y, int z) {
+                return readable(x, "isHazard") && base.isHazard(x, y, z);
+            }
+
+            private boolean readable(int x, String probe) {
+                // Not a fussy assertion: reading a block the probe has refused is precisely the
+                // threading defect the seam exists to prevent, and a fake that answered it anyway
+                // would let the search regress in silence.
+                assertTrue(x < fromX, probe + " read a block it was told it may not read, at x=" + x);
+                return true;
+            }
+        };
+    }
+
     /** Nothing anywhere. The void, or a column of air with no floor. */
     private static final SafeRetreat.Terrain VOID = terrain(y -> '.');
 
@@ -586,16 +643,94 @@ class SafeRetreatTest {
         /**
          * The positive control the assertions above need. Without it they are equally satisfied by a
          * rule that refuses everything a per-block fixture describes.
+         *
+         * <p>The way out has to be a real one. An earlier version of this test added a single block
+         * east of the pocket and called it a doorway; that is a second sealed cell, and asserting it
+         * was a landing certified the exact shape the change exists to refuse.
          */
         @Test
-        @DisplayName("the same pocket with one full-height opening is an ordinary landing")
-        void oneOpeningIsEnough() {
-            // The pocket, plus the two blocks immediately east of it.
-            SafeRetreat.Terrain withDoorway = blocks((x, y, z) ->
+        @DisplayName("a pocket with a corridor leading out of it is an ordinary landing")
+        void aWayOutIsEnough() {
+            assertEquals(OptionalInt.of(30),
+                    SafeRetreat.groundY(corridorEast(0, 30, 0, 12), 0, 30, 0, 0, 128));
+        }
+
+        /**
+         * The case the #125 review found in the test above. Two blocks of standing room with rock on
+         * every side is an ore pocket like the single block is, and a check that asked only whether a
+         * body fitted in one of the four neighbours could not tell them apart.
+         */
+        @Test
+        @DisplayName("a sealed pocket two blocks across is refused, not only a one-block one")
+        void aWiderSealedPocketIsRefusedToo() {
+            SafeRetreat.Terrain pairOfCells = blocks((x, y, z) ->
                     (z == 0 && (x == 0 || x == 1) && (y == 30 || y == 31)) ? '.' : '#');
 
+            assertEquals(OptionalInt.empty(),
+                    SafeRetreat.groundY(pairOfCells, 0, 30, 0, 0, 128));
+        }
+
+        @Test
+        @DisplayName("a sealed room three blocks square is refused as well")
+        void aSealedRoomIsRefused() {
+            assertEquals(OptionalInt.empty(),
+                    SafeRetreat.groundY(sealedRoom(-1, 30, -1, 3), 0, 30, 0, 0, 128));
+        }
+
+        /**
+         * The far end of the bound, stated so that it is a decision rather than an accident. The walk
+         * gives up once it has found more standing room than a pocket has, and the candidate is kept:
+         * a space that large is somewhere a player can move, dig and light, and refusing it would
+         * send them back to a spawn inside rock instead.
+         */
+        @Test
+        @DisplayName("a space too large to be a pocket is kept once the walk spends its budget")
+        void aLargeEnclosedSpaceIsKept() {
             assertEquals(OptionalInt.of(30),
-                    SafeRetreat.groundY(withDoorway, 0, 30, 0, 0, 128));
+                    SafeRetreat.groundY(sealedRoom(-3, 30, -3, 7), 0, 30, 0, 0, 128));
+        }
+
+        /**
+         * The walk gets out of the candidate's own chunk within three blocks, and at a chunk border
+         * that is a chunk the calling thread may not read. The probe says so; the search must not
+         * quietly read it anyway, and must not accept the candidate on the strength of what is over
+         * there.
+         */
+        @Test
+        @DisplayName("a way out through blocks the probe will not answer for is not a way out")
+        void anUnreadableNeighbourIsAWall() {
+            assertEquals(OptionalInt.empty(), SafeRetreat.groundY(
+                    unreadableEastOf(corridorEast(0, 30, 0, 12), 1), 0, 30, 0, 0, 128));
+        }
+
+        @Test
+        @DisplayName("the same corridor is a way out as soon as the probe will answer for it")
+        void aReadableNeighbourIsADoorway() {
+            assertEquals(OptionalInt.of(30), SafeRetreat.groundY(
+                    unreadableEastOf(corridorEast(0, 30, 0, 12), 40), 0, 30, 0, 0, 128));
+        }
+
+        /**
+         * The asymmetry the #125 review asked about, settled rather than documented. Lava at body
+         * height in the opening was already refused; lava under it was not, so a doorway a player
+         * would step into and burn in counted as a way out.
+         */
+        @Test
+        @DisplayName("a corridor floored with lava is a way to die, not a way out")
+        void aLavaFlooredWayOutIsRefused() {
+            SafeRetreat.Terrain lavaFloor = blocks((x, y, z) -> {
+                if (z != 0 || x < 0 || x >= 12) {
+                    return '#';
+                }
+                if (y == 30 || y == 31) {
+                    return '.';
+                }
+                // The corridor's floor, everywhere except under the candidate itself.
+                return (y == 29 && x > 0) ? 'L' : '#';
+            });
+
+            assertEquals(OptionalInt.empty(),
+                    SafeRetreat.groundY(lavaFloor, 0, 30, 0, 0, 128));
         }
 
         @Test
@@ -647,6 +782,16 @@ class SafeRetreatTest {
 
             assertEquals(OptionalInt.empty(),
                     SafeRetreat.groundY(shaft, 0, 30, 0, 0, 128));
+        }
+
+        @Test
+        @DisplayName("a spawn over a pocket with a way out of it resolves onto that ground")
+        void spawnLandingAcceptsAWayOut() {
+            SafeRetreat.Landing landing = SafeRetreat.spawnLanding(
+                    0.0D, 70.0D, 0.0D, corridorEast(0, 30, 0, 12), 0, 128);
+
+            assertTrue(landing.retreated(), "the only gap in the column opens onto a corridor");
+            assertEquals(30.0D, landing.y(), 1.0E-9D);
         }
 
         /**

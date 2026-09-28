@@ -48,6 +48,28 @@ public final class SafeRetreat {
      */
     public static final int SEARCH_RADIUS = 6;
 
+    /**
+     * How far, in blocks, the walk in {@code escapable} may get from a candidate before the space it
+     * is in counts as open rather than sealed. Three keeps every block that walk reads inside the
+     * candidate's own chunk or one immediately beside it.
+     */
+    private static final int ESCAPE_RADIUS = 3;
+
+    /**
+     * How many cells that walk will stand in before it stops asking. A space offering this many
+     * places to stand is not the shape the check refuses, so spending the budget counts as an
+     * escape — which is what bounds the cost whatever the terrain: twenty-four cells expanded, four
+     * neighbours each, at most nine probe calls to settle a neighbour, so under a thousand block
+     * reads for a candidate, and none at all for the overwhelming majority, which the floor or the
+     * headroom refuses before the walk starts.
+     */
+    private static final int ESCAPE_BUDGET = 24;
+
+    /** The four horizontal steps the walk takes, as x and z components at the same index. */
+    private static final int[] STEP_X = {1, -1, 0, 0};
+
+    private static final int[] STEP_Z = {0, 0, 1, -1};
+
     /** A direction shorter than this is treated as no direction at all. */
     private static final double EPSILON = 1.0E-4D;
 
@@ -115,11 +137,12 @@ public final class SafeRetreat {
      * What the ejection code needs to know about the blocks around a candidate landing spot.
      *
      * <p>Coordinates are block coordinates. Each method answers one plain fact about one block and
-     * composes nothing; {@link #standable} is where those facts become a rule. An implementation
-     * over a real world must answer for whatever column it is asked about, and may only be asked
-     * on the thread that owns those blocks. The listener honours that in two ways: an ejection
-     * probes the source world on the event thread, before any transfer has resolved; a return to
-     * spawn probes on the region scheduler for the spawn location itself.
+     * composes nothing; {@code standable} is where those facts become a rule. An implementation
+     * over a real world may only be read on the thread that owns the blocks asked about, and the
+     * rule asks about more than the candidate's own column: deciding that a spot is not sealed
+     * means looking a few blocks around it. {@link #isReadable} is how an implementation says which
+     * of those blocks it is allowed to answer for, and a block it refuses is treated as a wall
+     * rather than read anyway.
      */
     public interface Terrain {
 
@@ -145,6 +168,27 @@ public final class SafeRetreat {
          * this class set players down in lava.
          */
         boolean isHazard(int x, int y, int z);
+
+        /**
+         * Whether the calling thread may read this block at all.
+         *
+         * <p>An implementation over a live world answers {@code false} for a block it would have to
+         * break a threading rule to reach: on Folia a chunk the calling region does not own, on
+         * Paper a chunk that is not loaded and would have to be loaded, or generated, synchronously
+         * to answer. Both arise for the same reason — the search looks a few blocks out of the
+         * candidate, and at a chunk border that leaves the chunk the caller was handed.
+         *
+         * <p>Refusing to look is safe in the one direction that matters. A block that cannot be
+         * established is a wall, so a candidate whose surroundings are unknown is declined, and both
+         * entry points have somewhere known-survivable to fall back to: the spawn as it stands, or
+         * the spot the rider occupied a moment ago.
+         *
+         * <p>Defaults to {@code true}, which is the right answer for a probe over data that is
+         * always readable — the tests' fabricated terrain, and anything else that is not a world.
+         */
+        default boolean isReadable(int x, int y, int z) {
+            return true;
+        }
     }
 
     /**
@@ -152,8 +196,9 @@ public final class SafeRetreat {
      *
      * <p>"Stand at" means the block their feet occupy: passable and harmless at {@code y} and
      * {@code y + 1} — a player is two blocks tall, and a one-block hole is a suffocation, not a
-     * landing — with something solid and harmless at {@code y - 1} to stand on, and at least one
-     * full-height opening beside it so the player can walk away rather than being sealed in.
+     * landing — with something solid and harmless at {@code y - 1} to stand on, and somewhere to
+     * walk to rather than a space that closes in on itself. The last clause is a bounded walk over
+     * the cells around the candidate; see {@code escapable}.
      *
      * <p>Downward is searched before upward, and the two are interleaved by distance so the nearest
      * candidate wins. Falling a short way onto the ground is what an ejected rider expects;
@@ -258,7 +303,7 @@ public final class SafeRetreat {
      * rather than the world's build height, or the nearest open space above a deep spawn may be the
      * Nether roof.
      *
-     * <p>Searching a whole world height is also what makes the escape clause in {@code standable}
+     * <p>Searching a whole world height is also what makes the escape clause in {@link #standable}
      * load-bearing: over a column of netherrack the first two-block gap is far likelier to be a
      * sealed ore pocket than a cave, and a player walled into one is worse off than at the buried
      * spawn this search exists to move them off.
@@ -286,17 +331,6 @@ public final class SafeRetreat {
     }
 
     /**
-     * Whether a player put down with their feet at {@code (x, y, z)} would stand there, unharmed,
-     * and be able to walk away from it.
-     *
-     * <p>The last clause is not decoration. A solid floor under two blocks of harmless air is
-     * satisfied by a sealed pocket in the middle of rock, and {@link #spawnLanding} searches a whole
-     * world height looking for one: the Nether's spawn column is solid netherrack, and the first
-     * two-block gap anywhere in it is far likelier to be an ore pocket than a cave. Setting a player
-     * the gate just refused down inside rock with no way out is worse than the buried spawn the
-     * search was meant to rescue them from, because the spawn is at least where they expected to be.
-     */
-    /**
      * The {@code maxY} a spawn-column search should be given for a world, from the three heights the
      * world reports.
      *
@@ -319,16 +353,49 @@ public final class SafeRetreat {
         return Math.min(maxHeight, minHeight + logicalHeight);
     }
 
+    /**
+     * Whether a player put down with their feet at {@code (x, y, z)} would stand there, unharmed,
+     * and be able to walk away from it.
+     *
+     * <p>The last clause is not decoration. A solid floor under two blocks of harmless air is
+     * satisfied by a sealed pocket in the middle of rock, and {@link #spawnLanding} searches a whole
+     * world height looking for one: the Nether's spawn column is solid netherrack, and the first
+     * two-block gap anywhere in it is far likelier to be an ore pocket than a cave. Setting a player
+     * the gate just refused down inside rock with no way out is worse than the buried spawn the
+     * search was meant to rescue them from, because the spawn is at least where they expected to be.
+     *
+     * @param terrain the probe
+     * @param x       block x of the candidate
+     * @param y       the block the player's feet would occupy
+     * @param z       block z of the candidate
+     * @param minY    the world's minimum build height, inclusive
+     * @param maxY    the world's maximum build height, exclusive
+     */
     private static boolean standable(Terrain terrain, int x, int y, int z, int minY, int maxY) {
         if (y - 1 < minY || y + 1 >= maxY) {
             // No floor below the build limit, and no headroom above it. Both are outside the world
             // rather than merely unsuitable, so neither can become suitable by looking harder.
             return false;
         }
-        return terrain.isSolid(x, y - 1, z)
+        return footing(terrain, x, y, z) && escapable(terrain, x, y, z);
+    }
+
+    /**
+     * Whether a player could stand at {@code (x, y, z)}: the block facts {@link #standable} wants,
+     * without the question of getting out again, which is what {@link #escapable} walks to answer.
+     */
+    private static boolean footing(Terrain terrain, int x, int y, int z) {
+        return readable(terrain, x, y, z)
+                && terrain.isSolid(x, y - 1, z)
                 && !terrain.isHazard(x, y - 1, z)
-                && roomToStand(terrain, x, y, z)
-                && escapable(terrain, x, y, z);
+                && roomToStand(terrain, x, y, z);
+    }
+
+    /** Whether the probe will answer for all three blocks a standing player's cell is made of. */
+    private static boolean readable(Terrain terrain, int x, int y, int z) {
+        return terrain.isReadable(x, y - 1, z)
+                && terrain.isReadable(x, y, z)
+                && terrain.isReadable(x, y + 1, z);
     }
 
     /**
@@ -348,24 +415,74 @@ public final class SafeRetreat {
     /**
      * Whether a player standing at {@code (x, y, z)} could walk out of it.
      *
-     * <p>The test is one full-height opening in any of the four horizontal directions: somewhere a
-     * body fits and is not harmed, so it can be stepped into. A gap at foot height under a solid
-     * block is not one — a player cannot walk through it — and a hazard on the far side is a way to
-     * die rather than a way out.
+     * <p>A breadth-first walk over the cells a player can stand in, out from the candidate and
+     * bounded twice over: {@link #ESCAPE_RADIUS} blocks horizontally, {@link #ESCAPE_BUDGET} cells.
+     * Reaching either bound is an escape — a space more than three blocks across, or one offering
+     * two dozen separate places to stand, is not the shape this refuses — and only a walk that runs
+     * out of anywhere new to stand while still inside both bounds refuses the candidate. A sealed
+     * pocket is therefore refused at every size up to the bound, rather than only when it is a
+     * single block, which is all the four-neighbour probe this replaced could say.
      *
-     * <p>Open space above the head does not count. A one-block shaft through forty blocks of stone
-     * is a way out only for a player who happens to be carrying blocks to pillar with, and a return
-     * through a gate makes no promise about their inventory.
+     * <p>A cell counts on the same terms as the candidate itself, {@link #footing} and all: solid
+     * and harmless underfoot, a body's worth of passable and harmless space at foot and head
+     * height. The floor is part of it deliberately. An opening with lava at {@code y - 1} is a way
+     * to die rather than a way out, and the check this replaced asked only whether a body fitted,
+     * so it counted one as a doorway.
      *
-     * <p>Only the immediate neighbours are probed. This is deliberately a check that the spot is not
-     * <em>sealed</em>, not a pathfind to the surface: a cave a long way from anywhere is still
+     * <p>The walk stays on one level. Stepping up or down a block is movement a player has, so a
+     * pocket whose only opening has a sill in it is refused although its occupant could leave. That
+     * is the conservative direction — a refusal falls back to the spawn as it stands, or to the spot
+     * the rider already occupied — and it is what keeps the worst case a fixed, small number of
+     * block reads on a region thread.
+     *
+     * <p>Open space above the head is not an escape either. A one-block shaft through forty blocks
+     * of stone is a way out only for a player who happens to be carrying blocks to pillar with, and
+     * a return through a gate makes no promise about their inventory.
+     *
+     * <p>None of this is a pathfind to the surface. A cave a long way from anywhere is still
      * somewhere a player can move, dig and light, and refusing it would send them back to a spawn
-     * inside rock instead.
+     * inside rock instead. A block the probe declines to answer for is a wall; see
+     * {@link Terrain#isReadable}.
      */
     private static boolean escapable(Terrain terrain, int x, int y, int z) {
-        return roomToStand(terrain, x + 1, y, z)
-                || roomToStand(terrain, x - 1, y, z)
-                || roomToStand(terrain, x, y, z + 1)
-                || roomToStand(terrain, x, y, z - 1);
+        int span = ESCAPE_RADIUS * 2 + 1;
+        int origin = ESCAPE_RADIUS * span + ESCAPE_RADIUS;
+        boolean[] seen = new boolean[span * span];
+        int[] pending = new int[ESCAPE_BUDGET];
+        seen[origin] = true;
+        pending[0] = origin;
+        int tail = 1;
+        for (int head = 0; head < tail; head++) {
+            int dx = pending[head] % span - ESCAPE_RADIUS;
+            int dz = pending[head] / span - ESCAPE_RADIUS;
+            for (int step = 0; step < STEP_X.length; step++) {
+                int nx = dx + STEP_X[step];
+                int nz = dz + STEP_Z[step];
+                if (Math.max(Math.abs(nx), Math.abs(nz)) > ESCAPE_RADIUS) {
+                    if (footing(terrain, x + nx, y, z + nz)) {
+                        // Standable ground outside the box the walk is bounded to: open terrain
+                        // rather than a pocket, and no reason to keep looking.
+                        return true;
+                    }
+                    continue;
+                }
+                int cell = (nz + ESCAPE_RADIUS) * span + (nx + ESCAPE_RADIUS);
+                if (seen[cell]) {
+                    continue;
+                }
+                seen[cell] = true;
+                if (!footing(terrain, x + nx, y, z + nz)) {
+                    continue;
+                }
+                if (tail == pending.length) {
+                    // Somewhere new to stand with the budget already spent: too much room to be the
+                    // shape this refuses, so the candidate is kept rather than dropped for want of
+                    // a larger budget.
+                    return true;
+                }
+                pending[tail++] = cell;
+            }
+        }
+        return false;
     }
 }

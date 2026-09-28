@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -617,9 +618,18 @@ public final class ProgressionGateListener implements Listener {
      *
      * <p>The spawn is not a landing, though. For a {@code NETHER -> THE_END} arrival it is the
      * Nether's spawn, which is routinely inside netherrack. {@link #returnToSpawn} therefore hands
-     * the block reads to the region scheduler <em>for the spawn location</em> — the one thread
-     * allowed to make them — and lets {@link SafeRetreat#spawnLanding} find standable ground in
+     * the block reads to the region scheduler <em>for the spawn location</em> — the thread that owns
+     * the spawn's own chunk — and lets {@link SafeRetreat#spawnLanding} find standable ground in
      * that column before anyone is moved.
+     *
+     * <p>That search is not confined to the one column. Establishing that a candidate is not a
+     * sealed pocket means looking a few blocks around it, and at a chunk border those blocks are in
+     * a chunk this thread was never handed — another region's on Folia, and on Paper a chunk that
+     * reading would load, or generate, synchronously from inside a region task. So the probe answers
+     * {@link SafeRetreat.Terrain#isReadable} for itself rather than leaving the invariant to a
+     * comment: a block outside the chunks the calling thread owns is never read, and the search
+     * treats it as a wall. The degradation is a candidate declined, and the fallback is the spawn as
+     * it stands.
      *
      * <p>The return itself is deferred to the player's own {@code EntityScheduler} and performed
      * with {@code teleportAsync}, by way of {@link #scheduleEjection}. Deferred because moving a
@@ -1002,9 +1012,14 @@ public final class ProgressionGateListener implements Listener {
     /**
      * The {@link SafeRetreat.Terrain} probe over a live world.
      *
-     * <p>Only ever read on the thread that owns the blocks asked about: by {@link #returnPointFor}
-     * on the event thread, before any transfer resolves, for a column two blocks from the vehicle;
-     * and by {@link #returnToSpawn} on the region scheduler for the spawn location.
+     * <p>Only ever read on the thread that owns the blocks asked about, and that is enforced here
+     * rather than asserted: {@link SafeRetreat.Terrain#isReadable} answers {@code false} for any
+     * block outside a chunk the calling thread owns, and {@link SafeRetreat} treats such a block as
+     * a wall. Which thread that is depends on the caller — {@link #returnPointFor} probes on the
+     * event thread, before any transfer resolves, starting from a column two blocks from the
+     * vehicle; {@link #returnToSpawn} probes on the region scheduler for the spawn location. Neither
+     * starting column is the whole of what the search asks about, because deciding that a spot is
+     * not a sealed pocket means looking a few blocks around it.
      *
      * <p>Each method answers one plain question about one block. In particular {@code isPassable}
      * is Bukkit's collision question and nothing more: lava and water are passable, and it is
@@ -1014,6 +1029,24 @@ public final class ProgressionGateListener implements Listener {
      */
     private static SafeRetreat.Terrain terrainOf(World world) {
         return new SafeRetreat.Terrain() {
+            /**
+             * Both halves are load-bearing and neither implies the other.
+             *
+             * <p>{@code isOwnedByCurrentRegion} is the Folia question: on Folia it is false for a
+             * chunk another region owns, and on Paper, which has one region, it is the main-thread
+             * check. {@code isChunkLoaded} is the Paper question: an owned chunk that is not
+             * resident is one {@code getBlockAt} would load, or generate, synchronously from inside
+             * a region task — and for a Nether spawn the neighbours of the spawn chunk are not kept
+             * alive. Asking before reading costs two lookups and no chunk work.
+             */
+            @Override
+            public boolean isReadable(int x, int y, int z) {
+                int chunkX = x >> 4;
+                int chunkZ = z >> 4;
+                return Bukkit.isOwnedByCurrentRegion(world, chunkX, chunkZ)
+                        && world.isChunkLoaded(chunkX, chunkZ);
+            }
+
             @Override
             public boolean isPassable(int x, int y, int z) {
                 return world.getBlockAt(x, y, z).isPassable();
