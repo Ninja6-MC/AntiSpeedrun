@@ -133,6 +133,10 @@ public final class UnlockWatch {
      * <p>Idempotent, and cheap enough to call from any handler that has just changed what a player
      * is waiting on: join, an advancement, and {@code /asr reload} once the reload path re-primes.
      * It evaluates, so it must run on the player's own region thread.
+     *
+     * <p>A death and respawn is not among those handlers because it does not need to be: a player's
+     * scheduler is retired at quit, not when the entity leaves the world on death, so the watch
+     * survives it. {@link IdleReminderEngine#refresh} records where that was read from.
      */
     public void refresh(Player player, PluginConfig config) {
         Objects.requireNonNull(player, "player");

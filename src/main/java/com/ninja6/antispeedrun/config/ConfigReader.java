@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
+import com.ninja6.antispeedrun.logging.LogLine;
+
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 /**
@@ -203,14 +205,69 @@ final class ConfigReader {
         try {
             MiniMessage.miniMessage().deserialize(value);
             return value;
-        } catch (RuntimeException malformed) {
-            // MiniMessage's message carries the offending line and a caret under it, so it arrives
-            // with newlines in it. One warning is one line here -- the whole list is logged as such.
-            String because = String.valueOf(malformed.getMessage()).replaceAll("\\s+", " ").trim();
-            warnings.add(qualify(key) + ": \"" + value + "\" is not valid MiniMessage ("
-                    + because + "); using the default");
+        } catch (RuntimeException | StackOverflowError malformed) {
+            // StackOverflowError too: MiniMessage parses nested tags recursively, so a template
+            // nested a few thousand deep overflows the stack rather than throwing a parse error.
+            // It is the same verdict -- this template cannot be rendered -- and deserves the same
+            // fallback rather than failing the whole load.
+            warnings.add(qualify(key) + ": \"" + quoted(value) + "\" is not valid MiniMessage ("
+                    + diagnosis(malformed) + "); using the default");
             return def;
         }
+    }
+
+    /**
+     * How much of a rejected value, or of the diagnosis of it, a warning quotes.
+     *
+     * <p>The value is the operator's, and the template that overflows the parser's stack is nested
+     * thousands of tags deep -- hundreds of kilobytes of it. Echoing that whole is a console line
+     * nothing can read and a log nothing else fits in. A prefix this long shows the opening tags,
+     * where a hand-written template goes wrong, and the marker carries the real length so a
+     * truncated quote cannot be mistaken for a short value.
+     *
+     * <p>The thrown message is bounded by the same constant, and has to be: MiniMessage builds a
+     * {@code ParsingException} message by embedding the whole input with a caret line under the
+     * offending column, so a 300,011-character value arrives with a 600,208-character message.
+     * Bounding only the echoed value leaves the same unreadable console line reachable through the
+     * diagnosis, from an ordinary legacy-formatting mistake in a long template.
+     */
+    private static final int WARNED_VALUE_CHARS = 120;
+
+    /**
+     * The rejected value as a warning quotes it, on one line and bounded.
+     *
+     * <p>Both halves of the warning go through {@link LogLine#oneLine}, and the value half is the
+     * reason that is stated rather than assumed. A value is an arbitrary YAML scalar: a double-quoted
+     * scalar carrying {@code 
+} escapes puts real line breaks inside the quoted prefix, and
+     * {@link ConfigSnapshotHolder} emits each warning as one {@code logger.warning} call, so a value
+     * quoted without collapsing turns one recoverable warning into as many console records as it has
+     * lines -- indistinguishable from that many separate warnings, while {@code /asr reload} still
+     * reports one. The same call strips the control characters {@code \s} does not match, so an
+     * operator value carrying an ANSI escape cannot be replayed into the console through either half.
+     */
+    private static String quoted(String value) {
+        return LogLine.oneLine(value, WARNED_VALUE_CHARS);
+    }
+
+    /**
+     * What threw, in one line.
+     *
+     * <p>The type is named first and unconditionally, because {@code StackOverflowError#getMessage()}
+     * is null: a diagnosis built from the message alone reads {@code (null)} on exactly the arm that
+     * needs explaining. MiniMessage's own message carries the offending line and a caret under it, so
+     * it arrives with newlines in it -- one warning is one line here, because the whole list is
+     * logged as such -- and it embeds the input, so it is bounded like the value. Between the two
+     * bounds the emitted line has a ceiling no throwable and no input size can lift.
+     */
+    private static String diagnosis(Throwable malformed) {
+        String type = malformed.getClass().getSimpleName();
+        String message = malformed.getMessage();
+        if (message == null || message.isBlank()) {
+            return type;
+        }
+        String rendered = LogLine.oneLine(message, WARNED_VALUE_CHARS);
+        return rendered.isEmpty() ? type : type + ": " + rendered;
     }
 
     boolean bool(String key, boolean def) {

@@ -559,6 +559,192 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("a long template with a legacy code bounds the parse message, not just the value")
+        void malformedTemplateBoundsTheParseMessage() throws Exception {
+            // The same operator mistake as above -- a legacy section sign, no nesting and no depth --
+            // in a template long enough for the parse message to matter. MiniMessage builds a
+            // ParsingException message by embedding the whole input with a caret line under the
+            // offending column, so the message is longer than the value it rejects; bounding only the
+            // echoed value leaves the unreadable console line reachable through the diagnosis instead.
+            // ConfigSnapshotHolder emits each warning as one logger.warning call, so the whole line is
+            // what has to have a ceiling.
+            String template = "goal ".repeat(60_000) + "§e";
+            int thrownMessageChars;
+            try {
+                MiniMessage.miniMessage().deserialize(template);
+                thrownMessageChars = 0;
+            } catch (RuntimeException parseFailure) {
+                thrownMessageChars = parseFailure.getMessage() == null ? 0 : parseFailure.getMessage().length();
+            }
+            assertTrue(thrownMessageChars > template.length(),
+                    "this case only tests anything if the parse message embeds the input, was "
+                            + thrownMessageChars + " characters against a " + template.length()
+                            + "-character value");
+
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      message: "%s"
+                    """.formatted(template)));
+
+            assertEquals(PluginConfig.defaults().idleReminder().message(),
+                    config.idleReminder().message());
+            String warning = config.warnings().stream()
+                    .filter(w -> w.contains("idle-reminder.message"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(warning.contains("ParsingException"),
+                    "the warning names what threw: " + warning);
+            assertTrue(warning.contains("truncated"),
+                    "and marks what it cut rather than quoting it whole: " + warning);
+            assertTrue(warning.length() < 500,
+                    "the warning is one console line and must stay bounded whatever the input size, "
+                            + "was " + warning.length() + " characters for a " + thrownMessageChars
+                            + "-character parse message");
+        }
+
+        @Test
+        @DisplayName("the quoted prefix cuts on a code-point boundary, not mid-surrogate")
+        void quotedPrefixKeepsSurrogatePairsWhole() throws Exception {
+            // The truncation point falls exactly between the halves of this emoji: 119 filler chars,
+            // then a high surrogate at index 119 and its low half at 120. A cut at a fixed char index
+            // would put a lone surrogate in the log, which is no longer the character the operator
+            // wrote.
+            String template = "a".repeat(119) + "😀" + "b".repeat(50) + "§e";
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      message: "%s"
+                    """.formatted(template)));
+
+            String warning = config.warnings().stream()
+                    .filter(w -> w.contains("idle-reminder.message"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(warning.contains("truncated"), warning);
+            int i = 0;
+            while (i < warning.length()) {
+                char at = warning.charAt(i);
+                if (Character.isHighSurrogate(at)) {
+                    assertTrue(i + 1 < warning.length() && Character.isLowSurrogate(warning.charAt(i + 1)),
+                            "a high surrogate at " + i + " with no low half after it: " + warning);
+                    i += 2;
+                    continue;
+                }
+                assertFalse(Character.isLowSurrogate(at),
+                        "a low surrogate at " + i + " with no high half before it: " + warning);
+                i++;
+            }
+        }
+
+        @Test
+        @DisplayName("a multi-line value stays one warning, not one warning per line in it")
+        void multiLineValueStaysOneLine() throws Exception {
+            // A value is an arbitrary YAML scalar, and a double-quoted scalar's \n is a real line
+            // break. ConfigSnapshotHolder emits each warning as one logger.warning call, so a value
+            // quoted without collapsing turns one recoverable warning into as many console records as
+            // the value has lines -- while /asr reload still reports it as one. The section sign is the
+            // same operator mistake malformedTemplateFallsBack covers; the line breaks are what makes
+            // the quoted prefix multi-line.
+            String template = "a\\nb\\nc\\r\\nd\\te".repeat(20) + "§e";
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      message: "%s"
+                    """.formatted(template)));
+
+            assertEquals(PluginConfig.defaults().idleReminder().message(),
+                    config.idleReminder().message());
+            String warning = config.warnings().stream()
+                    .filter(w -> w.contains("idle-reminder.message"))
+                    .findFirst()
+                    .orElseThrow();
+            assertFalse(warning.contains("\n") || warning.contains("\r"),
+                    "one warning is one log record, so no half of it may carry a line break: "
+                            + warning.replace("\n", "\\n").replace("\r", "\\r"));
+            assertEquals(1, warning.lines().count(),
+                    "the whole warning is a single line: " + warning);
+            assertTrue(warning.contains("is not valid MiniMessage"),
+                    "and it is still the warning it was: " + warning);
+        }
+
+        @Test
+        @DisplayName("an ESC or C0 character in the value reaches neither half of the warning")
+        void controlCharactersDoNotSurvive() throws Exception {
+            // \s does not match ESC, so a value carrying an ANSI sequence would be replayed straight
+            // into the operator's terminal -- through the quoted value and again through the parse
+            // message, which embeds the input. Both halves have to neutralise it. \e is SnakeYAML's
+            // escape for ESC; \a is BEL and \0 is NUL, the rest of C0 that is not whitespace.
+            String template = "\\e[31mred\\e[0m\\a\\0 goal§e";
+            PluginConfig config = PluginConfig.from(yaml("""
+                    idle-reminder:
+                      message: "%s"
+                    """.formatted(template)));
+
+            String warning = config.warnings().stream()
+                    .filter(w -> w.contains("idle-reminder.message"))
+                    .findFirst()
+                    .orElseThrow();
+            for (int i = 0; i < warning.length(); i++) {
+                char at = warning.charAt(i);
+                assertFalse(at == 0x1b || at == 0x07 || at == 0x00 || (at < 0x20 && at != '\t')
+                                || at == 0x7f,
+                        "a control character U+%04X survived at %d: %s"
+                                .formatted((int) at, i, warning.replaceAll("\\p{Cntrl}", "?")));
+            }
+            assertFalse(warning.contains("\t"),
+                    "including the whitespace controls: " + warning);
+            assertTrue(warning.contains("[31mred"),
+                    "the operator still sees what they wrote, minus the escape: " + warning);
+        }
+
+        @Test
+        @DisplayName("a template nested deep enough to overflow the stack warns and falls back")
+        void deeplyNestedTemplateFallsBack() throws Exception {
+            // MiniMessage parses nested tags recursively. On a small stack a template nested this
+            // deep overflows rather than throwing a parse error, and the load must survive that the
+            // same way it survives a legacy formatting code. The small stack makes the overflow
+            // certain rather than dependent on the JVM's default thread size.
+            String template = "<red>".repeat(50_000) + "{NEXT_STEP}";
+            String document = """
+                    idle-reminder:
+                      message: "%s"
+                    """.formatted(template);
+            AtomicReference<Object> outcome = new AtomicReference<>();
+            Thread loader = new Thread(null, () -> {
+                try {
+                    outcome.set(PluginConfig.from(yaml(document)));
+                } catch (Throwable thrown) {
+                    outcome.set(thrown);
+                }
+            }, "deep-template-loader", 256L * 1024L);
+            loader.start();
+            loader.join();
+
+            assertTrue(outcome.get() instanceof PluginConfig,
+                    "the load completes rather than failing with " + outcome.get());
+            PluginConfig config = (PluginConfig) outcome.get();
+            assertEquals(PluginConfig.defaults().idleReminder().message(), config.idleReminder().message());
+            assertTrue(mentions(config.warnings(), "idle-reminder.message"), config.warnings().toString());
+
+            // The warning has to be usable, which means two things the naive form gets wrong:
+            // StackOverflowError#getMessage() is null, so the diagnosis has to name the type instead
+            // of printing "(null)"; and the rejected value is 250k characters, so it has to be quoted
+            // as a marked prefix rather than echoed whole into a single console line.
+            String warning = config.warnings().stream()
+                    .filter(w -> w.contains("idle-reminder.message"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(warning.contains("StackOverflowError"),
+                    "the warning must name what threw, not print a null message: " + warning);
+            assertFalse(warning.contains("(null)"), warning);
+            assertTrue(warning.contains("truncated"),
+                    "the oversized value must be quoted as a marked prefix: " + warning);
+            assertTrue(warning.length() < 500,
+                    "the warning is one console line and must stay bounded, was "
+                            + warning.length() + " characters");
+            assertTrue(template.length() > 200_000,
+                    "the template this bounds is the oversized one, was " + template.length());
+        }
+
+        @Test
         @DisplayName("MiniMessage's leniency is what it is, and the reader does not second-guess it")
         void lenientInputsAreKept() throws Exception {
             // Measured against adventure-text-minimessage 4.20.0: an unknown tag survives as literal
