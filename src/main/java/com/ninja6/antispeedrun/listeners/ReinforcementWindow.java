@@ -30,7 +30,20 @@ public final class ReinforcementWindow {
         RESOLVED
     }
 
-    private final AtomicReference<Phase> phase = new AtomicReference<>(Phase.IDLE);
+    private final AtomicReference<Phase> phase;
+
+    /** A window that has not opened. */
+    public ReinforcementWindow() {
+        this(false);
+    }
+
+    /**
+     * @param resolved whether this fight's window already resolved in an earlier server run (#56), in
+     *                 which case it never opens again
+     */
+    public ReinforcementWindow(boolean resolved) {
+        this.phase = new AtomicReference<>(resolved ? Phase.RESOLVED : Phase.IDLE);
+    }
 
     /**
      * {@code DragonBattle#hasBeenPreviouslyKilled()}, as last read on the {@code (0, 0)} region.
@@ -82,5 +95,16 @@ public final class ReinforcementWindow {
      */
     public boolean resolve() {
         return phase.compareAndSet(Phase.COUNTING, Phase.RESOLVED);
+    }
+
+    /**
+     * Marks the window resolved from any phase, without spawning. Used when a tagged secondary is
+     * found in a loaded chunk (#56): the fight was reinforced in an earlier run, so a window counting
+     * now must not resolve and spawn again.
+     *
+     * @return {@code true} if this changed the phase
+     */
+    public boolean markResolved() {
+        return phase.getAndSet(Phase.RESOLVED) != Phase.RESOLVED;
     }
 }

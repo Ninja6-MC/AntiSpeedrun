@@ -41,6 +41,7 @@ import com.ninja6.antispeedrun.storage.BypassStore;
 import com.ninja6.antispeedrun.storage.DimensionUnlockStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
 import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
+import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
 import com.ninja6.antispeedrun.storage.YamlStateFile;
 
 /**
@@ -220,9 +221,18 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // above: it reads bypasses() and dimensionUnlocks() on every refused throw.
         getServer().getPluginManager().registerEvents(new EyeThrowListener(this), this);
 
-        // The dragon reinforcement window (#37). It reads only the live snapshot, so its place in this
-        // sequence is not load-bearing; it sits with the other listeners.
-        getServer().getPluginManager().registerEvents(new BossCombatListener(this), this);
+        // The dragon reinforcement window (#37) and single-battle reconciliation (#56). The record of
+        // reinforced fights is read synchronously before the listener exists, for the reason the
+        // unlock store is: a window must not open for a fight already reinforced in an earlier run.
+        ReinforcedFightStore reinforcedFights = new ReinforcedFightStore(
+                getLogger(),
+                new YamlStateFile(new File(getDataFolder(), "dragon-fights.yml").toPath()),
+                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
+        if (!reinforcedFights.loadNow()) {
+            getLogger().warning("Starting with no reinforced dragon fights recorded. Secondary "
+                    + "dragons already in the End are still found when their chunks load.");
+        }
+        getServer().getPluginManager().registerEvents(new BossCombatListener(this, reinforcedFights), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");

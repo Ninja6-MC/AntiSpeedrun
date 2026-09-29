@@ -78,7 +78,8 @@ read and validated at load but nothing acts on them, with the exception of
   [#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46). Only the reinforcement
   window is live: the extra dragons a party earns on its first End entry
   (`enabled`, `battle-prep-seconds`, `multi-dragon.enabled`, `multiplier`,
-  `max-dragons`).
+  `max-dragons`), with the original dragon held until the extra ones are dead so
+  the fight ends in one victory.
 - **Remaining anti-cheese rules** (`anti-cheese`) -- Bed and Respawn Anchor damage
   against bosses (`block-bed-anchor-boss-damage`), the single-hit boss damage cap
   (`max-single-hit-boss-damage`), exit portal crystal placement

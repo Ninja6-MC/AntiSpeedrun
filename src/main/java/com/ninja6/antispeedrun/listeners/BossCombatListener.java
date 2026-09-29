@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 import org.bukkit.Location;
@@ -13,17 +14,24 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.boss.DragonBattle;
 import org.bukkit.entity.EnderDragon;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EnderDragonChangePhaseEvent;
+import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityRegainHealthEvent;
+import org.bukkit.event.entity.EntityRemoveEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.persistence.PersistentDataType;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -31,8 +39,8 @@ import net.kyori.adventure.title.Title;
 
 /**
  * Multi-dragon boss combat (Epic 6). This class currently holds the reinforcement window (#37,
- * Task 6.1.1); the rounding modes (#38), secondary AI and boss bars (#21), single-battle
- * reconciliation (#56), XP (#22) and the exit lock (#23) build on it.
+ * Task 6.1.1) and single-battle reconciliation (#56, Task 6.1.5); the rounding modes (#38), secondary
+ * AI and boss bars (#21), XP (#22) and the exit lock (#23) build on it.
  *
  * <h2>The reinforcement window</h2>
  *
@@ -44,8 +52,17 @@ import net.kyori.adventure.title.Title;
  * {@link DragonReinforcementRules}.
  *
  * <p>A window opens once per fight and only for the first one. Resummoned fights are Task 6.1.3
- * (#20), and a window's state is held in memory, so a restart mid-fight opens a new window on the
- * next entry.
+ * (#20). A resolved window is recorded in {@link ReinforcedFightStore}, and a tagged secondary found
+ * in a loaded chunk marks it resolved too, so a restart mid-fight never spawns a second set.
+ *
+ * <h2>One battle, many dragons</h2>
+ *
+ * Vanilla's victory sequence belongs to the primary alone, so the primary cannot die while a
+ * secondary lives: its death is cancelled at one health and its {@code DYING} phase is refused.
+ * Secondaries die normally, drop at most vanilla's repeat-kill XP, and do not heal from End
+ * crystals. The reasoning is in {@link DragonReconciliationRules}; the live count of secondaries is
+ * a {@link SecondaryRoster} per world, which every handler reads and writes on the thread that owns
+ * the entity the event is about.
  *
  * <h2>Folia</h2>
  *
@@ -75,15 +92,26 @@ public final class BossCombatListener implements Listener {
     private static final Title.Times TITLE_TIMES = Title.Times.times(
             Duration.ofMillis(250), Duration.ofSeconds(3), Duration.ofMillis(750));
 
+    /** Refused-death notices go out at most this often per world, however hard the primary is hit. */
+    private static final long REFUSAL_NOTICE_INTERVAL_MILLIS = 3_000L;
+
     private final AntiSpeedrunPlugin plugin;
     private final NamespacedKey secondaryDragon;
+    private final ReinforcedFightStore reinforcedFights;
 
     /** One window per End world, keyed by world UID. Removed when the world unloads. */
     private final Map<UUID, ReinforcementWindow> windows = new ConcurrentHashMap<>();
 
-    public BossCombatListener(AntiSpeedrunPlugin plugin) {
+    /** Living secondaries per End world, keyed by world UID. Removed when the world unloads. */
+    private final Map<UUID, SecondaryRoster> rosters = new ConcurrentHashMap<>();
+
+    /** When each world last told its players the primary cannot fall yet, in epoch milliseconds. */
+    private final Map<UUID, AtomicLong> lastRefusalNotice = new ConcurrentHashMap<>();
+
+    public BossCombatListener(AntiSpeedrunPlugin plugin, ReinforcedFightStore reinforcedFights) {
         this.plugin = plugin;
         this.secondaryDragon = new NamespacedKey(plugin, SECONDARY_DRAGON_KEY);
+        this.reinforcedFights = reinforcedFights;
     }
 
     /** The key {@link #SECONDARY_DRAGON_KEY} names under this plugin's namespace. */
@@ -105,7 +133,96 @@ public final class BossCombatListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onWorldUnload(WorldUnloadEvent event) {
-        windows.remove(event.getWorld().getUID());
+        UUID world = event.getWorld().getUID();
+        windows.remove(world);
+        rosters.remove(world);
+        lastRefusalNotice.remove(world);
+    }
+
+    /**
+     * On the region owning the chunk: a secondary saved in an earlier run rejoins the roster, and its
+     * presence proves the fight was already reinforced even if the record of it was lost.
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntitiesLoad(EntitiesLoadEvent event) {
+        World world = event.getWorld();
+        if (world.getEnvironment() != World.Environment.THE_END) {
+            return;
+        }
+        for (Entity entity : event.getEntities()) {
+            if (entity instanceof EnderDragon dragon && isSecondary(dragon)) {
+                roster(world).track(dragon.getUniqueId());
+                if (window(world).markResolved()) {
+                    reinforcedFights.markReinforced(world.getUID(), System.currentTimeMillis());
+                }
+            }
+        }
+    }
+
+    /**
+     * On the dragon's region. The primary cannot die while a secondary lives, whether it is killed in
+     * flight, on the perch or by {@code /kill}; a secondary's XP is capped at vanilla's repeat-kill
+     * amount.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onDragonDeath(EntityDeathEvent event) {
+        if (!(event.getEntity() instanceof EnderDragon dragon)
+                || dragon.getWorld().getEnvironment() != World.Environment.THE_END) {
+            return;
+        }
+        if (isSecondary(dragon)) {
+            event.setDroppedExp(DragonReconciliationRules.secondaryExperience(event.getDroppedExp()));
+            return;
+        }
+        int living = roster(dragon.getWorld()).living();
+        if (DragonReconciliationRules.refusesDeath(false, living)) {
+            event.setCancelled(true);
+            event.setReviveHealth(1.0D);
+            noticeRefusal(dragon.getWorld(), living);
+        }
+    }
+
+    /** After every other plugin has had its say: a secondary that did die leaves the roster. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSecondaryDied(EntityDeathEvent event) {
+        if (event.getEntity() instanceof EnderDragon dragon && isSecondary(dragon)) {
+            roster(dragon.getWorld()).forget(dragon.getUniqueId());
+        }
+    }
+
+    /** A secondary removed any way but an unload is gone: a plugin, a discard or a kill. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onSecondaryRemoved(EntityRemoveEvent event) {
+        if (event.getEntity() instanceof EnderDragon dragon && isSecondary(dragon)
+                && !DragonReconciliationRules.survivesRemoval(event.getCause().name())) {
+            roster(dragon.getWorld()).forget(dragon.getUniqueId());
+        }
+    }
+
+    /**
+     * The second half of the hold. Vanilla sets a dragon's health to one and asks for {@code DYING}
+     * after a lethal hit in flight; with the death already refused this should not arrive, and if it
+     * does it is refused too.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onDragonPhase(EnderDragonChangePhaseEvent event) {
+        EnderDragon dragon = event.getEntity();
+        if (event.getNewPhase() != EnderDragon.Phase.DYING
+                || dragon.getWorld().getEnvironment() != World.Environment.THE_END) {
+            return;
+        }
+        if (DragonReconciliationRules.refusesDeath(isSecondary(dragon), roster(dragon.getWorld()).living())) {
+            event.setCancelled(true);
+        }
+    }
+
+    /** Secondaries do not heal from End crystals. See {@link DragonReconciliationRules}. */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onDragonRegain(EntityRegainHealthEvent event) {
+        if (event.getEntity() instanceof EnderDragon dragon
+                && DragonReconciliationRules.refusesRegain(isSecondary(dragon), event.getRegainReason().name())) {
+            event.setCancelled(true);
+        }
     }
 
     /**
@@ -121,7 +238,7 @@ public final class BossCombatListener implements Listener {
         if (!DragonReinforcementRules.armed(config)) {
             return;
         }
-        ReinforcementWindow window = windows.computeIfAbsent(world.getUID(), id -> new ReinforcementWindow());
+        ReinforcementWindow window = window(world);
         if (!window.tryOpen()) {
             return;
         }
@@ -203,6 +320,8 @@ public final class BossCombatListener implements Listener {
         if (!window.resolve()) {
             return;
         }
+        // Recorded before anything is spawned: a crash in between costs dragons, never doubles them.
+        reinforcedFights.markReinforced(world.getUID(), System.currentTimeMillis());
         // The primary may have died during the window; the fight is then over and needs no help.
         if (!refresh(world, window)) {
             return;
@@ -235,8 +354,38 @@ public final class BossCombatListener implements Listener {
             return;
         }
         Location location = new Location(world, point.x(), point.y(), point.z(), point.yaw(), 0.0F);
-        world.spawn(location, EnderDragon.class, dragon -> dragon.getPersistentDataContainer()
-                .set(secondaryDragon, PersistentDataType.BYTE, (byte) 1));
+        EnderDragon dragon = world.spawn(location, EnderDragon.class, spawned -> spawned
+                .getPersistentDataContainer().set(secondaryDragon, PersistentDataType.BYTE, (byte) 1));
+        roster(world).track(dragon.getUniqueId());
+    }
+
+    /** This world's window, created on first use from the persisted record. */
+    private ReinforcementWindow window(World world) {
+        return windows.computeIfAbsent(world.getUID(),
+                id -> new ReinforcementWindow(reinforcedFights.isReinforced(id)));
+    }
+
+    private SecondaryRoster roster(World world) {
+        return rosters.computeIfAbsent(world.getUID(), id -> new SecondaryRoster());
+    }
+
+    /** Whether {@code dragon} carries the secondary tag. Called on the dragon's own region. */
+    private boolean isSecondary(EnderDragon dragon) {
+        return dragon.getPersistentDataContainer().has(secondaryDragon, PersistentDataType.BYTE);
+    }
+
+    /** Tells the End the primary is being held, at most once per {@link #REFUSAL_NOTICE_INTERVAL_MILLIS}. */
+    private void noticeRefusal(World world, int living) {
+        long now = System.currentTimeMillis();
+        AtomicLong last = lastRefusalNotice.computeIfAbsent(world.getUID(), id -> new AtomicLong());
+        long previous = last.get();
+        if (now - previous < REFUSAL_NOTICE_INTERVAL_MILLIS || !last.compareAndSet(previous, now)) {
+            return;
+        }
+        Component line = Component.text("The Ender Dragon cannot fall while "
+                + (living == 1 ? "1 reinforcement remains" : living + " reinforcements remain"),
+                NamedTextColor.LIGHT_PURPLE);
+        broadcast(world, player -> player.sendActionBar(line));
     }
 
     /** Runs {@code action} for each player in {@code world}, on that player's own scheduler. */

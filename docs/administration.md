@@ -225,11 +225,14 @@ missing (advancements, playtime, tenure). It reads the live configuration.
 
 ## 6. Persisted state
 
-The plugin keeps its state in two places and nowhere else.
+The plugin keeps its state in three places and nowhere else: its own folder, player
+persistent data, and the persistent data of the extra dragons it spawns.
 
 | State | Where | Scope |
 | :--- | :--- | :--- |
 | Dimension unlocks | `plugins/AntiSpeedrun/state.yml`, keys `dimension-unlocks.nether` and `dimension-unlocks.the_end` (unlock time in epoch milliseconds) | Server-wide |
+| Reinforced dragon fights | `plugins/AntiSpeedrun/dragon-fights.yml`, one key `reinforced-fights.<world-uid>` per End world whose reinforcement window has run (time in epoch milliseconds) | Per End world |
+| Extra dragon tag | Entity persistent data on each extra dragon, key `antispeedrun:n6_asr_secondary_dragon` | Per dragon |
 | Bypass grants | Player persistent data, key `antispeedrun:bypass-expires-at` | Per player |
 | Journey book delivered flag | Player persistent data, key `antispeedrun:journey-book-delivered` | Per player |
 | Announced milestones | Player persistent data, key `antispeedrun:announced-milestones` | Per player |
@@ -252,6 +255,18 @@ own and are only read by the plugin.
   plugin holds unlocks in memory and rewrites the file on the next change.
 - Backups from `/asr profile apply` are in `plugins/AntiSpeedrun/backups/`. The plugin
   never deletes them.
+- `dragon-fights.yml` is written the same way. Deleting it while a first dragon fight
+  is in progress is safe as long as the extra dragons are still alive: finding one
+  when its chunk loads marks the fight as reinforced again. With the file gone and
+  every extra dragon already dead, the next entry into the End opens a new window.
+  If it cannot be read, the plugin logs `SEVERE`, starts with nothing recorded and
+  moves the damaged file aside as `dragon-fights.yml.corrupt-<yyyyMMdd-HHmmss>`
+  before its next write, as for `state.yml` below.
+- While an extra dragon lives, the original dragon cannot die, including by `/kill`.
+  Killing an extra dragon with `/kill` counts as a death. An extra dragon that was
+  never saved to disk (lost in a crash before a chunk save) is not waited for: only
+  extra dragons spawned or seen in a loaded chunk since the server started hold the
+  original.
 
 ### 6.2 Damaged `state.yml`
 
