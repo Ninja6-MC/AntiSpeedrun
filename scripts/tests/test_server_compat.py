@@ -83,10 +83,16 @@ class CheckLogTest(unittest.TestCase):
             "[06:00:02 ERROR]: Could not load 'plugins/AntiSpeedrun.jar' in folder 'plugins'",
             "[06:00:02 ERROR]: Error occurred while enabling AntiSpeedrun v1 (Is it up to date?)",
             "[06:00:02 ERROR]: [AntiSpeedrun] something failed",
+            '[06:00:01 WARN]: [AntiSpeedrun] config.yml: item-progression.gated-items.iron-tier'
+            '.exclude-materials: "CHAIN" is not a material this server knows about and was ignored',
             "\tat com.ninja6.antispeedrun.AntiSpeedrunPlugin.onEnable(AntiSpeedrunPlugin.java:1)",
         ):
             with self.subTest(bad=bad):
                 self.assertNotEqual(boot_smoke.check_log(CLEAN_BOOT, CLEAN_STOP + bad + "\n"), [])
+
+    def test_other_warnings_from_the_plugin_pass(self):
+        log = CLEAN_BOOT + "[06:00:02 WARN]: [AntiSpeedrun] Could not eject Steve from a boat\n"
+        self.assertEqual(boot_smoke.check_log(log, CLEAN_STOP), [])
 
     def test_another_plugins_error_is_not_ours(self):
         log = CLEAN_BOOT + "[06:00:02 ERROR]: [oshi.driver.windows.registry] Unable to locate counters\n"

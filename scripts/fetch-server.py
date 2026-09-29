@@ -11,7 +11,7 @@ Two modes:
   fetch-server.py --project folia --version latest --out server.jar
       The newest release version the project publishes (release candidates and pre-releases
       skipped), and its newest build, preferring the STABLE channel when one exists. Folia
-      publishes only ALPHA builds, so the fallback is the normal path there.
+      often has no STABLE build for its newest version, so the fallback is common there.
 
 When GITHUB_OUTPUT is set, the resolved minecraft version, build, channel, minimum Java
 version and SHA-256 are appended to it.

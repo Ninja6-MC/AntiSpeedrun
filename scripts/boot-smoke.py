@@ -45,6 +45,11 @@ FORBIDDEN = (
                 re.I),
      "the server reported a plugin failure"),
     (re.compile(r"(ERROR|SEVERE)\]:? \[AntiSpeedrun\]"), "AntiSpeedrun logged an error"),
+    # The shipped config.yml is the only config on these servers, so any warning about it means
+    # a default stopped matching the server it runs on (a material renamed, say) and is quietly
+    # gating something other than what it documents.
+    (re.compile(r"(WARN|WARNING)\]:? \[AntiSpeedrun\] config\.yml"),
+     "AntiSpeedrun warned about its shipped config.yml on this server"),
     (re.compile(r"^\s+at com\.ninja6\.antispeedrun\.", re.M), "a stack trace passed through AntiSpeedrun"),
 )
 

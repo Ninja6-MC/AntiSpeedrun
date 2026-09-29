@@ -57,8 +57,8 @@ updates:
       # compiled against and then provided by the server at runtime. So the version
       # declared here must not exceed what the target Paper bundles, or the plugin
       # compiles, enables, and dies on the first message with NoSuchMethodError. Only
-      # `Folia Boot Smoke Test` would catch that, and only if the path it breaks on is
-      # one the smoke test walks.
+      # the `server-smoke` boot matrix in ci.yml would catch that, and only if the path it
+      # breaks on is one the boot walks.
       #
       # Matched by prefix rather than by artifact so the guard survives a serializer
       # being added later, and with NO update-types qualifier: the ceiling is whatever

@@ -117,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Most-restrictive-wins precedence when two tiers claim one material, resolved by requirement dominance and then by document order; an incomparable pair fails startup with an error naming the material, both tiers and the `exclude-materials` line that resolves it.
 - Folia platform support declaration (`folia-supported: true`), without which Folia refuses to enable the plugin.
 - CI guards rejecting `BukkitScheduler` / `BukkitRunnable` usage, which throws on Folia, and verifying the Folia manifest key is present.
-- CI `folia-smoke` job booting a real Folia 1.21.4 server against the built jar.
+- CI `server-smoke` matrix booting the built jar on real Paper and Folia servers across the supported range.
 - Full `item-progression` and `trim-progression` configuration trees, previously documented but absent from the shipped config.
 - Granular bypass permissions (`antispeedrun.bypass.gates`, `.items`, `.anticheese`) and the `journeybook` command registration.
 - Configurable outer-End boundary (`outer-end-radius`, `outer-end-poll-seconds`) and exit portal combat lock with an escape valve (`exit-portal-lock-during-battle`, `exit-portal-lock-release-minutes`).

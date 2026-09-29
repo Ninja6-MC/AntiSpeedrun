@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -504,6 +505,18 @@ public final class ItemGateCompiler {
          * @param droppedRules counter of rules that reduce gating, or {@code null} for a list whose
          *                     dropped entries can only over-gate
          */
+        /**
+         * Materials Mojang renamed inside the supported version range, each mapped to its name on
+         * the other side of the rename. A configured name the running server does not know is
+         * read as its counterpart when the server knows that instead; it is never used to add a
+         * material the server lacks. {@code CHAIN} became {@code IRON_CHAIN} in 1.21.9, and the
+         * shipped iron tier excludes it: without this, {@code IRON_*} gates the chain block on
+         * every server from 1.21.9 on and the exclusion is dropped with a warning.
+         */
+        private static final Map<String, String> RENAMED = Map.of(
+                "CHAIN", "IRON_CHAIN",
+                "IRON_CHAIN", "CHAIN");
+
         private static Set<String> names(List<String> raw, Set<String> known, String path,
                                          String consequence, List<String> warnings,
                                          int[] droppedRules) {
@@ -512,6 +525,11 @@ public final class ItemGateCompiler {
                 String name = entry.trim().toUpperCase(Locale.ROOT);
                 if (name.isEmpty()) {
                     continue;
+                }
+                if (!known.contains(name) && known.contains(RENAMED.getOrDefault(name, ""))) {
+                    // The same item under its name on the other side of a Minecraft rename, so
+                    // one config.yml means the same thing on every supported version.
+                    name = RENAMED.get(name);
                 }
                 if (!known.contains(name)) {
                     if (droppedRules != null) {
