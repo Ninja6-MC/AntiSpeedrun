@@ -39,8 +39,8 @@ import net.kyori.adventure.title.Title;
 
 /**
  * Multi-dragon boss combat (Epic 6). This class currently holds the reinforcement window (#37,
- * Task 6.1.1) and single-battle reconciliation (#56, Task 6.1.5); the rounding modes (#38), secondary
- * AI and boss bars (#21), XP (#22) and the exit lock (#23) build on it.
+ * Task 6.1.1), its rounding modes (#38, Task 6.1.2) and single-battle reconciliation (#56, Task
+ * 6.1.5); secondary AI and boss bars (#21), XP (#22) and the exit lock (#23) build on it.
  *
  * <h2>The reinforcement window</h2>
  *

@@ -18,7 +18,7 @@ the same as the value in the shipped `SMP_STANDARD` file unless noted.
 | `idle-reminder` | Live | Standing-still reminder of the next goal. |
 | `progress-card` | Live | How `/progress` renders. |
 | `journey-book` | Live | The Journey Guide Book. |
-| `boss-scaling` | Partly live | Only `enabled`, `battle-prep-seconds` and `multi-dragon.enabled`, `multiplier` and `max-dragons` do anything. |
+| `boss-scaling` | Partly live | Only `enabled`, `battle-prep-seconds` and `multi-dragon.enabled`, `multiplier`, `rounding-mode` and `max-dragons` do anything. |
 | `anti-cheese` | Partly live | Only `enabled`, `block-early-eye-throwing` and `early-eye-rejection-message` do anything. |
 | `villager-progression` | Live | Optional Mending trade gate. |
 
@@ -240,8 +240,20 @@ player within 300 blocks of the centre is counted, and the party fights
 above the main island at that moment. A party of one always fights exactly one dragon,
 even with a `multiplier` above `1.0`. With `enabled: false` nothing happens, and with
 `multi-dragon.enabled: false` the count is always one. `battle-prep-seconds: 0` counts
-on entry. Rounding is half up whatever `rounding-mode` says, until
-[#38](https://github.com/Ninja6-MC/AntiSpeedrun/issues/38).
+on entry.
+
+`round` is `multi-dragon.rounding-mode`. The product is taken on the multiplier as
+written, so `10 * 0.7` is exactly `7`.
+
+| `rounding-mode` | Rounds | 3 players at `0.5` | 4 players at `0.3` | 4 players at `0.7` |
+| :--- | :--- | :--- | :--- | :--- |
+| `HALF_UP` (default) | A half or more up, less than a half down | 2 | 1 | 3 |
+| `CEIL` | Any fraction up | 2 | 2 | 3 |
+| `FLOOR` | Any fraction down, but never below one dragon | 1 | 1 | 2 |
+
+Case and hyphens are ignored (`ceil` is `CEIL`). Any other value logs a warning at load
+and falls back to `HALF_UP`. The solo rule wins over every mode: a party of one fights
+one dragon even under `CEIL` with a `multiplier` above `1.0`.
 
 A window opens once per End world. That it has run is recorded in
 `dragon-fights.yml` (see [administration.md](administration.md#6-persisted-state)), so a
@@ -266,7 +278,7 @@ and a larger party would face an easier fight per dragon. Without it, each extra
 has a fixed 200 health however the crystals go. The client may still draw a crystal
 beam to an extra dragon; the beam heals nothing.
 
-`scale-resummoned-dragons`, `rounding-mode`, `balanced-xp`, `exit-portal-egg.*`,
+`scale-resummoned-dragons`, `balanced-xp`, `exit-portal-egg.*`,
 `skull-drop-chance`, `exit-portal-lock-during-battle` and
 `exit-portal-lock-release-minutes` are parsed only. Tracked in
 [#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46). Validation still applies:
@@ -312,8 +324,9 @@ file. The differences in the live sections:
 | `anti-cheese.block-early-eye-throwing` | `false` | `true` | `true` |
 | `villager-progression.gate-mending-trade` | `false` | `false` | `true` |
 
-Rows for `boss-scaling` and `trim-progression` differ between presets but have no
-effect yet. Because a preset overwrites `config.yml`, apply one before you customize,
+Rows for `trim-progression` differ between presets but have no effect yet. Of the
+`boss-scaling` rows, only the keys listed as live in [4.8](#48-boss-scaling) take
+effect. Because a preset overwrites `config.yml`, apply one before you customize,
 not after.
 
 ## 6. Example: enable the Mending gate and add a time requirement to the End
