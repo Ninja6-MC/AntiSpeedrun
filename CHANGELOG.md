@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Taking a tier-gated item off an armor stand or out of an item frame is refused for a player who
+  has not earned the tier. Swapping an item onto an armor stand slot that holds a gated piece counts
+  as taking it, and a framed item knocked out by the player's punch or projectile stays in the frame.
+  Placing items and rotating a framed item are unaffected. Follows `item-progression.enabled`, the
+  tier table and the item bypass.
 - `item-progression.gate-nested-bundles`, which until now was parsed and read by nothing, gates
   bundle contents. Taking an item out of a bundle is refused while the bundle holds a stack the
   player has not earned, wherever the bundle sits: in a container, or in the player's own hotbar,

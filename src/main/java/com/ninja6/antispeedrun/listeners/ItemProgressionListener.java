@@ -26,6 +26,7 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.TradeSelectEvent;
+import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
 import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -42,6 +43,8 @@ import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
 import com.ninja6.antispeedrun.progression.PlayerStateMap;
 
+import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
+import io.papermc.paper.event.player.PlayerItemFrameChangeEvent.ItemFrameChangeAction;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 /**
@@ -74,6 +77,10 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * spray its contents onto the ground. Shulker boxes need nothing of their own: a shulker box item
  * cannot be opened, and a placed one is a container like any other, so its contents are withdrawn
  * through the ordinary top-inventory rule.
+ *
+ * <p>Plus armor stands and item frames (#16), the two entities that display an item a player can
+ * take straight into their hand without opening anything: {@link #onArmorStandManipulate} and
+ * {@link #onItemFrameChange}.
  *
  * <p>Plus the three handlers that maintain §4 drop recall, which decides nothing and gates nothing;
  * see {@link DropRecall}.
@@ -522,6 +529,54 @@ public final class ItemProgressionListener implements Listener {
         public void setCancelled(boolean cancel) {
             event.setUseItemInHand(cancel ? Event.Result.DENY : Event.Result.DEFAULT);
         }
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // #16 - off an armor stand or out of an item frame
+    // -------------------------------------------------------------------------------------------
+
+    /**
+     * A player right-clicking an armor stand to take, or swap for, what it wears or holds.
+     *
+     * <p>The stack tested is {@link PlayerArmorStandManipulateEvent#getArmorStandItem()}, the one
+     * leaving the stand for the player's hand. What the player hands over is never tested, so
+     * dressing an empty slot is a deposit and is allowed whatever the item; swapping onto a slot
+     * that already holds a gated piece is a withdrawal of that piece and is refused.
+     *
+     * <p>Breaking the stand drops its equipment on the ground instead, where {@link #onAttemptPickup}
+     * applies, so no second path is needed to keep the item from the player.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onArmorStandManipulate(PlayerArmorStandManipulateEvent event) {
+        ItemStack taken = event.getArmorStandItem();
+        if (taken.getType().isAir()) {
+            return;
+        }
+        refuse(event.getPlayer(), taken.getType(), event);
+    }
+
+    /**
+     * A player knocking a framed item out of an item frame.
+     *
+     * <p>Only {@link ItemFrameChangeAction#REMOVE} is refused. {@code PLACE} is a deposit, and
+     * {@code ROTATE} turns the item in place without moving it toward anybody. Paper raises
+     * {@code REMOVE} whenever the damage that pops the item out is attributed to a player, which
+     * covers a punch and a projectile the player shot alike, so this one event replaces separate
+     * damage and interaction handlers. Cancelling it leaves the item in the frame.
+     *
+     * <p>A frame that loses its item with no player behind it — an explosion, or the block it hangs
+     * on being removed — drops the item on the ground, where {@link #onAttemptPickup} applies.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onItemFrameChange(PlayerItemFrameChangeEvent event) {
+        if (event.getAction() != ItemFrameChangeAction.REMOVE) {
+            return;
+        }
+        ItemStack framed = event.getItemStack();
+        if (framed.getType().isAir()) {
+            return;
+        }
+        refuse(event.getPlayer(), framed.getType(), event);
     }
 
     // -------------------------------------------------------------------------------------------

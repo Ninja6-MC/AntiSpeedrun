@@ -343,7 +343,8 @@ back.
 ### 7.5 An item cannot be picked up
 
 Item progression refuses pickup, equipping, dispenser-fired armor, and taking gated
-items out of containers and bundles until the player has earned the tier. The message
+items out of containers and bundles, off armor stands or out of item frames until the
+player has earned the tier. The message
 is `item-progression.rejection-message` with `{ITEM}` and `{REQUIREMENT}` filled in,
 throttled to one per `feedback-cooldown-seconds`. A player can always re-collect an
 item they dropped (`drop-recall-enabled`). Exempt with `antispeedrun.bypass.items` or

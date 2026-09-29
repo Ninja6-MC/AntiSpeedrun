@@ -42,8 +42,8 @@ is intended to grow boss-combat scaling and further anti-cheese protection.
   portals, teleports across dimensions, vehicles and stasis. See `dimension-gates`
   in `config.yml`.
 - **Item progression gates** -- tier-gated items cannot be picked up, equipped,
-  fired from dispensers onto a player, or taken out of containers and bundles until
-  the player has earned the tier (`item-progression`). Dropped items can always be
+  fired from dispensers onto a player, taken out of containers and bundles, or taken
+  off armor stands and out of item frames until the player has earned the tier (`item-progression`). Dropped items can always be
   recovered by the player who dropped them.
 - **Mending trade gate** -- optional, off by default
   (`villager-progression.gate-mending-trade`).
