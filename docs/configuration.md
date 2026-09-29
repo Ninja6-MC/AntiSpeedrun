@@ -255,10 +255,20 @@ Case and hyphens are ignored (`ceil` is `CEIL`). Any other value logs a warning 
 and falls back to `HALF_UP`. The solo rule wins over every mode: a party of one fights
 one dragon even under `CEIL` with a `multiplier` above `1.0`.
 
-A window opens once per End world. That it has run is recorded in
+The first fight's window opens once per End world. That it has run is recorded in
 `dragon-fights.yml` (see [administration.md](administration.md#6-persisted-state)), so a
 restart during the fight does not spawn a second set of dragons. An extra dragon found
 when its chunk loads also marks the window as run, in case that file is lost.
+
+**Resummoned fights.** With `scale-resummoned-dragons: true` (and `enabled: true`), a
+dragon brought back by placing four End crystals on the exit portal opens a window of
+its own the moment it appears: the same `battle-prep-seconds` countdown, the same
+count on the main island and the same dragon formula, so each resummon is scaled to the
+party that is there for it. `/summon`, spawn eggs and other plugins' dragons do not open
+one. The window ends early, with nothing spawned, if the resummoned dragon dies first.
+Resummoned windows are not recorded in `dragon-fights.yml`: a restart during a
+resummoned fight never opens a second window, but a restart during its countdown loses
+that fight's extra dragons.
 
 Vanilla treats the End as a one-dragon fight: the exit portal, the egg, the 12,000 XP
 first-kill award and the "dragon killed" flag all belong to the original dragon. While
@@ -278,8 +288,7 @@ and a larger party would face an easier fight per dragon. Without it, each extra
 has a fixed 200 health however the crystals go. The client may still draw a crystal
 beam to an extra dragon; the beam heals nothing.
 
-`scale-resummoned-dragons`, `balanced-xp`, `exit-portal-egg.*`,
-`skull-drop-chance`, `exit-portal-lock-during-battle` and
+`balanced-xp`, `exit-portal-egg.*`, `skull-drop-chance`, `exit-portal-lock-during-battle` and
 `exit-portal-lock-release-minutes` are parsed only. Tracked in
 [#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46). Validation still applies:
 `battle-prep-seconds` and `exit-portal-lock-release-minutes` have minimum `0`,

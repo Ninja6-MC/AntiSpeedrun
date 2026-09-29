@@ -2,6 +2,7 @@ package com.ninja6.antispeedrun.listeners;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -20,7 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The reinforcement window's decisions (#37, Task 6.1.1) and its rounding modes (#38, Task 6.1.2). {@link BossCombatListener} needs a running
+ * The reinforcement window's decisions (#37, Task 6.1.1), its rounding modes (#38, Task 6.1.2) and
+ * resummoned fights (#20, Task 6.1.3). {@link BossCombatListener} needs a running
  * server and its schedulers, and stays untested for the reason {@link ItemGateRulesTest} records;
  * the window, the census join and the spawn arithmetic it drives are tested here.
  */
@@ -314,6 +316,90 @@ class DragonReinforcementTest {
             runConcurrently(64, () -> tally.counted(n.getAndIncrement() % 2 == 0));
             assertEquals(1, completions.get());
             assertEquals(32, total.get());
+        }
+    }
+
+    @Nested
+    @DisplayName("resummoned fights")
+    class Resummon {
+
+        private PluginConfig.BossScaling scaling(boolean enabled, boolean scaleResummoned) {
+            PluginConfig.BossScaling shipped = PluginConfig.defaults().bossScaling();
+            return new PluginConfig.BossScaling(enabled, scaleResummoned, shipped.battlePrepSeconds(),
+                    shipped.multiDragon(), shipped.exitPortalEgg(), shipped.skullDropChance(),
+                    shipped.exitPortalLockDuringBattle(), shipped.exitPortalLockReleaseMinutes());
+        }
+
+        @Test
+        @DisplayName("scale-resummoned-dragons is on in the shipped config, and needs boss-scaling.enabled")
+        void armed() {
+            assertTrue(DragonReinforcementRules.resummonArmed(PluginConfig.defaults().bossScaling()));
+            assertTrue(DragonReinforcementRules.resummonArmed(scaling(true, true)));
+            assertFalse(DragonReinforcementRules.resummonArmed(scaling(true, false)));
+            assertFalse(DragonReinforcementRules.resummonArmed(scaling(false, true)));
+        }
+
+        @Test
+        @DisplayName("only the battle's own spawn of an untagged dragon may be the ritual's")
+        void spawnReason() {
+            assertTrue(DragonReinforcementRules.mayBeResummon("DEFAULT", false));
+            assertFalse(DragonReinforcementRules.mayBeResummon("DEFAULT", true), "a secondary is never a resummon");
+            for (String other : List.of("COMMAND", "SPAWNER_EGG", "CUSTOM", "NATURAL")) {
+                assertFalse(DragonReinforcementRules.mayBeResummon(other, false), other);
+            }
+            assertFalse(DragonReinforcementRules.mayBeResummon(null, false));
+        }
+
+        @Test
+        @DisplayName("a resummoned party of six is scaled like a first fight, and its window resolves once")
+        void scaledLikeFirstFight() {
+            ResummonFight fight = new ResummonFight(UUID.randomUUID());
+            assertTrue(fight.window().tryOpen());
+            assertFalse(fight.window().tryOpen());
+            AtomicInteger dragons = new AtomicInteger();
+            CensusTally tally = CensusTally.start(6, counted -> {
+                assertTrue(fight.window().resolve());
+                dragons.set(DragonReinforcementRules.dragonCount(counted, SHIPPED));
+            });
+            for (int i = 0; i < 6; i++) {
+                tally.counted(true);
+            }
+            assertEquals(3, dragons.get());
+            assertTrue(fight.ongoing());
+        }
+
+        @Test
+        @DisplayName("each resummon gets a fresh window, even after the first fight's has resolved")
+        void freshWindowPerResummon() {
+            ReinforcementWindow first = new ReinforcementWindow(true);
+            first.refreshPreviouslyKilled(true);
+            assertFalse(first.tryOpen());
+            ResummonFight one = new ResummonFight(UUID.randomUUID());
+            assertTrue(one.window().tryOpen());
+            assertTrue(one.window().resolve());
+            ResummonFight two = new ResummonFight(UUID.randomUUID());
+            assertTrue(two.window().tryOpen(), "a later resummon is reinforced again");
+        }
+
+        @Test
+        @DisplayName("the fight ends with its own primary, not with another dragon")
+        void endsWithPrimary() {
+            UUID primary = UUID.randomUUID();
+            ResummonFight fight = new ResummonFight(primary);
+            assertFalse(fight.end(UUID.randomUUID()));
+            assertTrue(fight.ongoing());
+            assertTrue(fight.end(primary));
+            assertFalse(fight.ongoing());
+            assertFalse(fight.end(primary), "ending twice reports once");
+        }
+
+        @Test
+        @DisplayName("a superseded fight is over, so its countdown abandons")
+        void superseded() {
+            ResummonFight fight = new ResummonFight(UUID.randomUUID());
+            assertTrue(fight.window().tryOpen());
+            fight.supersede();
+            assertFalse(fight.ongoing());
         }
     }
 

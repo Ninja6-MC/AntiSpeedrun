@@ -24,6 +24,9 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  * {@code battle-prep-seconds} later: every party member standing on the main island by then is
  * counted, and the difference between the dragons that party earns and the one already flying is
  * spawned at that moment.
+ *
+ * <p>A fight resummoned with the four End crystals (#20, Task 6.1.3) gets the same window, opened
+ * when the ritual's dragon spawns rather than on entry, and counted the same way.
  */
 public final class DragonReinforcementRules {
 
@@ -46,6 +49,30 @@ public final class DragonReinforcementRules {
     /** Whether the reinforcement window runs at all: {@code boss-scaling.enabled}. */
     public static boolean armed(PluginConfig config) {
         return Objects.requireNonNull(config, "config").bossScaling().enabled();
+    }
+
+    /**
+     * Whether a resummoned fight (#20, Task 6.1.3) gets a window: {@code boss-scaling.enabled} and
+     * {@code scale-resummoned-dragons} both on.
+     */
+    public static boolean resummonArmed(PluginConfig.BossScaling bossScaling) {
+        Objects.requireNonNull(bossScaling, "bossScaling");
+        return bossScaling.enabled() && bossScaling.scaleResummonedDragons();
+    }
+
+    /**
+     * Whether a dragon's spawn may be the four-crystal ritual's. Vanilla's dragon fight adds the
+     * dragon it summons with no spawn reason of its own, which Bukkit reports as {@code DEFAULT};
+     * {@code /summon} is {@code COMMAND}, a spawn egg {@code SPAWNER_EGG} and another plugin's spawn
+     * {@code CUSTOM}, and none of those is a resummon. A secondary this plugin spawned is never one.
+     * The listener still confirms on the battle's region that the End's dragon has been killed
+     * before, which is what separates a resummon from the world's first dragon.
+     *
+     * @param spawnReasonName {@code CreatureSpawnEvent.SpawnReason#name()}
+     * @param secondary       whether the dragon carries the secondary tag
+     */
+    public static boolean mayBeResummon(String spawnReasonName, boolean secondary) {
+        return !secondary && "DEFAULT".equals(spawnReasonName);
     }
 
     /**

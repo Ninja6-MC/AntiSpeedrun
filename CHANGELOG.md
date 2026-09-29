@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `boss-scaling.scale-resummoned-dragons`, which until now was parsed and read by nothing, scales
+  fights resummoned with four End crystals. The resummoned dragon opens its own
+  `battle-prep-seconds` window when it appears, and the party on the main island is counted and
+  reinforced exactly as for the first fight. `/summon`, spawn eggs and other plugins' dragons do not
+  open one.
 - `boss-scaling.multi-dragon.rounding-mode`, which until now was parsed and read by nothing, sets
   how the party's `players * multiplier` rounds to a dragon count: `HALF_UP` (the default), `CEIL`
   or `FLOOR`. The product is exact, so `10 * 0.7` is seven under `CEIL`. A party of one still
@@ -22,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the dragon fights from the start, so a solo player is never kept waiting. When it ends, survival
   and adventure players within 300 blocks of the centre are counted and the extra dragons the
   party earns under `multi-dragon.multiplier` and `max-dragons` spawn above the main island.
-  Resummoned fights, secondary dragon AI, XP and the exit lock are not yet applied.
+  Secondary dragon AI, XP and the exit lock are not yet applied.
 - Handing a tier-gated item to an Allay, or taking one back from it, is refused for a player who
   has not earned the tier. Allays collecting and delivering items on their own are unaffected, so
   sorters keep working. Bottling Dragon's Breath is refused until the player meets the End gate's
