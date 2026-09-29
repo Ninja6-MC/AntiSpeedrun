@@ -131,6 +131,8 @@ item-progression:
         - "IRON_TRAPDOOR"
         - "IRON_BARS"
         - "HEAVY_WEIGHTED_PRESSURE_PLATE"
+        # IRON_CHAIN from Minecraft 1.21.9. Either name excludes the chain block on every
+        # supported version; the plugin maps it across the rename.
         - "CHAIN"
         - "LANTERN"
         - "SOUL_LANTERN"

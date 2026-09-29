@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -490,14 +491,29 @@ public final class ItemGateCompiler {
         }
 
         /**
+         * Materials Mojang renamed inside the supported version range, each mapped to its name on
+         * the other side of the rename. A configured name the running server does not know is
+         * read as its counterpart when the server knows that instead; it is never used to add a
+         * material the server lacks. {@code CHAIN} became {@code IRON_CHAIN} in 1.21.9, and the
+         * shipped iron tier excludes it: without this, {@code IRON_*} gates the chain block on
+         * every server from 1.21.9 on and the exclusion is dropped with a warning.
+         */
+        private static final Map<String, String> RENAMED = Map.of(
+                "CHAIN", "IRON_CHAIN",
+                "IRON_CHAIN", "CHAIN");
+
+        /**
          * Folds a configured name list to upper case, warning about any entry that is not a real
          * material.
          *
          * <p>An entry that <em>is</em> a real material but that this tier never matches is left
-         * alone deliberately: {@code CHAIN} and {@code LANTERN} are exactly that in the shipped
-         * file — defensive exclusions that keep working if the patterns around them widen later.
-         * A name that resolves to nothing at all is a different thing, usually a typo or a
-         * material from a different game version, and it is worth saying so.
+         * alone deliberately: {@code LANTERN} is exactly that in the shipped file, a defensive
+         * exclusion that keeps working if the patterns around it widen later. {@code CHAIN} was
+         * too until 1.21.9 renamed it {@code IRON_CHAIN}, which {@code IRON_*} matches; that
+         * exclusion now does real work, and {@link #RENAMED} keeps it working on either side of
+         * the rename. A name that resolves to nothing at all, even through {@link #RENAMED}, is a
+         * different thing, usually a typo or a material from a different game version, and it is
+         * worth saying so.
          *
          * @param consequence what the operator loses by the entry being dropped, appended to the
          *                    warning; it differs between {@code items} and {@code exclude-materials}
@@ -512,6 +528,11 @@ public final class ItemGateCompiler {
                 String name = entry.trim().toUpperCase(Locale.ROOT);
                 if (name.isEmpty()) {
                     continue;
+                }
+                if (!known.contains(name) && known.contains(RENAMED.getOrDefault(name, ""))) {
+                    // The same item under its name on the other side of a Minecraft rename, so
+                    // one config.yml means the same thing on every supported version.
+                    name = RENAMED.get(name);
                 }
                 if (!known.contains(name)) {
                     if (droppedRules != null) {

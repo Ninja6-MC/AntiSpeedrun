@@ -26,6 +26,8 @@ jobs:
     # for six hours. `Build and Test` is a required check, so that is six hours of a gate
     # neither passing nor failing. agent-review-gate.yml already sets timeout-minutes: 5.
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout Code
@@ -148,134 +150,86 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  folia-smoke:
-    name: Folia Boot Smoke Test
+  server-smoke:
+    name: Server Boot (${{ matrix.platform }} ${{ matrix.minecraft }})
     runs-on: ubuntu-latest
     needs: build
-    # Same reasoning as `build`. This job downloads the Folia jar and boots a real server,
-    # so it has more moving parts than the build, but the same headroom is ample.
+    # Same reasoning as `build`. Each leg downloads one server jar and boots it once, so the
+    # same headroom is ample; the boot step below carries its own tighter bound.
     timeout-minutes: 15
 
+    # The supported range stated in README.md, booted at both ends and at the last 1.21 release:
+    # 1.21.4 is the Paper API the plugin compiles against, so nothing older is claimed, and 26.2
+    # is the newest version with a pinned build here. Every leg is pinned to a build number and
+    # its SHA-256, so an upstream release never changes what this gate runs. Newer servers are
+    # compat.yml's job, on a schedule, where a new upstream release cannot block a pull request.
+    # Moving a pin, or extending the range, is a reviewed change to this list and to README.md.
+    #
+    # Folia 1.21.4 and 26.2 have never published a STABLE build, so their pins are the newest
+    # ALPHA and BETA builds respectively. Minecraft 26.1 and newer refuse to start below Java 25;
+    # the plugin itself is Java 21 bytecode either way.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: paper, minecraft: '1.21.4', build: 232, java: '21', sha256: 5ee4f542f628a14c644410b08c94ea42e772ef4d29fe92973636b6813d4eaffc }
+          - { platform: folia, minecraft: '1.21.4', build: 6, java: '21', sha256: dcf2333211c1468c8eddc482bc8549600818cc661a709124a79c752f8fa2ac3a }
+          - { platform: paper, minecraft: '1.21.11', build: 132, java: '21', sha256: 5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba }
+          - { platform: folia, minecraft: '1.21.11', build: 14, java: '21', sha256: f52c408490a0225611e67907a3ca19f7e6da2c6bc899e715d5f46844e7103c39 }
+          - { platform: paper, minecraft: '26.2', build: 129, java: '25', sha256: b1d8f6bfa1b6101fa8e947b53041cb3bdf5540e7b83b6547ca19ba7edefeb083 }
+          - { platform: folia, minecraft: '26.2', build: 7, java: '25', sha256: 128a634192261cd38bb4a5dc54075018a0f896fd6c6f529e37dca6e99e32b3b3 }
+
     steps:
-      - name: Set up Java 21
+      # Only for scripts/: the plugin under test is the jar `build` produced, not a rebuild.
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java ${{ matrix.java }}
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
-          java-version: '21'
+          java-version: ${{ matrix.java }}
           distribution: 'temurin'
 
       - name: Download Built JAR
         uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v5.0.0
         with:
           name: AntiSpeedrun-SNAPSHOT
-          path: plugins
+          path: dist
 
-      # PaperMC's v2 API (api.papermc.io) is sunset and now returns HTTP 410; builds are
-      # served by the v3 Fill API, which also hands back the download URL and checksum
-      # directly rather than having callers construct a filename.
-      #
-      # Folia publishes no STABLE channel builds - every 1.21.4 build is ALPHA. That is
-      # normal for Folia, so filtering on channel would select nothing. Take the newest
-      # build, preferring STABLE only if one ever appears.
-      - name: Download Folia
+      # PaperMC's v2 API is sunset (HTTP 410); the v3 Fill API serves builds with their
+      # download URL and checksum. The pinned SHA-256 has to match both what the API publishes
+      # for the build and the bytes downloaded.
+      - name: Download ${{ matrix.platform }} ${{ matrix.minecraft }}
         env:
-          MC_VERSION: '1.21.4'
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import hashlib, json, os, urllib.request
+          PLATFORM: ${{ matrix.platform }}
+          MINECRAFT: ${{ matrix.minecraft }}
+          BUILD: ${{ matrix.build }}
+          SHA256: ${{ matrix.sha256 }}
+        run: >-
+          python3 scripts/fetch-server.py --project "$PLATFORM" --version "$MINECRAFT"
+          --build "$BUILD" --sha256 "$SHA256" --out server.jar
 
-          version = os.environ["MC_VERSION"]
-          ua = "AntiSpeedrun-CI/1.0 (+https://github.com/Ninja6-MC/AntiSpeedrun)"
-          url = f"https://fill.papermc.io/v3/projects/folia/versions/{version}/builds"
-
-          def get(target):
-              # PaperMC's CDN rejects default library user agents with HTTP 403, so every
-              # request needs a descriptive one - including the jar download, which is why
-              # this cannot use urlretrieve.
-              return urllib.request.urlopen(
-                  urllib.request.Request(target, headers={"User-Agent": ua}), timeout=60)
-
-          builds = json.load(get(url))
-          if not builds:
-              raise SystemExit(f"::error::No Folia builds published for {version}.")
-
-          stable = [b for b in builds if b["channel"] == "STABLE"]
-          build = max(stable or builds, key=lambda b: b["id"])
-          artifact = build["downloads"]["server:default"]
-          expected = artifact["checksums"]["sha256"]
-          print(f"Using Folia {version} build {build['id']} ({build['channel']})")
-
-          digest = hashlib.sha256()
-          with get(artifact["url"]) as response, open("folia.jar", "wb") as jar:
-              for chunk in iter(lambda: response.read(1 << 20), b""):
-                  digest.update(chunk)
-                  jar.write(chunk)
-
-          actual = digest.hexdigest()
-          if actual != expected:
-              raise SystemExit(
-                  f"::error::Checksum mismatch for folia.jar: expected {expected}, got {actual}")
-          print(f"Checksum verified: {actual}")
-          PY
-
-      - name: Boot Server and Assert Plugin Enables
-        # The step that actually waits on a server, and the one #86 watched sit for 25 minutes.
-        # The `timeout 300` below already caps the JVM at five minutes; this caps the step as a
-        # whole, so a boot that wedges somewhere the inner timeout does not cover still fails
-        # in minutes. A server that has not enabled the plugin by now is not going to.
+      # The step that actually waits on a server, and the one #86 watched sit for 25 minutes.
+      # boot-smoke.py stops the server once it logs "Done", gives it 240 s to get there and 60 s
+      # to obey "stop", and kills it after that; this caps the step as a whole, so a wedge
+      # somewhere the script does not cover still fails in minutes. What the log must and must
+      # not contain is listed, with the reasons, at the top of scripts/boot-smoke.py.
+      - name: Boot Server and Assert Plugin Starts
         timeout-minutes: 8
-        run: |
-          set -uo pipefail
-          echo "eula=true" > eula.txt
-          # Give the server time to generate worlds and enable plugins, then shut it
-          # down cleanly. The outer timeout is a backstop for a hang, not the happy path.
-          ( sleep 150; echo stop ) | timeout 300 java -Xmx3G -jar folia.jar --nogui > server.log 2>&1 || true
-
-          if grep -qiE "Enabling AntiSpeedrun" server.log; then
-            echo "AntiSpeedrun enabled on Folia."
-          else
-            echo "::error::AntiSpeedrun did not enable on Folia."
-            tail -n 200 server.log
-            exit 1
-          fi
-
-          # "Enabling AntiSpeedrun" is logged by Bukkit BEFORE onEnable runs, so on its own it
-          # proves only that the jar loaded. onEnable disables the plugin outright when the item
-          # gate compiler finds a tier collision, and that path never reaches the line below.
-          #
-          # This is the only place a tier collision is checked against the real Material enum.
-          # paper-api is compileOnly and deliberately not on the test classpath, so the unit tests
-          # compile config.yml against a ~100-constant fixture rather than Bukkit's ~1,400: an
-          # overlap that exists only among the constants the fixture omits is invisible to every
-          # test and would surface as a production server failing to start. Asserting the compile
-          # succeeded here turns that into a CI failure instead. Do not weaken this to a grep for
-          # "Enabling"; that is the assertion this replaces.
-          if grep -qE "Item gates compiled: [1-9][0-9]* materials across [1-9][0-9]* tiers" server.log; then
-            grep -E "Item gates compiled:" server.log
-          else
-            echo "::error::AntiSpeedrun loaded but never compiled its item gates against the real Material enum. A tier collision in config.yml, or a config.yml that failed to parse, will do this."
-            grep -iE "gated-items|unresolvable tier collision|Disabling AntiSpeedrun" server.log || true
-            tail -n 200 server.log
-            exit 1
-          fi
-
-          if grep -qiE "unresolvable tier collision" server.log; then
-            echo "::error::item-progression.gated-items contains a tier collision over the real Material enum."
-            grep -iE -B 5 "unresolvable tier collision" server.log
-            exit 1
-          fi
-
-          # A plugin that loads but throws on a Folia-illegal API call is still broken.
-          if grep -qiE "UnsupportedOperationException|is not supported on Folia|Could not load 'plugins" server.log; then
-            echo "::error::Folia rejected an unsupported API call."
-            grep -iE -A 15 "UnsupportedOperationException|is not supported on Folia|Could not load 'plugins" server.log
-            exit 1
-          fi
+        env:
+          PLUGIN_JAR: dist/AntiSpeedrun-${{ needs.build.outputs.version }}.jar
+          LABEL: ${{ matrix.platform }} ${{ matrix.minecraft }} build ${{ matrix.build }}
+        run: >-
+          python3 scripts/boot-smoke.py --server-jar server.jar --plugin-jar "$PLUGIN_JAR"
+          --workdir run --label "$LABEL"
 
       - name: Upload Server Log
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: folia-server-log
-          path: server.log
+          name: server-log-${{ matrix.platform }}-${{ matrix.minecraft }}
+          path: run/server.log
           retention-days: 7
+          if-no-files-found: warn

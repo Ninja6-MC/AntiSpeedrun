@@ -305,6 +305,52 @@ class ItemGateCompilerTest {
         }
     }
 
+    /** The material names of a server from 1.21.9 on, where CHAIN is IRON_CHAIN. */
+    private enum RenamedMaterial { IRON_INGOT, IRON_CHAIN, LANTERN }
+
+    /** The material names of a server before 1.21.9. */
+    private enum OriginalMaterial { IRON_INGOT, CHAIN, LANTERN }
+
+    @Nested
+    @DisplayName("renamed materials")
+    class Renamed {
+
+        private final PluginConfig.ItemTier iron =
+                tier("iron-tier", List.of("IRON_*"), List.of(), List.of("CHAIN", "LANTERN"));
+
+        @Test
+        @DisplayName("an exclusion of CHAIN excludes IRON_CHAIN on a server that only has the new name")
+        void oldNameOnNewServer() throws Exception {
+            ItemGateTable<RenamedMaterial> gates = ItemGateCompiler.compile(RenamedMaterial.class,
+                    RenamedMaterial.values(), List.of(iron), warnings);
+
+            assertTrue(gates.isGated(RenamedMaterial.IRON_INGOT));
+            assertFalse(gates.isGated(RenamedMaterial.IRON_CHAIN));
+            assertEquals(List.of(), warnings);
+        }
+
+        @Test
+        @DisplayName("IRON_CHAIN is read as CHAIN on a server from before the rename")
+        void newNameOnOldServer() throws Exception {
+            ItemGateTable<OriginalMaterial> gates = ItemGateCompiler.compile(OriginalMaterial.class,
+                    OriginalMaterial.values(),
+                    List.of(tier("t", List.of(), List.of("IRON_CHAIN"), List.of())), warnings);
+
+            assertTrue(gates.isGated(OriginalMaterial.CHAIN));
+            assertEquals(List.of(), warnings);
+        }
+
+        @Test
+        @DisplayName("the shipped iron tier still excludes the chain block")
+        void shippedIronTierExcludesChain() throws Exception {
+            PluginConfig.ItemTier shippedIron = shipped().itemProgression().gatedItems().stream()
+                    .filter(t -> t.id().equals("iron-tier")).findFirst().orElseThrow();
+            assertTrue(shippedIron.matchPatterns().contains("IRON_*"));
+            assertTrue(shippedIron.excludeMaterials().contains("CHAIN")
+                    || shippedIron.excludeMaterials().contains("IRON_CHAIN"));
+        }
+    }
+
     @Nested
     @DisplayName("precedence")
     class Precedence {

@@ -117,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Most-restrictive-wins precedence when two tiers claim one material, resolved by requirement dominance and then by document order; an incomparable pair fails startup with an error naming the material, both tiers and the `exclude-materials` line that resolves it.
 - Folia platform support declaration (`folia-supported: true`), without which Folia refuses to enable the plugin.
 - CI guards rejecting `BukkitScheduler` / `BukkitRunnable` usage, which throws on Folia, and verifying the Folia manifest key is present.
-- CI `folia-smoke` job booting a real Folia 1.21.4 server against the built jar.
+- CI `server-smoke` matrix booting the built jar on real Paper and Folia servers across the supported range.
 - Full `item-progression` and `trim-progression` configuration trees, previously documented but absent from the shipped config.
 - Granular bypass permissions (`antispeedrun.bypass.gates`, `.items`, `.anticheese`) and the `journeybook` command registration.
 - Configurable outer-End boundary (`outer-end-radius`, `outer-end-poll-seconds`) and exit portal combat lock with an escape valve (`exit-portal-lock-during-battle`, `exit-portal-lock-release-minutes`).
@@ -135,6 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `gate-natural-structure-chests`, `gate-player-placed-chests` and `gate-armor-stands` removed — each configured a distinction that no longer exists. `dropper-can-retrieve` and `death-drop-retrieval` collapse into `drop-recall-enabled`.
 - Mob item pickup is no longer intercepted; piglin bartering and Allay sorters are unaffected.
 - Soft-dependency matrix trimmed to Floodgate, the only optional integration the plugin consumes.
+- Supported servers are stated as Paper or Folia, Minecraft 1.21.4 through 26.2, and CI now boots the built jar on each end of that range and on 1.21.11 for both platforms, plus a weekly run on the newest Paper and Folia release. Earlier 1.21 releases are no longer implied: the plugin compiles against the 1.21.4 API.
 - A `config.yml` that names an advancement key the server cannot resolve — or a
   `require-advancements` list written with entries that all name nothing — now stops the plugin at
   startup instead of starting it on the shipped defaults. Those defaults declare no gated item
