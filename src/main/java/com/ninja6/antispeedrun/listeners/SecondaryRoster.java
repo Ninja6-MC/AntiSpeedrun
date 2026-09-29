@@ -38,6 +38,23 @@ public final class SecondaryRoster {
     }
 
     /**
+     * Records a secondary just spawned, but only if it actually entered the world. A spawn another
+     * plugin cancelled still hands back an entity, and counting it would hold the primary alive until
+     * a restart.
+     *
+     * @param addedToWorld {@code Entity#isValid()} after the spawn
+     * @return {@code true} if the secondary is now counted
+     */
+    public boolean trackSpawned(UUID dragon, boolean addedToWorld) {
+        Objects.requireNonNull(dragon, "dragon");
+        if (!addedToWorld) {
+            return false;
+        }
+        track(dragon);
+        return true;
+    }
+
+    /**
      * Records a secondary as gone.
      *
      * @return {@code true} if it had been recorded

@@ -356,7 +356,12 @@ public final class BossCombatListener implements Listener {
         Location location = new Location(world, point.x(), point.y(), point.z(), point.yaw(), 0.0F);
         EnderDragon dragon = world.spawn(location, EnderDragon.class, spawned -> spawned
                 .getPersistentDataContainer().set(secondaryDragon, PersistentDataType.BYTE, (byte) 1));
-        roster(world).track(dragon.getUniqueId());
+        // World#spawn returns the entity even when another plugin cancelled its spawn. A dragon that
+        // never entered the world must not hold the primary.
+        if (!roster(world).trackSpawned(dragon.getUniqueId(), dragon.isValid())) {
+            plugin.getLogger().info(() -> "Secondary dragon spawn in " + world.getName()
+                    + " was cancelled; it is not counted.");
+        }
     }
 
     /** This world's window, created on first use from the persisted record. */

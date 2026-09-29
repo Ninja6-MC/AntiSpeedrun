@@ -129,6 +129,17 @@ class DragonReconciliationTest {
         }
 
         @Test
+        @DisplayName("a spawn another plugin cancelled is not counted, so the primary is not held")
+        void cancelledSpawn() {
+            SecondaryRoster roster = new SecondaryRoster();
+            assertFalse(roster.trackSpawned(UUID.randomUUID(), false));
+            assertEquals(0, roster.living());
+            assertFalse(DragonReconciliationRules.refusesDeath(false, roster.living()));
+            assertTrue(roster.trackSpawned(UUID.randomUUID(), true));
+            assertEquals(1, roster.living());
+        }
+
+        @Test
         @DisplayName("region threads reporting at once lose no secondary")
         void concurrent() throws InterruptedException {
             SecondaryRoster roster = new SecondaryRoster();
