@@ -87,11 +87,9 @@ item-progression:
         # leak as the deepslate ores above.
         - "DIAMOND"
       require-advancements:
-        - "minecraft:story/smelt_iron"
+        - "minecraft:story/iron_tools"
       require-playtime-hours: 0
-      hint: "Smelt Iron Ingot"
-      # NOTE (audit R-16): story/smelt_iron is also the Nether gate prerequisite, so
-      # diamonds and the Nether currently unlock at the same moment. Deliberate?
+      hint: "Craft an Iron Pickaxe"
 
     nether-tier:
       items:
@@ -105,9 +103,9 @@ item-progression:
         - "BREEZE_ROD"
         - "WIND_CHARGE"
       require-advancements:
-        - "minecraft:story/smelt_iron"
+        - "minecraft:story/enter_the_nether"
       require-playtime-hours: 0
-      hint: "Unlock the Nether Gate"
+      hint: "Enter the Nether"
 
     end-tier:
       items:

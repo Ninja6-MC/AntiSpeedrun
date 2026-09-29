@@ -44,8 +44,8 @@ that tier's items**:
 | Tier | Unlocked by | Tool needed to obtain its items | Already unlocked? |
 | :--- | :--- | :--- | :---: |
 | iron | `story/mine_stone` | stone pickaxe (mining stone earns the advancement) | yes |
-| diamond | `story/smelt_iron` | iron pickaxe | yes |
-| nether | `story/smelt_iron` | obsidian access | yes |
+| diamond | `story/iron_tools` | iron pickaxe | yes |
+| nether | `story/enter_the_nether` | obsidian access | yes |
 | netherite | `story/mine_diamond` + `nether/obtain_blaze_rod` | diamond pickaxe, Nether access | yes |
 | end | `nether/obtain_blaze_rod` + `nether/find_fortress` | blaze powder | yes |
 
