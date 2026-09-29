@@ -64,8 +64,13 @@ class FakeGitHub:
     def latest_id(self):
         return self.latest
 
-    def create_draft(self, tag, title, body, prerelease):
+    def published_releases(self):
+        return [{"id": r["id"], "tag_name": r["tag_name"], "prerelease": r["prerelease"]}
+                for r in self.releases_by_id.values() if not r["draft"]]
+
+    def create_draft(self, tag, title, body, prerelease, target):
         self.writes.append(("create", tag))
+        self.draft_target = target
         release = self.add_release(tag, True, prerelease, name=title, body=body)
         return copy.deepcopy(release)
 
@@ -141,6 +146,49 @@ class PromoteTest(unittest.TestCase):
         self.assertFalse(release["draft"])
         self.assertFalse(release["prerelease"])
         self.assertEqual(api.latest, release["id"])
+
+    def test_draft_targets_the_candidate_commit(self):
+        self.candidate("v1.0.0")
+        api = FakeGitHub()
+        self.promote(api)
+        self.assertEqual(api.draft_target, SHA)
+
+    def test_stable_release_older_than_a_published_stable_is_not_made_latest(self):
+        self.candidate("v1.0.0")
+        api = FakeGitHub()
+        newer = api.add_release("v1.2.0", False, False)
+        api.add_release("v2.0.0-beta.1", False, True)
+        api.latest = newer["id"]
+        release = self.promote(api)
+        self.assertFalse(release["draft"])
+        self.assertEqual(api.latest, newer["id"])
+
+    def test_stable_release_newer_than_every_published_stable_is_made_latest(self):
+        self.candidate("v1.2.0")
+        api = FakeGitHub()
+        older = api.add_release("v1.1.9", False, False)
+        api.add_release("v1.10.0", True, False)       # a draft does not count
+        api.add_release("v1.3.0-rc.1", False, True)   # nor does a pre-release
+        api.add_release("v0.9.0", False, True)
+        api.latest = older["id"]
+        release = self.promote(api)
+        self.assertEqual(api.latest, release["id"])
+
+    def test_semver_order_is_numeric(self):
+        self.assertGreater(gh.stable_key("v1.10.0"), gh.stable_key("v1.9.0"))
+        self.assertIsNone(gh.stable_key("v1.0.0-rc.1"))
+        self.assertIsNone(gh.stable_key("v0.3.0"))
+        self.assertIsNone(gh.stable_key("nightly"))
+
+    def test_older_stable_release_marked_latest_stops(self):
+        self.candidate("v1.0.0")
+        api = FakeGitHub()
+        api.add_release("v1.2.0", False, False)
+        release = api.add_release("v1.0.0", False, False, self.assets(*self.names()))
+        api.latest = release["id"]
+        with self.assertRaisesRegex(gh.PromotionError, "should not be"):
+            self.promote(api)
+        self.assertEqual(api.writes, [])
 
     def test_development_build_is_a_prerelease_and_never_latest(self):
         self.candidate("v0.1.0")

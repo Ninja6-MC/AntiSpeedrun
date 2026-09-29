@@ -90,9 +90,18 @@ class GitHubApi:
             raise PromotionError(f"Cannot read the Latest release: {process.stderr.strip()}")
         return int(process.stdout.strip())
 
-    def create_draft(self, tag, title, body, prerelease):
-        payload = {"tag_name": tag, "name": title, "body": body, "draft": True,
-                   "prerelease": prerelease, "make_latest": "false"}
+    def published_releases(self):
+        """Every release that is not a draft: its id, tag and pre-release flag."""
+        output = self._gh("--paginate", f"repos/{self.repository}/releases?per_page=100",
+                          "--jq", ".[] | select(.draft | not) | {id, tag_name, prerelease}")
+        return [json.loads(line) for line in output.decode().splitlines() if line.strip()]
+
+    def create_draft(self, tag, title, body, prerelease, target):
+        # The tag already exists and names `target`. Should it vanish before publishing, GitHub
+        # recreates it from target_commitish, which is therefore the candidate's commit and
+        # never the default branch.
+        payload = {"tag_name": tag, "target_commitish": target, "name": title, "body": body,
+                   "draft": True, "prerelease": prerelease, "make_latest": "false"}
         return self._json("-X", "POST", f"repos/{self.repository}/releases", "--input", "-",
                           stdin=json.dumps(payload).encode())
 
@@ -194,13 +203,44 @@ def complete_draft(api, release, manifest, directory):
             api.upload_asset(release["id"], Path(directory) / name)
 
 
+def stable_key(tag):
+    """SemVer order of a stable release tag, or None for any other tag."""
+    try:
+        info = candidate.release(tag)
+    except candidate.CandidateError:
+        return None
+    if info["channel"] != "stable":
+        return None
+    return tuple(int(part) for part in info["version"].split("."))
+
+
+def should_be_latest(api, manifest, release_id):
+    """Latest goes to a stable release unless a higher stable release is already published.
+
+    Re-running an older release's failed job, or approving two stable tags out of order, must
+    not take Latest away from a newer version.
+    """
+    if not manifest["make_latest"]:
+        return False
+    own = stable_key(manifest["tag"])
+    for other in api.published_releases():
+        if other.get("id") == release_id or other.get("prerelease"):
+            continue
+        key = stable_key(other.get("tag_name", ""))
+        if key is not None and key > own:
+            log(f"{other['tag_name']} is a newer stable release, so {manifest['tag']} is not made Latest")
+            return False
+    return True
+
+
 def check_latest(api, release, manifest):
+    expected = should_be_latest(api, manifest, release["id"])
     latest = api.latest_id()
-    if manifest["make_latest"] and latest != release["id"]:
+    if expected and latest != release["id"]:
         raise PromotionError(f"Stable release {manifest['tag']} is published but is not GitHub's Latest "
                              f"(Latest is {latest}); reconcile it by hand")
-    if not manifest["make_latest"] and latest == release["id"]:
-        raise PromotionError(f"Pre-release {manifest['tag']} is marked Latest; reconcile it by hand")
+    if not expected and latest == release["id"]:
+        raise PromotionError(f"{manifest['tag']} is marked Latest although it should not be; reconcile it by hand")
 
 
 def promote(api, manifest, directory, sha):
@@ -216,7 +256,7 @@ def promote(api, manifest, directory, sha):
         release = matches[0]
         log(f"Found {'draft' if release.get('draft') else 'published'} release {release['id']} for {tag}")
     else:
-        release = api.create_draft(tag, title, notes, manifest["prerelease"])
+        release = api.create_draft(tag, title, notes, manifest["prerelease"], manifest["source_sha"])
         log(f"Created draft release {release['id']} for {tag}")
     check_metadata(release, manifest, title, notes)
 
@@ -228,7 +268,8 @@ def promote(api, manifest, directory, sha):
         check_assets(api, release, manifest, anonymous=False)
         # The approval may have waited days; the tag is checked again right before going public.
         check_source(api, manifest, sha)
-        release = api.publish(release["id"], manifest["prerelease"], manifest["make_latest"])
+        release = api.publish(release["id"], manifest["prerelease"],
+                              should_be_latest(api, manifest, release["id"]))
         log(f"Published release {release['id']} ({'pre-release' if manifest['prerelease'] else 'stable'})")
 
     release = api.release(release["id"])

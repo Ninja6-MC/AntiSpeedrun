@@ -40,7 +40,9 @@ publication starts at `v1.0.0-alpha.1`.
 The release workflow derives the channel from the tag alone. Any tag with major version `0`
 is a development build, with or without a suffix, so it is always a pre-release and never
 Latest. `vX.Y.Z-rc.N` (X >= 1) is also accepted and published as a GitHub pre-release. Only
-a suffix-free tag with X >= 1 becomes a full release, and it is made Latest. Tags use
+a suffix-free tag with X >= 1 becomes a full release. It is made Latest unless a higher
+stable version is already published, so an older stable release never displaces a newer
+one. Tags use
 SemVer numbers without leading zeros; any other `v*` tag fails the workflow before it
 builds anything. GitHub publication is described in section 3; distributor publication is
 #167.
@@ -156,16 +158,20 @@ there without writing anything; set the environment up and re-run the failed job
    A tag moved after the candidate was built fails the run.
 2. Look up every release carrying the tag, drafts included. More than one stops the run.
 3. With none, create a **draft** titled `AntiSpeedrun <tag>` with `release-notes.md` as its
-   body and the candidate's pre-release flag.
+   body and the candidate's pre-release flag. Its `target_commitish` is the candidate's
+   source commit, so if the tag disappeared before publishing, GitHub would recreate it
+   there and not at the head of `main`.
 4. Complete the draft. An asset GitHub never finished receiving is deleted; drafts are not
    public. An uploaded asset must match its manifest digest byte for byte. Missing assets
    are uploaded from the candidate.
 5. Re-read the draft, check every asset again, re-check the tag, then publish. A
-   pre-release is published with `make_latest=false`; a stable release with
-   `make_latest=true`.
+   pre-release is published with `make_latest=false`. A stable release is published with
+   `make_latest=true` only when no published stable release has a higher SemVer version.
+   Otherwise it gets `make_latest=false`. This covers re-running an older release's failed
+   job, or approving two stable tags out of order.
 6. Download each public asset signed out, from the address a user would use, and compare
-   it with the manifest. A stable release must now be GitHub's Latest; a pre-release must
-   not be.
+   it with the manifest. Then check Latest: a stable release with no higher stable release
+   published must now be GitHub's Latest, and any other release must not be.
 
 **Retrying.** Use **Re-run failed jobs** on the same run. It re-runs the publish job, which
 needs approval again, against the candidate and evidence of the original attempt. The
@@ -176,7 +182,7 @@ against the published release and rejected on any difference.
 
 **Reconciling.** The run stops without writing anything public when a published release
 differs from the candidate: different bytes, assets, title, notes or pre-release flag, or
-a stable release that is not Latest. It also stops for a draft carrying a foreign or
+a Latest flag other than the one step 6 expects. It also stops for a draft carrying a foreign or
 mismatched asset, or several releases for one tag. Nothing public is overwritten or
 deleted. Inspect the release in the browser. If it is wrong, delete the release, never the
 tag, and re-run the failed job. If the tag must change, it names a new version.
