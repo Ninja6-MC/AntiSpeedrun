@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.PluginConfig.ItemTier;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
 import com.ninja6.antispeedrun.progression.MilestoneRequirement;
@@ -173,6 +174,16 @@ public final class ItemGateRules {
      */
     public static boolean waived(boolean hasBypassPermission, boolean hasBypassGrant) {
         return hasBypassPermission || hasBypassGrant;
+    }
+
+    /**
+     * Whether a dispenser firing armour onto a player is gated: {@code item-progression.gate-dispensers}.
+     *
+     * <p>Independent of the master switch on purpose; {@code ItemProgressionListener.gatedTier}
+     * still reports nothing as gated while {@code item-progression.enabled} is false.
+     */
+    public static boolean gatesDispensers(PluginConfig config) {
+        return config.itemProgression().gateDispensers();
     }
 
     /** What a tier demands, in the shape {@code ProgressionManager} evaluates. */

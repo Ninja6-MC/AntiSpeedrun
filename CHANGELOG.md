@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A dispenser firing tier-gated armour onto a player who has not earned that tier is now cancelled, so
+  the armour stays in the dispenser and the player gets the usual item-gate rejection line. It follows
+  `item-progression.gate-dispensers` (default on), `item-progression.enabled`, the tier table and the item bypass, and only players are gated.
 - `anti-cheese.block-early-eye-throwing`, which until now was parsed and read by nothing, refuses an
   Eye of Ender throw until the player has earned `minecraft:nether/find_fortress`. The item use is
   denied at the interaction, so the eye stays in the hand and no Eye of Ender entity spawns; setting
