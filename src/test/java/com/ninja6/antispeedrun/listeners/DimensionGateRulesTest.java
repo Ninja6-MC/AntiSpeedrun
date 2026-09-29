@@ -470,6 +470,39 @@ class DimensionGateRulesTest {
         }
 
         @Test
+        @DisplayName("retracting takes back a note nothing consumed, so a refused command leaves none")
+        void retractRemovesAnUnconsumedNote() {
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW);
+            assertTrue(DimensionGateRules.retract(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW));
+            assertFalse(DimensionGateRules.consume(notes, DimensionUnlock.NETHER, NETHER_WORLD,
+                    NOW + 50L));
+        }
+
+        @Test
+        @DisplayName("retracting a note an arrival already consumed removes nothing")
+        void retractAfterConsumeIsANoOp() {
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW);
+            assertTrue(DimensionGateRules.consume(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW));
+            assertFalse(DimensionGateRules.retract(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW));
+        }
+
+        @Test
+        @DisplayName("retracting leaves a note written since, for another world or at another time")
+        void retractKeepsALaterNote() {
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW);
+            DimensionGateRules.note(notes, DimensionUnlock.NETHER, OTHER_NETHER_WORLD, NOW + 10L);
+            assertFalse(DimensionGateRules.retract(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW));
+            assertTrue(DimensionGateRules.consume(notes, DimensionUnlock.NETHER, OTHER_NETHER_WORLD,
+                    NOW + 20L));
+        }
+
+        @Test
+        @DisplayName("retracting from a player with no ledger is harmless")
+        void retractWithoutLedger() {
+            assertFalse(DimensionGateRules.retract(null, DimensionUnlock.NETHER, NETHER_WORLD, NOW));
+        }
+
+        @Test
         @DisplayName("a note nothing consumed expires rather than covering a later arrival")
         void expires() {
             DimensionGateRules.note(notes, DimensionUnlock.NETHER, NETHER_WORLD, NOW);

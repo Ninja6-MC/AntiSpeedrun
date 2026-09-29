@@ -128,6 +128,20 @@ public final class DimensionGateRules {
      */
     public static final long DECISION_WINDOW_MILLIS = 10_000L;
 
+    /**
+     * How long a note written from a command line waits for the teleport it read, in ticks.
+     *
+     * <p>{@code TeleportCommandLine} reads a line before it runs, so it can read a teleport the
+     * server then refuses, or one that forks zero times. Those leave a note for a player nobody
+     * moved. The teleport a note was written for lands within a tick or two, and a slow one is
+     * still a matter of seconds, so a note nothing has consumed by then is taken back rather than
+     * left for the rest of {@link #DECISION_WINDOW_MILLIS}. Two seconds is a staleness bound on the
+     * hand-off, not a threshold on a requirement, so R-02 does not apply to it. A teleport slower
+     * than this is returned by the backstop, which costs an operator one repeated command and
+     * nobody a bypass.
+     */
+    public static final long COMMAND_CONFIRM_TICKS = 40L;
+
     /** What {@link #arrival} says to do about a player who has just landed in another dimension. */
     public enum Arrival {
 
@@ -293,6 +307,22 @@ public final class DimensionGateRules {
         Objects.requireNonNull(notes, "notes");
         Objects.requireNonNull(gate, "gate");
         notes.put(gate, new Decision(destinationWorld, now));
+    }
+
+    /**
+     * Takes back the note that {@link #note} wrote at {@code recordedAt} for {@code destinationWorld},
+     * if it is still there.
+     *
+     * <p>Only that note: one an arrival has consumed is gone already, and one written since, by a
+     * settled teleport or another command, is a different decision and stays.
+     *
+     * @return whether a note was removed
+     */
+    public static boolean retract(Map<DimensionUnlock, Decision> notes, DimensionUnlock gate,
+                                  UUID destinationWorld, long recordedAt) {
+        Objects.requireNonNull(gate, "gate");
+        Objects.requireNonNull(destinationWorld, "destinationWorld");
+        return notes != null && notes.remove(gate, new Decision(destinationWorld, recordedAt));
     }
 
     /**
