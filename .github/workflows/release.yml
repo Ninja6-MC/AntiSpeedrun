@@ -1,0 +1,309 @@
+name: Release
+
+# N6-REL-03: build the candidate once, boot the retained bytes, wait for maintainer approval
+# on the protected `release` environment, then publish those same bytes. RELEASE_PROCESS.md
+# section 3 describes each stage, the manifest, retention and how to retry.
+#
+# A pull request that changes the pipeline runs it as a rehearsal: the candidate, boot and
+# evidence jobs run against a fixed placeholder tag, and the publisher never starts.
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/release-candidate.py
+      - scripts/release-github.py
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # The rehearsal's stand-in: a development tag, so it exercises the pre-release path.
+  REHEARSAL_TAG: v0.0.0
+
+jobs:
+  candidate:
+    name: Build Release Candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      attempt: ${{ steps.identity.outputs.attempt }}
+      sha: ${{ steps.identity.outputs.sha }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validate Release Tag
+        id: tag
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || env.REHEARSAL_TAG }}
+        run: python3 scripts/release-candidate.py tag --tag "$TAG"
+
+      # A release is cut from a commit already on main, and the tag must name the commit this
+      # run checked out. Neither holds for a rehearsal, which has no tag.
+      - name: Verify Tag Source
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$GITHUB_SHA" || {
+            echo "::error::$TAG does not point at $GITHUB_SHA"; exit 1; }
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::$GITHUB_SHA is not on main; release tags are cut from main"; exit 1; }
+
+      - name: Record Candidate Identity
+        id: identity
+        run: |
+          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      # No build cache: a release is built from the tagged sources and the pinned toolchain
+      # alone, never from cache entries another workflow wrote.
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-disabled: true
+
+      - name: Test Release Scripts
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+
+      - name: Test Sources and Build Candidate Once
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test build -PpluginVersion="$VERSION" --no-daemon
+
+      - name: Seal Candidate Manifest
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: >-
+          python3 scripts/release-candidate.py create --directory candidate --jar-directory build/libs
+          --tag "$TAG" --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+          --repository "$GITHUB_REPOSITORY"
+
+      - name: Retain Candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 30
+
+  verify:
+    name: Candidate Server Boot (${{ matrix.platform }} ${{ matrix.minecraft }})
+    runs-on: ubuntu-latest
+    needs: candidate
+    timeout-minutes: 15
+    env:
+      TAG: ${{ needs.candidate.outputs.tag }}
+      SHA: ${{ needs.candidate.outputs.sha }}
+      CANDIDATE_ATTEMPT: ${{ needs.candidate.outputs.attempt }}
+
+    # Exactly the pinned servers of the Server Boot matrix in ci.yml, and the legs named in
+    # SERVER_LEGS in scripts/release-candidate.py. A unit test fails if the three differ.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: paper, minecraft: '1.21.4', build: 232, java: '21', sha256: 5ee4f542f628a14c644410b08c94ea42e772ef4d29fe92973636b6813d4eaffc }
+          - { platform: folia, minecraft: '1.21.4', build: 6, java: '21', sha256: dcf2333211c1468c8eddc482bc8549600818cc661a709124a79c752f8fa2ac3a }
+          - { platform: paper, minecraft: '1.21.11', build: 132, java: '21', sha256: 5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba }
+          - { platform: folia, minecraft: '1.21.11', build: 14, java: '21', sha256: f52c408490a0225611e67907a3ca19f7e6da2c6bc899e715d5f46844e7103c39 }
+          - { platform: paper, minecraft: '26.2', build: 129, java: '25', sha256: b1d8f6bfa1b6101fa8e947b53041cb3bdf5540e7b83b6547ca19ba7edefeb083 }
+          - { platform: folia, minecraft: '26.2', build: 7, java: '25', sha256: 128a634192261cd38bb4a5dc54075018a0f896fd6c6f529e37dca6e99e32b3b3 }
+
+    steps:
+      # Only for scripts/: the plugin under test is the retained candidate, never a rebuild.
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download Candidate
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v5.0.0
+        with:
+          name: release-candidate-${{ github.run_id }}-${{ needs.candidate.outputs.attempt }}
+          path: candidate
+
+      - name: Verify Candidate Before Testing
+        run: >-
+          python3 scripts/release-candidate.py verify --directory candidate --tag "$TAG" --sha "$SHA"
+          --run-id "$GITHUB_RUN_ID" --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
+
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+
+      - name: Download ${{ matrix.platform }} ${{ matrix.minecraft }}
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          MINECRAFT: ${{ matrix.minecraft }}
+          BUILD: ${{ matrix.build }}
+          SHA256: ${{ matrix.sha256 }}
+        run: >-
+          python3 scripts/fetch-server.py --project "$PLATFORM" --version "$MINECRAFT"
+          --build "$BUILD" --sha256 "$SHA256" --out server.jar
+
+      - name: Boot Server With the Candidate JAR
+        timeout-minutes: 8
+        env:
+          PLUGIN_JAR: candidate/AntiSpeedrun-${{ needs.candidate.outputs.version }}.jar
+          LABEL: ${{ matrix.platform }} ${{ matrix.minecraft }} build ${{ matrix.build }}
+        run: >-
+          python3 scripts/boot-smoke.py --server-jar server.jar --plugin-jar "$PLUGIN_JAR"
+          --workdir run --label "$LABEL"
+
+      # boot-smoke.py copies the JAR into the server; the candidate itself must be unchanged.
+      - name: Record Passing Boot
+        env:
+          LEG: ${{ matrix.platform }}-${{ matrix.minecraft }}
+        run: >-
+          python3 scripts/release-candidate.py receipt --directory candidate --tag "$TAG" --sha "$SHA"
+          --run-id "$GITHUB_RUN_ID" --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
+          --leg "$LEG" --output "boot-$LEG.json"
+
+      - name: Retain Boot Receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-boot-${{ matrix.platform }}-${{ matrix.minecraft }}-${{ github.run_id }}-${{ needs.candidate.outputs.attempt }}
+          path: boot-${{ matrix.platform }}-${{ matrix.minecraft }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Server Log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-server-log-${{ matrix.platform }}-${{ matrix.minecraft }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: run/server.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  evidence:
+    name: Bind Candidate Evidence
+    runs-on: ubuntu-latest
+    needs: [candidate, verify]
+    timeout-minutes: 5
+    env:
+      TAG: ${{ needs.candidate.outputs.tag }}
+      SHA: ${{ needs.candidate.outputs.sha }}
+      CANDIDATE_ATTEMPT: ${{ needs.candidate.outputs.attempt }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download Candidate
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v5.0.0
+        with:
+          name: release-candidate-${{ github.run_id }}-${{ needs.candidate.outputs.attempt }}
+          path: candidate
+
+      - name: Download Boot Receipts
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v5.0.0
+        with:
+          pattern: release-boot-*-${{ github.run_id }}-${{ needs.candidate.outputs.attempt }}
+          path: receipts
+          merge-multiple: true
+
+      - name: Bind Passing Boot Evidence to the Candidate
+        run: >-
+          python3 scripts/release-candidate.py evidence --directory candidate --tag "$TAG" --sha "$SHA"
+          --run-id "$GITHUB_RUN_ID" --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
+          --receipts receipts --output evidence.json
+
+      - name: Summarise Candidate for Approval
+        run: |
+          {
+            echo '## Verified release candidate'
+            echo
+            echo 'Approving the `release` environment publishes exactly these files to the destinations listed, unchanged.'
+            echo
+            echo '```json'
+            cat candidate/manifest.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain Evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-evidence-${{ github.run_id }}-${{ needs.candidate.outputs.attempt }}
+          path: evidence.json
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub Release
+    # Never on a rehearsal: only a pushed tag reaches the release environment.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [candidate, evidence]
+    timeout-minutes: 15
+    # Protected environment with a required maintainer reviewer. The job waits here, before
+    # any step runs, until the maintainer approves this run in the browser.
+    environment: release
+    # The only job with write access, and the only one that could publish. It builds nothing.
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.candidate.outputs.tag }}
+      CANDIDATE_ATTEMPT: ${{ needs.candidate.outputs.attempt }}
+
+    steps:
+      # Only for scripts/, at the tagged commit the candidate was built from.
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download Candidate
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v5.0.0
+        with:
+          name: release-candidate-${{ github.run_id }}-${{ needs.candidate.outputs.attempt }}
+          path: candidate
+
+      - name: Download Evidence
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v5.0.0
+        with:
+          name: release-evidence-${{ github.run_id }}-${{ needs.candidate.outputs.attempt }}
+          path: evidence
+
+      # Re-verifies the manifest, every digest and the boot evidence, that this run's commit is
+      # the candidate's source and that the tag on GitHub still points at it, then
+      # creates or resumes the release. Safe to re-run: see RELEASE_PROCESS.md section 3.
+      - name: Verify and Promote Candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/release-github.py --directory candidate --evidence evidence/evidence.json
+          --tag "$TAG" --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --attempt "$CANDIDATE_ATTEMPT"
+          --repository "$GITHUB_REPOSITORY"
