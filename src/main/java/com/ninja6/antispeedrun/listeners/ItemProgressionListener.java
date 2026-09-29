@@ -16,10 +16,10 @@ import org.bukkit.event.Cancellable;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockDispenseArmorEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.block.BlockDispenseArmorEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.TradeSelectEvent;
@@ -501,9 +501,13 @@ public final class ItemProgressionListener implements Listener {
      * stays where it was and the dispenser simply does not fire, and the target player is the one
      * told why. Only players are gated; a dispenser dressing a zombie or an armor stand is not what
      * this refuses, for the same reason mob pickups are out of scope on {@link #onAttemptPickup}.
+     * Switched off by {@code item-progression.gate-dispensers}.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onDispenseArmor(BlockDispenseArmorEvent event) {
+        if (!ItemGateRules.gatesDispensers(plugin.configuration())) {
+            return;
+        }
         if (event.getTargetEntity() instanceof Player player) {
             refuse(player, event.getItem().getType(), event);
         }
