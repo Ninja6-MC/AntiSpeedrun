@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `item-progression.gate-nested-bundles`, which until now was parsed and read by nothing, gates
+  bundle contents. Taking an item out of a bundle is refused while the bundle holds a stack the
+  player has not earned, wherever the bundle sits: in a container, or in the player's own hotbar,
+  main inventory or off hand. Using such a bundle in either hand to spray its contents onto the
+  ground is refused too, without blocking the block that was clicked. Every stack in the bundle is
+  checked, because the item the client selects is not visible to the server, so a bundle holding
+  only ungated or earned items is untouched. Shulker box contents were already covered: a placed
+  shulker box is a container like any other.
 - A dispenser firing tier-gated armour onto a player who has not earned that tier is now cancelled, so
   the armour stays in the dispenser and the player gets the usual item-gate rejection line. It follows
   `item-progression.gate-dispensers` (default on), `item-progression.enabled`, the tier table and the item bypass, and only players are gated.
@@ -64,8 +72,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   player's own item straight back — the crafting grid, a crafting table, and the anvil, smithing
   table, grindstone, enchanting table, cartography table, loom and stonecutter — are untouched;
   furnaces, brewing stands, Crafters and storage blocks are containers and are gated.
-  Bundle contents are **not** yet gated: an item pulled out of a bundle is not checked, which is
-  tracked separately and is why `gate-nested-bundles` still does nothing.
 - `villager-progression.gate-mending-trade` is now enforced. With it switched on, a player who has
   not earned `villager-progression.required-advancement` (Zombie Doctor by default) cannot select a
   villager or wandering trader offer whose result carries Mending, and cannot take that result out

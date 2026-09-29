@@ -57,23 +57,21 @@ public final class InventoryGestures {
      * anyway, and a click outside the window carries a raw slot of {@code -999}, which is not in
      * the top inventory and never reaches this classification.
      *
-     * <h2>Where the fall-through is not conservative: bundles</h2>
+     * <h2>Bundles fold like any other click, and are gated beside it</h2>
      *
-     * That default is not a safe answer for every action, and the gap is named here rather than
-     * left to be discovered. {@link InventoryAction#PICKUP_FROM_BUNDLE} falls through to
-     * {@link ClickType#RIGHT} and becomes {@code DIRECT}, so {@link ItemGateRules#withdrawn} names
-     * the clicked slot — which holds the <em>bundle</em>, not the stack being pulled out of it. A
-     * bundle is in no tier, so a player right-clicking a bundle left in a chest takes its gated
-     * contents onto their cursor untested.
+     * {@link InventoryAction#PICKUP_FROM_BUNDLE} falls through to {@link ClickType#RIGHT} and
+     * becomes {@code DIRECT}, so {@link ItemGateRules#withdrawn} names the clicked slot — which
+     * holds the <em>bundle</em>, not the stack being pulled out of it, and a bundle is in no tier.
+     * That answer is left as it is on purpose: the fold describes where a gesture moves a slot's
+     * stack, and a bundle extraction moves no slot's stack. What it takes out of a bundle is named
+     * by {@link #bundleSource}, which the listener asks separately and in every view.
      *
-     * <p>That is not closed here because it is not this fold's to close. Bundle contents are
-     * {@code item-progression.gate-nested-bundles}, which #15 owns and which nothing reads yet;
-     * closing it needs a {@link ItemGateRules.Subject} that resolves to the extracted stack rather
-     * than to the clicked slot. {@code PICKUP_ALL_INTO_BUNDLE}, {@code PICKUP_SOME_INTO_BUNDLE},
-     * {@code PLACE_ALL_INTO_BUNDLE}, {@code PLACE_SOME_INTO_BUNDLE} and {@code PLACE_FROM_BUNDLE}
-     * all land somewhere harmless, but by accident rather than by decision, so they should be
-     * revisited in the same pass. {@code GestureFoldTest} pins the current answers so that pass
-     * finds failing expectations rather than silence.
+     * <p>The other bundle actions move an ordinary slot's stack, and fold correctly for that reason
+     * rather than by accident. {@code PICKUP_ALL_INTO_BUNDLE} and {@code PICKUP_SOME_INTO_BUNDLE}
+     * take the clicked slot's stack into the bundle on the cursor, so on a container slot they are
+     * a withdrawal of that stack and {@code DIRECT} tests it. {@code PLACE_ALL_INTO_BUNDLE} and
+     * {@code PLACE_SOME_INTO_BUNDLE} put the cursor into the bundle in the clicked slot — a
+     * deposit, and {@code DIRECT} tests the bundle, which is in no tier.
      */
     public static ItemGateRules.Gesture of(InventoryAction action, ClickType click) {
         Objects.requireNonNull(action, "action");
@@ -97,6 +95,34 @@ public final class InventoryGestures {
             case SHIFT_LEFT, SHIFT_RIGHT -> ItemGateRules.Gesture.QUICK_MOVE;
             case WINDOW_BORDER_LEFT, WINDOW_BORDER_RIGHT, UNKNOWN -> ItemGateRules.Gesture.INERT;
             default -> ItemGateRules.Gesture.DIRECT;
+        };
+    }
+
+    /**
+     * Which stack is the bundle a click takes an item <em>out of</em>, if any — #15's audit
+     * amendment R-14.
+     *
+     * <p>Two actions empty a bundle, one item at a time. {@link InventoryAction#PICKUP_FROM_BUNDLE}
+     * pulls an item out of the bundle in the clicked slot onto an empty cursor, and
+     * {@link InventoryAction#PLACE_FROM_BUNDLE} puts an item from the bundle on the cursor down into
+     * the clicked slot. Every other action, the four {@code *_INTO_BUNDLE} ones included, only ever
+     * fills a bundle.
+     *
+     * <p>Unlike {@link #of}, the answer does not depend on which half of the view was clicked, and
+     * the listener asks it before the pass-through views are excluded. A bundle in the player's own
+     * hotbar, main inventory or off-hand slot has no container behind it, so a rule keyed on
+     * withdrawal from the top inventory never sees the extraction at all.
+     *
+     * @return {@link ItemGateRules.Subject#CLICKED_SLOT} or {@link ItemGateRules.Subject#CURSOR}
+     *         for the stack that is the bundle, {@link ItemGateRules.Subject#NONE} when nothing
+     *         leaves a bundle
+     */
+    public static ItemGateRules.Subject bundleSource(InventoryAction action) {
+        Objects.requireNonNull(action, "action");
+        return switch (action) {
+            case PICKUP_FROM_BUNDLE -> ItemGateRules.Subject.CLICKED_SLOT;
+            case PLACE_FROM_BUNDLE -> ItemGateRules.Subject.CURSOR;
+            default -> ItemGateRules.Subject.NONE;
         };
     }
 }
