@@ -191,7 +191,7 @@ Iron smelting is the only cost of the portal, so a player can reach the Nether a
 they have iron. Diamonds wait for the iron pickaxe, the tool that mines them, which keeps
 diamonds from arriving in the same moment as the Nether. Blaze, wart and ghast items are
 gated on having entered the Nether, not on being allowed to, so they cannot be hoarded
-before the first visit. The `HARDCORE` profile uses the same diamond and Nether-tier keys and
+before the first visit. Exception: `BREEZE_ROD` and `WIND_CHARGE` are in `nether-tier` but come from overworld trial chambers, so a player who finds them before entering the Nether meets the lock. The `HARDCORE` profile uses the same diamond and Nether-tier keys and
 adds its playtime requirement; `CASUAL` and `SMP_STANDARD` match the table above.
 
 ### 4.4 `trim-progression` (planned)
@@ -268,8 +268,8 @@ file. The differences in the live sections:
 | Setting | `CASUAL` | `SMP_STANDARD` | `HARDCORE` |
 | :--- | :--- | :--- | :--- |
 | Nether gate | `story/smelt_iron` | `story/smelt_iron` | `story/smelt_iron`, `story/upgrade_tools`, 2 hours |
-| Diamond tier | `story/iron_tools` | `story/iron_tools` | `story/iron_tools` |
-| Nether tier | `story/enter_the_nether` | `story/enter_the_nether` | `story/enter_the_nether` |
+| Diamond tier | `story/iron_tools` | `story/iron_tools` | `story/iron_tools`, 2 hours |
+| Nether tier | `story/enter_the_nether` | `story/enter_the_nether` | `story/enter_the_nether`, 2 hours |
 | End gate | `nether/obtain_blaze_rod` | `story/mine_diamond`, `nether/obtain_blaze_rod`, `nether/find_fortress` | those three plus `story/enchant_item`, 10 hours |
 | `item-progression.enabled` | `false` | `true` | `true` |
 | `item-progression.feedback-cooldown-seconds` | 3 | 3 | 5 |
