@@ -9,13 +9,16 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.Material;
+import org.bukkit.Tag;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Cancellable;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockDispenseArmorEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
@@ -25,9 +28,11 @@ import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.TradeSelectEvent;
 import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Merchant;
 import org.bukkit.inventory.MerchantRecipe;
+import org.bukkit.inventory.meta.BundleMeta;
 import org.bukkit.inventory.meta.EnchantmentStorageMeta;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
@@ -62,6 +67,14 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * last two of those because it has to be refused in the same breath as they are — see
  * {@link MendingTradeRules} for the rule and {@link #refuseMending} for the wiring.
  *
+ * <p>Plus bundles (#15), which carry gated stacks past every one of those channels: a bundle is
+ * in no tier, so it can be picked up, withdrawn or gifted freely, and then emptied one item at a
+ * time. {@link #onInventoryClick} tests a bundle's contents on any click that takes an item out of
+ * one, in every view, and {@link #onBundleUse} does the same when a bundle is used in the hand to
+ * spray its contents onto the ground. Shulker boxes need nothing of their own: a shulker box item
+ * cannot be opened, and a placed one is a container like any other, so its contents are withdrawn
+ * through the ordinary top-inventory rule.
+ *
  * <p>Plus the three handlers that maintain §4 drop recall, which decides nothing and gates nothing;
  * see {@link DropRecall}.
  *
@@ -75,17 +88,11 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * taken from the container, and every <em>click</em> that could load it that way is refused in
  * {@link #onInventoryClick}: {@code DIRECT}, {@code QUICK_MOVE} and {@code HOTBAR_SWAP} on a top
  * slot all name the clicked slot, and {@code COLLECT_TO_CURSOR} names the cursor wherever it was
- * clicked. So in ordinary play a cursor reaching a drag with a gated stack on it was loaded from
- * the player's own inventory, and every drag a handler could cancel would be a deposit or an
- * own-inventory move.
- *
- * <p>"Ordinary play" rather than "always", because there is one exception and stating the argument
- * without it would be overclaiming: {@code PICKUP_FROM_BUNDLE} takes a gated stack out of a bundle
- * sitting in a container without ever being tested, for the reason
- * {@link InventoryGestures} sets out. It does not change the conclusion — a handler that refused
- * only drags spanning both halves would let that player scatter the stack within their own
- * inventory anyway, so keeping one would have stopped nothing — but the gap is real until #15
- * closes it, and this paragraph is the sole justification for dropping a handler #9 named.
+ * clicked. A cursor loaded from a bundle is tested too: {@code PICKUP_FROM_BUNDLE} is refused when
+ * the bundle holds a stack the player may not have, wherever the bundle sits. So a cursor reaching
+ * a drag with a gated stack on it was loaded from the player's own inventory, and every drag a
+ * handler could cancel would be a deposit or an own-inventory move. This paragraph is the sole
+ * justification for dropping a handler #9 named.
  *
  * <p>An earlier revision had one anyway, and it went wrong in both directions before it was
  * removed: first refusing a player tidying their own inventory, then — narrowed to drags spanning
@@ -282,10 +289,23 @@ public final class ItemProgressionListener implements Listener {
      * deposit into the container and a withdrawal out of it are told apart without this method
      * reasoning about cursors. Everything it can return is tested against the same flat material
      * check.
+     *
+     * <p>A click that takes an item out of a bundle is tested first, and before the pass-through
+     * views are excluded — audit amendment R-14. The player's own inventory screen is
+     * {@code CRAFTING}, one of those views, and a bundle in the hotbar, main inventory or off hand
+     * has no container behind it, so the withdrawal rule below never sees that extraction.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        ItemStack bundle = switch (InventoryGestures.bundleSource(event.getAction())) {
+            case CLICKED_SLOT -> event.getCurrentItem();
+            case CURSOR -> event.getCursor();
+            case NONE -> null;
+        };
+        if (bundle != null && refuseBundle(player, bundle, event)) {
             return;
         }
         if (PASS_THROUGH_VIEWS.contains(event.getView().getTopInventory().getType())) {
@@ -408,6 +428,100 @@ public final class ItemProgressionListener implements Listener {
             return;
         }
         refuseMending(player, result, verdict, event);
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // #15 - out of a bundle
+    // -------------------------------------------------------------------------------------------
+
+    /**
+     * A bundle used in the hand, which empties it onto the ground.
+     *
+     * <p>Refused when the bundle holds a stack the player may not have, so a gifted bundle of
+     * diamonds cannot be sprayed at the player's feet. The items would still be refused on pickup,
+     * but the spray is the bundle being unpacked by a player who may not hold what is in it, and it
+     * leaves the stacks on the ground for whoever else is standing there. Either hand counts:
+     * {@code getItem()} is the stack in the hand that was used.
+     *
+     * <p>Only the item use is denied. A right click on a chest or a door with a bundle in the hand
+     * still opens it, because {@code setUseItemInHand} leaves the block interaction alone.
+     *
+     * <p>Not {@code ignoreCancelled}, deliberately: the server raises a right click on air with the
+     * block interaction already denied, so the event arrives cancelled and would never be seen.
+     * {@code useItemInHand() == DENY} is the test for "somebody already refused this", as
+     * {@link EyeThrowListener} does it. The tag check comes first and allocates nothing, because
+     * every interaction in the game passes through here.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onBundleUse(PlayerInteractEvent event) {
+        Action action = event.getAction();
+        if (action != Action.RIGHT_CLICK_AIR && action != Action.RIGHT_CLICK_BLOCK) {
+            return;
+        }
+        ItemStack item = event.getItem();
+        if (item == null || !Tag.ITEMS_BUNDLES.isTagged(item.getType())
+                || event.useItemInHand() == Event.Result.DENY) {
+            return;
+        }
+        refuseBundle(event.getPlayer(), item, new ItemUseDenial(event));
+    }
+
+    /**
+     * Refuses this player whatever this bundle holds if any of it is a stack they may not have,
+     * cancelling {@code event} and telling them why.
+     *
+     * <p>Every stack in the bundle is tested, not only the one the click would take. Since 1.21.2
+     * the client chooses which item leaves a bundle, and that selection is not exposed through the
+     * API, so the gate cannot tell a diamond from the dirt beside it. A bundle holding only
+     * ungated stacks — or only stacks the player has earned — is left entirely alone, which is the
+     * case that matters; one that mixes the two is refused until the gated stack is out of it by
+     * some other hand. R-14 prescribes exactly this: evaluate each gated item in the bundle.
+     *
+     * <p>A bundle nested inside the bundle is not opened. It comes out as a bundle, which is in no
+     * tier, and its own contents are tested the moment anything is taken out of it.
+     *
+     * @param bundle the stack a click or use would empty; anything that is not a bundle, or a
+     *               bundle that is empty, passes
+     * @return {@code true} when {@code event} was cancelled
+     */
+    private boolean refuseBundle(Player player, ItemStack bundle, Cancellable event) {
+        if (!ItemGateRules.gatesBundles(plugin.configuration()) || !bundle.hasItemMeta()
+                || !(bundle.getItemMeta() instanceof BundleMeta meta)) {
+            return false;
+        }
+        for (ItemStack inside : meta.getItems()) {
+            switch (refuse(player, inside.getType(), event)) {
+                case REFUSED -> {
+                    return true;
+                }
+                case WAIVED -> {
+                    // The waiver is per player, not per stack, so nothing further can be refused.
+                    return false;
+                }
+                case UNGATED, ADMITTED -> {
+                    // Keep looking.
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * {@link PlayerInteractEvent} seen as a {@link Cancellable} whose cancellation denies only the
+     * item use, so that {@link #refuseBundle} can refuse a spray through the same spine as a click
+     * without also refusing the block the player clicked.
+     */
+    private record ItemUseDenial(PlayerInteractEvent event) implements Cancellable {
+
+        @Override
+        public boolean isCancelled() {
+            return event.useItemInHand() == Event.Result.DENY;
+        }
+
+        @Override
+        public void setCancelled(boolean cancel) {
+            event.setUseItemInHand(cancel ? Event.Result.DENY : Event.Result.DEFAULT);
+        }
     }
 
     // -------------------------------------------------------------------------------------------

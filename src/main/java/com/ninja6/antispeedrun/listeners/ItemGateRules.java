@@ -186,6 +186,17 @@ public final class ItemGateRules {
         return config.itemProgression().gateDispensers();
     }
 
+    /**
+     * Whether a bundle's contents are gated: {@code item-progression.gate-nested-bundles}.
+     *
+     * <p>Covers both ways a bundle is emptied — an item clicked out of it in any inventory view,
+     * and the contents sprayed out by using it in the hand. Independent of the master switch for
+     * the same reason as {@link #gatesDispensers}.
+     */
+    public static boolean gatesBundles(PluginConfig config) {
+        return config.itemProgression().gateNestedBundles();
+    }
+
     /** What a tier demands, in the shape {@code ProgressionManager} evaluates. */
     public static MilestoneRequirement requirement(ItemTier tier) {
         return MilestoneRequirement.of(Objects.requireNonNull(tier, "tier"));

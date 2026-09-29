@@ -166,17 +166,14 @@ class GestureFoldTest {
         }
 
         /**
-         * Pins the bundle gap rather than pretending it is closed, so that whoever implements
-         * {@code gate-nested-bundles} for #15 finds a failing expectation to update instead of a
-         * silent hole.
-         *
-         * <p>{@code PICKUP_FROM_BUNDLE} falls through to {@code DIRECT}, so
+         * {@code PICKUP_FROM_BUNDLE} falls through to {@code DIRECT}, so
          * {@link ItemGateRules#withdrawn} names the clicked slot — the bundle itself, which is in
-         * no tier — and never the gated stack being pulled out of it. Closing that needs a subject
-         * resolving to the extracted stack, which is #15's work and not this class's.
+         * no tier — and never the stack being pulled out of it. That is the fold's answer on
+         * purpose: the contents are gated separately through
+         * {@link InventoryGestures#bundleSource}, which {@code BundleGateTest} covers.
          */
         @Test
-        @DisplayName("pulling from a bundle names the bundle, not its contents -- #15's gap")
+        @DisplayName("pulling from a bundle folds to the bundle; its contents are gated separately")
         void bundleExtractionNamesTheBundle() {
             assertEquals(Gesture.DIRECT,
                     of(InventoryAction.PICKUP_FROM_BUNDLE, ClickType.RIGHT));
