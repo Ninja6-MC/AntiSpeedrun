@@ -22,8 +22,8 @@ import com.ninja6.antispeedrun.progression.MilestoneRequirement;
  * every other block, a frame that already holds an eye included, declines it, and the eye is
  * thrown. So a right click in the air is always a throw, a right click on a block is a throw
  * unless that block is an empty frame or takes the click itself, and a left click is never one.
- * {@link #respond} is that table. Setting eyes into a frame is left alone because #7 is about locating a stronghold, and a
- * player standing at an unfilled frame has already found one.
+ * {@link #respond} is that table. Setting eyes into a frame is left alone because #7 is about
+ * locating a stronghold, and a player standing at an unfilled frame has already found one.
  */
 public final class EyeThrowRules {
 
