@@ -34,6 +34,20 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      # Dependabot does not honor .gitattributes when it rewrites the wrapper, so a bump can
+      # commit gradlew.bat as a CRLF blob after it was normalized to LF (#131, #136). The
+      # index side of `git ls-files --eol` is what was committed; a text-attributed file must
+      # be LF there whatever the working tree looks like.
+      - name: Reject CRLF In Text-Attributed Files
+        run: |
+          bad=$(git ls-files --eol | awk '($1 == "i/crlf" || $1 == "i/mixed") && $3 ~ /^attr\/text/ { print }' | cut -f2-)
+          if [ -n "$bad" ]; then
+            echo "$bad" | while IFS= read -r f; do echo "::error file=$f::CR bytes in the index for a text-attributed file."; done
+            echo "::error::Fix with: git add --renormalize <file>, then commit."
+            exit 1
+          fi
+          echo "No text-attributed file has CRLF in the index."
+
       - name: Validate Gradle Wrapper
         id: wrapper
         continue-on-error: true
