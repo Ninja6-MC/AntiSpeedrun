@@ -293,7 +293,12 @@ anti-cheese:
   # the Wither 300, so 50.0 still permits a 4-hit dragon kill. 12.0 gives roughly a
   # 17-hit fight. Raise it for a faster fight; lower it to force sustained combat.
   max-single-hit-boss-damage: 12.0
+  # Refuses an Eye of Ender throw until the player has earned minecraft:nether/find_fortress.
+  # The eye stays in the hand and no Eye of Ender entity is spawned. Placing an eye into an
+  # empty End Portal frame is not a throw and is left alone.
   block-early-eye-throwing: true
+  # MiniMessage. A legacy § code is refused at load; the default is used.
+  early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
   block-exit-portal-crystal-place: true
   block-gateway-pre-dragon: true       # Block bridging, pearling & chorus fruit to the Outer End
   outer-end-radius: 500                # Boundary enforced until the world's first dragon dies

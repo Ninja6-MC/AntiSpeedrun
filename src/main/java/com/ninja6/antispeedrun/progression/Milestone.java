@@ -77,7 +77,39 @@ public record Milestone(String id, String displayName, MilestoneRequirement requ
         // path as everything else, so it belongs in the same capture -- but only when the gate is
         // actually on. See villagerTradeAdvancement.
         villagerTradeAdvancement(config).ifPresent(keys::add);
+        // Section 7's eye-throw rule, on the same terms: read on the interact path, so captured
+        // with everything else, and only while the rule is on. See earlyEyeThrowAdvancement.
+        earlyEyeThrowAdvancement(config).ifPresent(keys::add);
         return Set.copyOf(keys);
+    }
+
+    /**
+     * The advancement an Eye of Ender throw waits for (#7): finding a Nether Fortress.
+     *
+     * <p>A constant rather than a configured key. Section 7 configures the rule as an on/off switch,
+     * and #7 defines it by this one advancement, so an operator who wants a different requirement is
+     * asking for a new key rather than a different value here — the same position
+     * {@code MendingTradeRules.MENDING_KEY} takes. It is also a requirement strictly downstream of
+     * Nether access and upstream of the blaze powder every eye is crafted from, so a player
+     * following natural progression never meets the refusal.
+     */
+    public static final String EARLY_EYE_ADVANCEMENT = "minecraft:nether/find_fortress";
+
+    /**
+     * The advancement the eye-throw rule requires, if the rule is on at all.
+     *
+     * <p>Empty while {@code anti-cheese.enabled} or {@code anti-cheese.block-early-eye-throwing} is
+     * false, so a server that switched the rule off does not pay to capture the key. The single
+     * place that decision is made, so {@link #allRequiredAdvancements} and the listener cannot
+     * disagree about it: a key the listener required but the capture never queried would be waived
+     * as uncovered on every throw.
+     */
+    public static Optional<String> earlyEyeThrowAdvancement(PluginConfig config) {
+        Objects.requireNonNull(config, "config");
+        if (!config.antiCheese().enabled() || !config.antiCheese().blockEarlyEyeThrowing()) {
+            return Optional.empty();
+        }
+        return Optional.of(EARLY_EYE_ADVANCEMENT);
     }
 
     /**

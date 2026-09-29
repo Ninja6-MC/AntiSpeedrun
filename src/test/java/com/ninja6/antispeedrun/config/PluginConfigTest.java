@@ -805,9 +805,39 @@ class PluginConfigTest {
             for (String message : List.of(
                     config.dimensionGates().nether().rejectionMessage(),
                     config.dimensionGates().theEnd().rejectionMessage(),
-                    config.itemProgression().rejectionMessage())) {
+                    config.itemProgression().rejectionMessage(),
+                    config.antiCheese().earlyEyeRejectionMessage())) {
                 assertNotNull(MiniMessage.miniMessage().deserialize(message), message);
             }
+        }
+
+        @Test
+        @DisplayName("a legacy formatting code in the eye-throw refusal warns and falls back")
+        void earlyEyeTemplateFallsBack() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    anti-cheese:
+                      early-eye-rejection-message: "§cNot yet."
+                    """));
+
+            assertEquals(PluginConfig.defaults().antiCheese().earlyEyeRejectionMessage(),
+                    config.antiCheese().earlyEyeRejectionMessage());
+            assertTrue(mentions(config.warnings(), "anti-cheese.early-eye-rejection-message"),
+                    "the warning names the full key path: " + config.warnings());
+            assertTrue(config.antiCheese().blockEarlyEyeThrowing(),
+                    "a message it cannot render does not switch the rule off");
+        }
+
+        @Test
+        @DisplayName("an eye-throw refusal that parses is kept exactly as written")
+        void earlyEyeTemplateSurvives() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    anti-cheese:
+                      early-eye-rejection-message: "<red>Find a fortress."
+                    """));
+
+            assertEquals("<red>Find a fortress.", config.antiCheese().earlyEyeRejectionMessage());
+            assertFalse(mentions(config.warnings(), "early-eye-rejection-message"),
+                    config.warnings().toString());
         }
 
         @Test

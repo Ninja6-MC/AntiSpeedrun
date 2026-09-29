@@ -195,6 +195,7 @@ anti-cheese:
   # than a burst. Raise it if your players find it a slog.
   max-single-hit-boss-damage: 8.0
   block-early-eye-throwing: true
+  early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
   block-exit-portal-crystal-place: true
   block-gateway-pre-dragon: true
   outer-end-radius: 1000

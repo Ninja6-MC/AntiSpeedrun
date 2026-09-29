@@ -186,6 +186,7 @@ anti-cheese:
   # a time-to-kill budget.
   max-single-hit-boss-damage: 50.0
   block-early-eye-throwing: false
+  early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
   block-exit-portal-crystal-place: true
   block-gateway-pre-dragon: false
   outer-end-radius: 250
