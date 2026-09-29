@@ -20,10 +20,9 @@ commands:
     description: Master AntiSpeedrun administration command
     # This line must list exactly what Subcommand declares -- CommandGrammarTest asserts it.
     # "progress" and "book" were advertised here before either existed, so the dispatcher
-    # answered "Unknown subcommand" and then printed this same list back. They return as
-    # delegates to /progress and /journeybook when tasks #3 and #5 land. "progress" is back
-    # as of #3 and really does delegate now; "book" is still task #5's to add.
-    usage: /asr <reload|profile|unlock|bypass|inspect|progress>
+    # answered "Unknown subcommand" and then printed this same list back. Both are back as
+    # delegates: "progress" to /progress (#3) and "book" to /journeybook (#5).
+    usage: /asr <reload|profile|unlock|bypass|inspect|progress|book>
     aliases: [asr]
   progress:
     description: View your personal survival progression milestones
@@ -36,16 +35,14 @@ commands:
     permission: antispeedrun.book
 
 permissions:
-  # antispeedrun.book still describes the standalone command only. /asr book is not a
-  # subcommand the dispatcher accepts, and naming it here told operators otherwise; that
-  # description widens when task #5 adds the delegate. antispeedrun.progress has widened:
-  # #3 landed the /asr progress delegate, and it is gated on this same node rather than on
-  # one of its own, so a player who can run /progress can run /asr progress.
+  # Each delegate is gated on its standalone command's node rather than on one of its own,
+  # so a player who can run /progress can run /asr progress (#3), and a player who can run
+  # /journeybook can run /asr book (#5).
   antispeedrun.progress:
     description: Allows viewing personal progression status via /progress or /asr progress
     default: true
   antispeedrun.book:
-    description: Allows obtaining the Journey Guide Book via /journeybook
+    description: Allows obtaining the Journey Guide Book via /journeybook or /asr book
     default: true
 
   antispeedrun.admin:

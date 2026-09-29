@@ -117,26 +117,33 @@ class CommandGrammarTest {
         }
 
         @Test
-        @DisplayName("the one non-administrative subcommand is progress, on the /progress node")
+        @DisplayName("the non-administrative subcommands are progress and book, on their commands' nodes")
         void progressIsNotAnAdminSubcommand() {
             // #3's naming decision, asserted rather than left to a comment. /asr progress is a
             // delegate to /progress, so it reuses antispeedrun.progress: a node of its own would
             // be a second thing an operator has to grant before the same capability works under a
             // second spelling, and brand/COMMAND_NAMING.md §2 is about exactly that class of
             // silently-broken permission.
+            //
+            // /asr book (#5) is the same decision for /journeybook and antispeedrun.book.
+            Set<Subcommand> delegates = Set.of(Subcommand.PROGRESS, Subcommand.BOOK);
             for (Subcommand subcommand : Subcommand.values()) {
                 if (!subcommand.administrative()) {
-                    assertEquals(Subcommand.PROGRESS, subcommand,
+                    assertTrue(delegates.contains(subcommand),
                             subcommand + " is gated outside antispeedrun.admin; if that is "
                                     + "deliberate, say so here and in plugin.yml");
                 }
             }
             assertEquals("antispeedrun.progress", Subcommand.PROGRESS.permission());
-            assertTrue(PluginYml.declaredPermissions().contains("antispeedrun.progress"));
-            assertFalse(PluginYml.reachableFrom("antispeedrun.admin").contains("antispeedrun.progress"),
-                    "antispeedrun.progress defaults to true; nesting it under the op-default admin "
-                            + "tree would change nothing for players and confuse every operator "
-                            + "reading it in a permissions plugin");
+            assertEquals("antispeedrun.book", Subcommand.BOOK.permission());
+            for (Subcommand delegate : delegates) {
+                String node = delegate.permission();
+                assertTrue(PluginYml.declaredPermissions().contains(node));
+                assertFalse(PluginYml.reachableFrom("antispeedrun.admin").contains(node),
+                        node + " defaults to true; nesting it under the op-default admin tree "
+                                + "would change nothing for players and confuse every operator "
+                                + "reading it in a permissions plugin");
+            }
         }
 
         @Test
@@ -181,8 +188,9 @@ class CommandGrammarTest {
             assertTrue(Subcommand.parse("relaod").isEmpty());
             assertTrue(Subcommand.parse("").isEmpty());
             assertTrue(Subcommand.parse(null).isEmpty());
-            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "progress"),
-                    Subcommand.labels());
+            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "progress",
+                    "book"), Subcommand.labels());
+            assertEquals(Subcommand.BOOK, Subcommand.parse("Book").orElseThrow());
         }
     }
 
@@ -193,8 +201,8 @@ class CommandGrammarTest {
         @Test
         @DisplayName("the first argument offers only subcommands the sender may run")
         void firstArgumentIsPermissionFiltered() {
-            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "progress"),
-                    CommandCompletion.complete(new String[] {""}, ADMIN, ONLINE));
+            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "progress",
+                    "book"), CommandCompletion.complete(new String[] {""}, ADMIN, ONLINE));
             assertEquals(List.of("reload"),
                     CommandCompletion.complete(new String[] {""}, allowing(Subcommand.RELOAD), ONLINE));
             assertEquals(List.of(),
@@ -259,6 +267,9 @@ class CommandGrammarTest {
             // true would hand it to everyone.
             assertEquals(List.of(),
                     CommandCompletion.complete(new String[] {"progress", ""}, ADMIN, ONLINE));
+            // /asr book likewise hands the sender their own copy.
+            assertEquals(List.of(),
+                    CommandCompletion.complete(new String[] {"book", ""}, ADMIN, ONLINE));
         }
 
         @Test

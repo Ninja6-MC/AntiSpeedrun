@@ -66,7 +66,7 @@ public final class CommandCompletion {
             case INSPECT -> args.length == 2 ? filter(playerNames, partial) : List.of();
             // Takes no arguments, and deliberately does not complete player names: /asr progress
             // shows the sender their own card, so a name would be an argument it then ignores.
-            case RELOAD, PROGRESS -> List.of();
+            case RELOAD, PROGRESS, BOOK -> List.of();
         };
     }
 

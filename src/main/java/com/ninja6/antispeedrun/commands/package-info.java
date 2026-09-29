@@ -11,7 +11,9 @@
  * tested directly. {@code paper-api} is {@code compileOnly} here, so that split is the difference
  * between command logic that is tested and command logic that is merely read.
  *
- * <p>The {@code /progress} and {@code /journeybook} commands declared in {@code plugin.yml} belong
- * to other tasks and are not implemented in this package yet.
+ * <p>{@link com.ninja6.antispeedrun.commands.ProgressCommand} is {@code /progress} (#3) and
+ * {@link com.ninja6.antispeedrun.commands.JourneyBookCommand} is {@code /journeybook} (#5); each is
+ * also reachable as an {@code /asr} subcommand that delegates to it. The journey book's text is
+ * {@link com.ninja6.antispeedrun.commands.JourneyBookPages}', Bukkit-free for the same reason.
  */
 package com.ninja6.antispeedrun.commands;

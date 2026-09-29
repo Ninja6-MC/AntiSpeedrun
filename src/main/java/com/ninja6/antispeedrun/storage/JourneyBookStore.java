@@ -19,14 +19,10 @@ import org.bukkit.plugin.Plugin;
  * distinguishes "already had it" from "never eligible". A flag the plugin sets itself has no such
  * blind spot: absent means not yet delivered, whoever the player is and whenever they first joined.
  *
- * <h2>Not yet consumed — and that is deliberate, not an oversight</h2>
+ * <h2>Who reads it</h2>
  *
- * There is no journey-book feature on {@code main} yet: {@code PluginConfig.JourneyBook} and the
- * {@code journeybook} command declaration exist, and nothing else does. This class is the persisted
- * flag that task needs, published ahead of it so the join listener is written against a store that
- * already exists rather than inventing a second one. Until that listener lands, nothing calls
- * {@link #markDelivered} and no player receives a book — the acceptance criterion in #57 about
- * existing players is only half met, and the pull request says so.
+ * {@code JourneyBookCommand} (#5): the first-join grant gives a book only while this flag is absent,
+ * and every copy handed out — on join, through {@code /journeybook} or {@code /asr book} — sets it.
  *
  * <h2>Threading</h2>
  *
