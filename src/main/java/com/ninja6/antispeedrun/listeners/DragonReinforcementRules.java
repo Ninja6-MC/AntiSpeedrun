@@ -79,7 +79,10 @@ public final class DragonReinforcementRules {
     /**
      * How many dragons, primary included, a party of {@code partySize} fights.
      *
-     * <p>{@code max(1, min(max-dragons, round(partySize * multiplier)))}, rounded half up. The
+     * <p>{@code max(1, min(max-dragons, round(partySize * multiplier)))}, rounded half up, with one
+     * exception: a party of one (or none) always fights exactly one dragon, whatever the multiplier.
+     * A multiplier above {@code 1.0} is valid, and without the exception it would give a solo player
+     * more than the one dragon Task 6.1.1 promises them. The
      * configurable rounding modes are Task 6.1.2 (#38); until then {@code rounding-mode} is read by
      * nothing and every mode behaves as {@code HALF_UP}, the shipped default. With
      * {@code multi-dragon.enabled: false} the answer is always one.

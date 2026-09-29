@@ -237,7 +237,8 @@ never been killed starts a countdown of `battle-prep-seconds`; the dragon is not
 back and fights from the start. When the countdown ends, every survival or adventure
 player within 300 blocks of the centre is counted, and the party fights
 `max(1, min(max-dragons, round(players * multiplier)))` dragons: the extra ones spawn
-above the main island at that moment. With `enabled: false` nothing happens, and with
+above the main island at that moment. A party of one always fights exactly one dragon,
+even with a `multiplier` above `1.0`. With `enabled: false` nothing happens, and with
 `multi-dragon.enabled: false` the count is always one. `battle-prep-seconds: 0` counts
 on entry. Rounding is half up whatever `rounding-mode` says, until
 [#38](https://github.com/Ninja6-MC/AntiSpeedrun/issues/38).
