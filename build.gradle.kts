@@ -5,7 +5,7 @@ plugins {
 group = "com.ninja6"
 // CI passes -PpluginVersion with the commit-derived snapshot version (scripts/snapshot-version.py,
 // N6-CI-09). A local or release build without it keeps the version written here.
-version = providers.gradleProperty("pluginVersion").orNull ?: "1.0.0-SNAPSHOT"
+version = providers.gradleProperty("pluginVersion").orNull ?: "0.1.0-SNAPSHOT"
 
 java {
     toolchain {
