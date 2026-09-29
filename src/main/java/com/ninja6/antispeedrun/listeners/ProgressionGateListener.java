@@ -609,12 +609,11 @@ public final class ProgressionGateListener implements Listener {
      *       judged as before.</li>
      * </ul>
      *
-     * <p>What remains is a teleport the server refuses after this has run — a malformed line that
-     * reads cleanly here, or a destination outside the world border. That leaves a note on a player
-     * an operator just tried to move into that world, spendable only by an unreported transit into
-     * the same world through the same gate inside {@link DimensionGateRules#DECISION_WINDOW_MILLIS}.
-     * The same remainder {@link #decisions} already documents for a teleport that is settled but
-     * never completes.
+     * <p>The line is read before the command runs, so a teleport the server refuses, or runs zero
+     * times, still leaves a note. {@link #expectCommandTeleport} retracts a note nothing has
+     * consumed within {@link DimensionGateRules#COMMAND_CONFIRM_TICKS}, whatever the parser made of
+     * the line. What remains is that short interval, and the same remainder {@link #decisions}
+     * documents for a teleport that is settled but never completes.
      *
      * <h2>Folia</h2>
      *
@@ -641,9 +640,39 @@ public final class ProgressionGateListener implements Listener {
         }
         for (Entity target : entities(sender, teleport.targets())) {
             if (target instanceof Player player) {
-                expectTeleport(player, destination.get());
+                expectCommandTeleport(player, destination.get());
             }
         }
+    }
+
+    /**
+     * Notes a teleport read from a command line, and takes the note back if nothing has spent it
+     * after {@link DimensionGateRules#COMMAND_CONFIRM_TICKS}.
+     *
+     * <p>The line is read before the command runs, so the parser cannot know whether the server
+     * refused it or ran it zero times (an {@code execute as} that selected nobody, a malformed
+     * argument). Rather than reproduce Brigadier to guess, the note is confirmed by its effect: a
+     * teleport that happened has put the player into the noted world, and that arrival consumed the
+     * note. A note still present later belongs to a command that did nothing, and is retracted.
+     * Only that exact note is retracted, so a note written meanwhile stays.
+     */
+    private void expectCommandTeleport(Player player, World destination) {
+        Optional<DimensionUnlock> gate = DimensionGateRules.gatedDestination(
+                kindOf(player.getWorld()), kindOf(destination), plugin.configuration());
+        if (gate.isEmpty()) {
+            return;
+        }
+        DimensionUnlock dimension = gate.get();
+        UUID destinationId = destination.getUID();
+        long recordedAt = System.currentTimeMillis();
+        DimensionGateRules.note(
+                decisions.computeIfAbsent(player.getUniqueId(), id -> new ConcurrentHashMap<>(2)),
+                dimension, destinationId, recordedAt);
+        // A player gone by then has no ledger left to clean, so there is no retired callback.
+        player.getScheduler().runDelayed(plugin, task -> DimensionGateRules.retract(
+                        decisions.get(player.getUniqueId()).orElse(null), dimension, destinationId,
+                        recordedAt),
+                null, DimensionGateRules.COMMAND_CONFIRM_TICKS);
     }
 
     /**
