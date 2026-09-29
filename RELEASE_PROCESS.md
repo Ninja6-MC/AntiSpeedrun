@@ -141,6 +141,14 @@ no job receives a publishing secret: GitHub publication uses the job's own `GITH
 Approve the pending `release` deployment only after reading the manifest in the run
 summary. Automation never approves it.
 
+The environment gate on its own fails open. If `release` does not exist, GitHub creates it
+without protection when the job first names it. If it loses its required reviewer, the job
+starts without waiting. The publish job's first step, **Require Maintainer Approval**,
+therefore reads the run's approvals (`actions/runs/<id>/approvals`, the job's only use of
+`actions: read`). It continues only if a person, not a bot or app, approved `release` for
+this run, and it stops on any rejection. A tag pushed before the environment is set up fails
+there without writing anything; set the environment up and re-run the failed job.
+
 **Publication.** `scripts/release-github.py` runs in order:
 
 1. Re-verify the candidate, the manifest, every digest and the evidence. The run's commit
@@ -177,9 +185,10 @@ tag, and re-run the failed job. If the tag must change, it names a new version.
 
 Configured once, in the repository settings in the browser:
 
-* **Environments → `release`**: required reviewer is the maintainer. Deployment branches
-  and tags: **Selected**, with the tag rule `v*`. No environment secrets are needed for
-  GitHub publication.
+* **Environments → `release`**, created before the first tag: required reviewer is the
+  maintainer. Deployment branches and tags: **Selected**, with the tag rule `v*`. No
+  environment secrets are needed for GitHub publication. Without the reviewer, every
+  publish run fails its approval check.
 * **Rules → tag ruleset** (recommended): restrict creating, updating and deleting `v*` tags
   to the maintainer, so nothing else can start or move a release.
 

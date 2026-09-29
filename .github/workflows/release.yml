@@ -272,13 +272,38 @@ jobs:
     # any step runs, until the maintainer approves this run in the browser.
     environment: release
     # The only job with write access, and the only one that could publish. It builds nothing.
+    # actions: read is for the approval check below and nothing else.
     permissions:
+      actions: read
       contents: write
     env:
       TAG: ${{ needs.candidate.outputs.tag }}
       CANDIDATE_ATTEMPT: ${{ needs.candidate.outputs.attempt }}
 
     steps:
+      # `environment: release` alone fails open: GitHub creates a named environment that does
+      # not exist with no protection rules, and an environment that lost its reviewer lets the
+      # job start too. Proceed only on a recorded approval of `release` for this run, given by
+      # a person rather than a bot or app; any rejection in the run also stops it.
+      - name: Require Maintainer Approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          api="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals"
+          release='select(any(.environments[]?; .name == "release"))'
+          rejected="$(gh api "$api" --jq "[.[] | $release | select(.state == \"rejected\")] | length")"
+          approvers="$(gh api "$api" --jq "[.[] | $release | select(.state == \"approved\" and .user.type == \"User\") | .user.login] | unique | join(\", \")")"
+          if [ "$rejected" != 0 ]; then
+            echo "::error::The release environment was rejected for this run."
+            exit 1
+          fi
+          if [ -z "$approvers" ]; then
+            echo "::error::No one approved the release environment for this run. It is missing or has no required reviewer, so GitHub let the job start unreviewed. Configure it as RELEASE_PROCESS.md section 3 describes, then re-run this job."
+            exit 1
+          fi
+          echo "release approved for run $GITHUB_RUN_ID by $approvers"
+
       # Only for scripts/, at the tagged commit the candidate was built from.
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
