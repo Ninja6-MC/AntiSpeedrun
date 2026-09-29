@@ -1,8 +1,16 @@
 # agent-review-gate
 #
-# Owns the `ninja6-agent/review` commit status for its whole lifecycle: it registers
-# the context as pending when a pull request opens, and moves it off pending when
-# `ninja6-agent[bot]` submits a review.
+# Owns the `ninja6-agent/review` commit status on same-repository pull requests: it
+# registers the context as pending when a pull request opens, moves it off pending when
+# `ninja6-agent[bot]` submits a review, and re-derives it when one of that account's
+# reviews is dismissed, so a dismissed approval cannot leave the context green.
+#
+# FORK PULL REQUESTS: neither job runs. GitHub hands a fork pull request a read-only
+# `GITHUB_TOKEN`, so the status write would return 403 and fail a check the contributor
+# cannot act on. A fork pull request therefore gets no `ninja6-agent/review` context from
+# this workflow. The only writer there is the review tooling's own status call, made
+# from outside Actions with the maintainer's `gh` credentials rather than this token or
+# the App's. The context is not required, so its absence blocks nothing.
 #
 # ----------------------------------------------------------------------------------
 # DO NOT ADD `ninja6-agent/review` TO main's REQUIRED STATUS CHECKS.
@@ -28,20 +36,20 @@
 #      the context. Both derive the state from the same review, so they cannot
 #      disagree; the later write simply repeats the earlier one.
 #
-# WHICH COPY OF THIS FILE RUNS, AND WHY THAT IS NOT SETTLED: GitHub documents
-# `pull_request_review` as running in the base-branch context — the copy of this file on
-# `main`, not the copy on the pull request's head branch. Observed behaviour differs.
-# When the reviewer approved the pull request that introduced the `resolve` job, GitHub
-# ran a `pull_request_review` workflow at head `4191386` whose jobs were named
+# WHICH COPY OF THIS FILE RUNS: GitHub documents which ref and SHA a
+# `pull_request_review` run executes against. Which copy of this file's definition is
+# loaded is a separate question, and it is the only one observed here. When the reviewer
+# approved the pull request that introduced the `resolve` job, GitHub ran a
+# `pull_request_review` workflow at head `4191386` whose jobs were named
 # `Register Review Status` and `Resolve Review Status`. Those names existed only on the
 # head branch: `main` carried a single job named `gate` and no `pull_request_review`
-# trigger at all, so that run cannot have come from `main`. The head copy ran, and it
-# resolved the status correctly.
+# trigger at all, so that definition cannot have come from `main`. The head branch's
+# definition ran, and it resolved the status correctly.
 #
-# That is ONE observation, on a same-repo pull request, contradicting the documented rule.
-# Do not rely on either reading. It has not been checked for pull requests from forks,
-# where the token is read-only and a status write would fail regardless. When changing the
-# `resolve` job, verify which jobs a run actually executed rather than assuming.
+# That establishes which definition ran for a same-repository pull request. It does not
+# contradict the documented ref, and says nothing about forks, where neither job runs.
+# When changing the `resolve` job, verify which jobs a run actually executed rather than
+# assuming.
 
 name: agent-review-gate
 
@@ -49,7 +57,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   pull_request_review:
-    types: [submitted]
+    types: [submitted, dismissed]
 
 permissions:
   statuses: write
@@ -58,7 +66,11 @@ permissions:
 jobs:
   register:
     name: Register Review Status
-    if: github.event_name == 'pull_request'
+    # Same-repository pull requests only: a fork's token cannot write statuses. See the
+    # header. `head.repo` is null when the fork has been deleted, which also skips.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -86,16 +98,21 @@ jobs:
   resolve:
     name: Resolve Review Status
     # Only the agent reviewer's own verdict may move this context. A review from any
-    # other account — human or bot — is ignored here.
+    # other account — human or bot — is ignored here. On a dismissal `review.user` is
+    # still the review's author, not whoever dismissed it, so the same test applies.
+    # Fork pull requests are skipped for the reason `register` is.
     if: >-
       github.event_name == 'pull_request_review' &&
-      github.event.review.user.login == 'ninja6-agent[bot]'
+      github.event.review.user.login == 'ninja6-agent[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Resolve Review Status
         env:
           GH_TOKEN: ${{ github.token }}
+          ACTION: ${{ github.event.action }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           # Webhook payloads deliver this lowercased ("approved"), the REST API
           # uppercased ("APPROVED"). Normalise below rather than trusting either.
           REVIEW_STATE: ${{ github.event.review.state }}
@@ -104,6 +121,29 @@ jobs:
           REVIEW_URL: ${{ github.event.review.html_url }}
         run: |
           state=$(printf '%s' "$REVIEW_STATE" | tr '[:upper:]' '[:lower:]')
+          target="$REVIEW_URL"
+
+          if [ "$ACTION" = "dismissed" ]; then
+            # The dismissed review no longer stands, but it may not have been the only one.
+            # Take the latest of this account's reviews on the current head that still
+            # stands; with none, the head has been reviewed but is no longer cleared.
+            standing=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+              --jq '.[] | select(.user.login == "ninja6-agent[bot]" and .commit_id == env.SHA and .state != "DISMISSED" and .state != "PENDING") | [.state, .html_url] | @tsv' \
+              | tail -n 1)
+            if [ -z "$standing" ]; then
+              echo "Review $REVIEW_URL was dismissed; no ninja6-agent review stands on $SHA -> pending"
+              gh api -X POST "repos/$REPO/statuses/$SHA" \
+                -f state=pending \
+                -f context="ninja6-agent/review" \
+                -f description="ninja6-agent review dismissed; none standing" \
+                -f target_url="$REVIEW_URL"
+              exit 0
+            fi
+            state=$(printf '%s' "$standing" | cut -f1 | tr '[:upper:]' '[:lower:]')
+            target=$(printf '%s' "$standing" | cut -f2)
+            echo "Review $REVIEW_URL was dismissed; $target still stands."
+          fi
+
           case "$state" in
             approved)
               status=success
@@ -119,13 +159,15 @@ jobs:
               description="ninja6-agent commented; findings outstanding"
               ;;
             *)
-              echo "Ignoring review state '$state' (dismissed or unrecognised)."
+              # Never a dismissal: that is handled above, and only standing reviews are
+              # selected there. This arm is for a state GitHub adds later.
+              echo "Ignoring unrecognised review state '$state'."
               exit 0
               ;;
           esac
-          echo "Review $REVIEW_URL is '$state' -> $status"
+          echo "Review $target is '$state' -> $status"
           gh api -X POST "repos/$REPO/statuses/$SHA" \
             -f state="$status" \
             -f context="ninja6-agent/review" \
             -f description="$description" \
-            -f target_url="$REVIEW_URL"
+            -f target_url="$target"
