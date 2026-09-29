@@ -80,6 +80,8 @@ public record Milestone(String id, String displayName, MilestoneRequirement requ
         // Section 7's eye-throw rule, on the same terms: read on the interact path, so captured
         // with everything else, and only while the rule is on. See earlyEyeThrowAdvancement.
         earlyEyeThrowAdvancement(config).ifPresent(keys::add);
+        // Section 3's structure milestones, while any trim lock is on (#36).
+        keys.addAll(TrimProgressionManager.requiredAdvancements(config));
         return Set.copyOf(keys);
     }
 

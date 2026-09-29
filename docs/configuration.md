@@ -200,6 +200,16 @@ Keys `enabled`, `gate-natural-trim-chests`, `block-unearned-template-duplication
 `block-unearned-smithing` and `block-wearing-unearned-trims` are parsed only. Tracked
 in [#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45).
 
+The structure each lock will require is fixed, not configured:
+
+| Structure | Gates | Advancement |
+| :--- | :--- | :--- |
+| Ancient City | Silence and Ward trims | `minecraft:adventure/avoid_vibration` (vanilla has no Ancient City advancement) |
+| Bastion Remnant | Snout trim, netherite upgrade template | `minecraft:nether/find_bastion` |
+| End City | Spire trim | `minecraft:end/find_end_city` |
+
+Every other trim is ungated.
+
 ### 4.5 `idle-reminder`
 
 | Key | Default | Notes |
