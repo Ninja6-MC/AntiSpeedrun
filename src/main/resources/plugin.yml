@@ -1,5 +1,5 @@
 name: AntiSpeedrun
-version: ${version}
+version: '${version}'
 main: com.ninja6.antispeedrun.AntiSpeedrunPlugin
 api-version: '1.21'
 author: Ninja6-MC
