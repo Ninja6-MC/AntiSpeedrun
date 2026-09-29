@@ -44,13 +44,15 @@ that tier's items**:
 | Tier | Unlocked by | Tool needed to obtain its items | Already unlocked? |
 | :--- | :--- | :--- | :---: |
 | iron | `story/mine_stone` | stone pickaxe (mining stone earns the advancement) | yes |
-| diamond | `story/smelt_iron` | iron pickaxe | yes |
-| nether | `story/smelt_iron` | obsidian access | yes |
+| diamond | `story/iron_tools` | iron pickaxe | yes |
+| nether | `story/enter_the_nether` | obsidian access | yes |
 | netherite | `story/mine_diamond` + `nether/obtain_blaze_rod` | diamond pickaxe, Nether access | yes |
 | end | `nether/obtain_blaze_rod` + `nether/find_fortress` | blaze powder | yes |
 
-A player following the natural progression **never encounters a lock**. The gate fires only
-when someone skips ahead, which is the plugin's entire purpose.
+A player following the natural progression **never encounters a lock**, with one exception:
+`BREEZE_ROD` and `WIND_CHARGE` sit in the nether tier but drop in overworld trial chambers, so
+a player who reaches those before entering the Nether is locked out of them. Otherwise the gate
+fires only when someone skips ahead, which is the plugin's entire purpose.
 
 This is the load-bearing claim of this decision. It means the false-positive problem that
 owner-recall, `BlockDropItemEvent` stamping, and much of `exclude-materials` existed to
