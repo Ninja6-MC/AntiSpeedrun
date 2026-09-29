@@ -59,9 +59,10 @@ is intended to grow boss-combat scaling and further anti-cheese protection.
   (`journey-book.give-on-first-join`).
 - **Administration** -- config reload, configuration profiles, durable dimension
   unlocks, temporary bypass grants and per-player inspection.
-- **Toggles** -- dimension gates (per dimension), item progression, idle reminders and
-  the early Eye of Ender block (`anti-cheese.enabled` and
-  `anti-cheese.block-early-eye-throwing`) can be switched off in `config.yml`. The
+- **Toggles** -- dimension gates (per dimension), item progression, idle reminders,
+  the Mending trade gate (`villager-progression.gate-mending-trade`, off by default)
+  and the early Eye of Ender block (`anti-cheese.enabled` and
+  `anti-cheese.block-early-eye-throwing`) can be switched in `config.yml`. The
   `/progress` card, the Journey Guide Book and the administrative commands have no
   on/off switch.
 
