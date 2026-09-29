@@ -168,7 +168,12 @@ there without writing anything; set the environment up and re-run the failed job
    pre-release is published with `make_latest=false`. A stable release is published with
    `make_latest=true` only when no published stable release has a higher SemVer version.
    Otherwise it gets `make_latest=false`. This covers re-running an older release's failed
-   job, or approving two stable tags out of order.
+   job, or approving two stable tags out of order. It does not cover two stable publish
+   jobs **running at the same time**. The concurrency group is per tag, so both can decide
+   before either publishes, and an older release published last can take Latest. Step 6
+   catches this and fails the older job, but does not prevent it. A shared concurrency
+   group would prevent it, but would also cancel a tag run waiting for approval. Approve
+   one stable release at a time.
 6. Download each public asset signed out, from the address a user would use, and compare
    it with the manifest. Then check Latest: a stable release with no higher stable release
    published must now be GitHub's Latest, and any other release must not be.
@@ -184,8 +189,13 @@ against the published release and rejected on any difference.
 differs from the candidate: different bytes, assets, title, notes or pre-release flag, or
 a Latest flag other than the one step 6 expects. It also stops for a draft carrying a foreign or
 mismatched asset, or several releases for one tag. Nothing public is overwritten or
-deleted. Inspect the release in the browser. If it is wrong, delete the release, never the
-tag, and re-run the failed job. If the tag must change, it names a new version.
+deleted. Inspect the release in the browser:
+
+* **An older stable release took Latest** (two stable publish jobs ran at once). The release
+  itself is correct, so do not delete it. Edit the newer stable release in the browser and
+  mark it Latest, then re-run the older job's failed job; it now finds everything complete.
+* **Anything else is wrong with the release:** delete the release, never the tag, and
+  re-run the failed job. If the tag must change, it names a new version.
 
 ### Maintainer setup
 
