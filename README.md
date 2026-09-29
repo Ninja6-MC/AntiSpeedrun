@@ -138,3 +138,13 @@ from one category each.
 ## License
 
 [GNU General Public License v3.0](LICENSE).
+
+---
+
+<p align="center">
+  <a href="https://github.com/Ninja6-MC"><img src="assets/ninja6-primary-256.png" width="48" height="48" alt=""></a>
+</p>
+
+<p align="center">
+  <sub>A <a href="https://github.com/Ninja6-MC">Ninja6</a> project.</sub>
+</p>
