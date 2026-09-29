@@ -25,6 +25,7 @@ import com.ninja6.antispeedrun.config.UnenforceableGateException;
 import com.ninja6.antispeedrun.gating.GateCollisionException;
 import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.gating.MaterialGates;
+import com.ninja6.antispeedrun.listeners.BossCombatListener;
 import com.ninja6.antispeedrun.listeners.EyeThrowListener;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
@@ -218,6 +219,10 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // The early Eye of Ender rule (#7). After the stores for the same reason as the two gates
         // above: it reads bypasses() and dimensionUnlocks() on every refused throw.
         getServer().getPluginManager().registerEvents(new EyeThrowListener(this), this);
+
+        // The dragon reinforcement window (#37). It reads only the live snapshot, so its place in this
+        // sequence is not load-bearing; it sits with the other listeners.
+        getServer().getPluginManager().registerEvents(new BossCombatListener(this), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
