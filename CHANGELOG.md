@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- One victory for a multi-dragon fight. The original Ender Dragon cannot die while an extra dragon
+  lives, so the exit portal, the egg, the 12,000 XP award and the "dragon killed" flag wait for the
+  last dragon. Extra dragons drop at most 500 XP and do not heal from End crystals. A resolved
+  reinforcement window is recorded in `dragon-fights.yml`, so a restart mid-fight no longer spawns
+  a second set of extra dragons.
 - The multi-dragon reinforcement window. The first player to enter an End whose dragon has never
   been killed starts a `boss-scaling.battle-prep-seconds` countdown, shown to everyone in the End;
   the dragon fights from the start, so a solo player is never kept waiting. When it ends, survival

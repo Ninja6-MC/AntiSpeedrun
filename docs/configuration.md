@@ -243,6 +243,29 @@ even with a `multiplier` above `1.0`. With `enabled: false` nothing happens, and
 on entry. Rounding is half up whatever `rounding-mode` says, until
 [#38](https://github.com/Ninja6-MC/AntiSpeedrun/issues/38).
 
+A window opens once per End world. That it has run is recorded in
+`dragon-fights.yml` (see [administration.md](administration.md#6-persisted-state)), so a
+restart during the fight does not spawn a second set of dragons. An extra dragon found
+when its chunk loads also marks the window as run, in case that file is lost.
+
+Vanilla treats the End as a one-dragon fight: the exit portal, the egg, the 12,000 XP
+first-kill award and the "dragon killed" flag all belong to the original dragon. While
+any extra dragon is alive, the original one cannot die. A killing blow leaves it on one
+health, and players in the End are told how many extra dragons remain. Once the last
+extra dragon is dead, the original can be killed and vanilla's victory runs once: the
+portal opens, the egg forms, the 12,000 XP drops and the flag is set. Anything keyed to
+that flag, such as the outer-End boundary, holds for the whole fight. Each extra dragon
+drops at most 500 XP, vanilla's amount for a repeat kill, until balanced XP
+([#22](https://github.com/Ninja6-MC/AntiSpeedrun/issues/22)) lands. This applies to
+extra dragons already alive even after `enabled` is set to `false`.
+
+**Crystal healing.** Extra dragons do not heal from End crystals; the original dragon
+still does. The pillar crystals are sized for one dragon. If every dragon could heal
+from them, each crystal destroyed would cut off healing for several dragons at once,
+and a larger party would face an easier fight per dragon. Without it, each extra dragon
+has a fixed 200 health however the crystals go. The client may still draw a crystal
+beam to an extra dragon; the beam heals nothing.
+
 `scale-resummoned-dragons`, `rounding-mode`, `balanced-xp`, `exit-portal-egg.*`,
 `skull-drop-chance`, `exit-portal-lock-during-battle` and
 `exit-portal-lock-release-minutes` are parsed only. Tracked in
