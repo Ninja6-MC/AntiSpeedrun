@@ -29,9 +29,10 @@ review left standing on the head commit, the status is pending (issue #85).
 **Fork pull requests get nothing from the workflow.** GitHub gives them a read-only
 `GITHUB_TOKEN`, so any status write would fail with 403 and show the contributor a red
 check they cannot act on. Both jobs are therefore skipped unless the head repository is
-this one. On a fork pull request the context appears only if the reviewer's own status
-call writes it with the App's token; the context is not required, so its absence blocks
-nothing.
+this one. On a fork pull request the context appears only if the review tooling's own
+status call writes it, from outside Actions with the maintainer's `gh` credentials rather
+than the workflow's token or the App's; the context is not required, so its absence
+blocks nothing.
 
 `agent/tools/review-as-bot.mjs status` continues to write the same context as the
 reviewer's own last step. **The two are deliberately not exclusive.** The tool is the

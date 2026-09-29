@@ -8,9 +8,9 @@
 # FORK PULL REQUESTS: neither job runs. GitHub hands a fork pull request a read-only
 # `GITHUB_TOKEN`, so the status write would return 403 and fail a check the contributor
 # cannot act on. A fork pull request therefore gets no `ninja6-agent/review` context from
-# this workflow; the only writer there is the reviewer's own status call (mechanism 1
-# below), which uses the App's token rather than this one. The context is not required,
-# so its absence blocks nothing.
+# this workflow. The only writer there is the review tooling's own status call, made
+# from outside Actions with the maintainer's `gh` credentials rather than this token or
+# the App's. The context is not required, so its absence blocks nothing.
 #
 # ----------------------------------------------------------------------------------
 # DO NOT ADD `ninja6-agent/review` TO main's REQUIRED STATUS CHECKS.
