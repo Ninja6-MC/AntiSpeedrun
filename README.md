@@ -24,7 +24,8 @@ Part of the [Ninja6-MC](https://github.com/Ninja6-MC) plugin suite.
 Under active development; there is no public release yet. Only the modules listed
 under "Implemented" below do anything on a running server. Everything under "Planned"
 has configuration keys that are parsed and validated but no runtime behavior behind
-them, so switching those keys on has no effect yet.
+them, so switching those keys on has no effect yet. The one shared key is
+`anti-cheese.enabled`, which is live because the Eye of Ender block reads it.
 
 ---
 
@@ -58,19 +59,27 @@ is intended to grow boss-combat scaling and further anti-cheese protection.
   (`journey-book.give-on-first-join`).
 - **Administration** -- config reload, configuration profiles, durable dimension
   unlocks, temporary bypass grants and per-player inspection.
-- **Toggles** -- each implemented module has its own switch in `config.yml`.
+- **Toggles** -- dimension gates (per dimension), item progression, idle reminders and
+  the early Eye of Ender block (`anti-cheese.enabled` and
+  `anti-cheese.block-early-eye-throwing`) can be switched off in `config.yml`. The
+  `/progress` card, the Journey Guide Book and the administrative commands have no
+  on/off switch.
 
 ### Planned
 
 These are tracked in issues and are not implemented. Their keys in `config.yml` are
-read and validated at load but nothing acts on them.
+read and validated at load but nothing acts on them, with the exception of
+`anti-cheese.enabled` noted above.
 
 - **Multi-dragon boss scaling** (`boss-scaling`) -- tracked in
   [#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46).
 - **Remaining anti-cheese rules** (`anti-cheese`) -- Bed and Respawn Anchor damage
-  against bosses, exit portal crystal placement and the Outer End boundary; tracked
-  in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47). Only the early Eye
-  of Ender block above is live.
+  against bosses (`block-bed-anchor-boss-damage`), the single-hit boss damage cap
+  (`max-single-hit-boss-damage`), exit portal crystal placement
+  (`block-exit-portal-crystal-place`) and the Outer End boundary
+  (`block-gateway-pre-dragon`, `outer-end-radius`, `outer-end-poll-seconds`); tracked
+  in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47). Only `enabled`,
+  `block-early-eye-throwing` and `early-eye-rejection-message` are live.
 - **Armor trim and smithing template gating** (`trim-progression`) -- tracked in
   [#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45).
 
