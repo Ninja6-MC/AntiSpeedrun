@@ -3,6 +3,7 @@ package com.ninja6.antispeedrun.commands;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -40,7 +41,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *
  * <h2>Advancement names</h2>
  *
- * A vanilla advancement is written as a {@code <lang>} tag on its title translation key, so the
+ * A vanilla advancement is written as a {@code <lang_or>} tag on its title translation key, so the
  * reader's own client renders "Acquire Hardware" in their own language rather than the plugin
  * printing {@code minecraft:story/smelt_iron}. A key in any other namespace is shown as the key:
  * its translation key is whatever its datapack chose, and guessing one would print a raw
@@ -62,7 +63,7 @@ public final class JourneyBookPages {
     public static final int CHARS_PER_LINE = 18;
 
     /**
-     * Width assumed for a {@code <lang>} advancement title, whose text is only known on the
+     * Width assumed for a {@code <lang_or>} advancement title, whose text is only known on the
      * client. With the bullet in front, that budgets two lines for every advancement: a vanilla
      * title such as "A Terrible Fortress" does not fit on one line beside it, and none needs three.
      */
@@ -293,20 +294,41 @@ public final class JourneyBookPages {
 
     /**
      * A bullet naming one advancement. See the class comment for why a vanilla key becomes a
-     * {@code <lang>} tag and anything else is printed as written.
+     * translation and anything else is printed as written.
+     *
+     * <p>The translation carries the advancement id as its fallback ({@code <lang_or>}), so a key
+     * the client does not know — a future vanilla advancement whose translation key does not
+     * follow its id, say — shows the id rather than a raw translation key.
      */
     static Paragraph advancement(String key) {
         Optional<String> translation = translationKey(key);
         if (translation.isPresent()) {
-            return new Paragraph(BODY + "- <dark_green><lang:" + translation.get() + ">",
-                    "- " + "x".repeat(ADVANCEMENT_TITLE_WIDTH));
+            return new Paragraph(BODY + "- <dark_green><lang_or:" + translation.get() + ":'"
+                    + quoted(key) + "'>", "- " + "x".repeat(ADVANCEMENT_TITLE_WIDTH));
         }
         return Paragraph.text(BODY, "- " + key);
     }
 
+    /** {@code text} escaped for a single-quoted MiniMessage tag argument. */
+    private static String quoted(String text) {
+        return text.replace("\\", "\\\\").replace("'", "\\'");
+    }
+
+    /**
+     * Vanilla advancements whose title translation key does not follow their id, taken from the
+     * 1.21.4 server's own advancement definitions — every other one does. The fallback in
+     * {@link #advancement} covers any this list misses.
+     */
+    private static final Map<String, String> IRREGULAR_TRANSLATION_KEYS = Map.of(
+            "husbandry/bred_all_animals", "advancements.husbandry.breed_all_animals.title",
+            "husbandry/obtain_netherite_hoe", "advancements.husbandry.netherite_hoe.title",
+            "adventure/read_power_of_chiseled_bookshelf",
+            "advancements.adventure.read_power_from_chiseled_bookshelf.title");
+
     /**
      * The title translation key of a vanilla advancement: {@code minecraft:story/smelt_iron} is
-     * {@code advancements.story.smelt_iron.title}.
+     * {@code advancements.story.smelt_iron.title}, apart from the few in
+     * {@link #IRREGULAR_TRANSLATION_KEYS}.
      *
      * @return empty for a key outside the {@code minecraft} namespace, or one that is not shaped
      *         like a vanilla advancement path
@@ -319,6 +341,10 @@ public final class JourneyBookPages {
         String path = key.substring(prefix.length());
         if (path.isEmpty() || !path.matches("[a-z0-9_]+(/[a-z0-9_]+)+")) {
             return Optional.empty();
+        }
+        String irregular = IRREGULAR_TRANSLATION_KEYS.get(path);
+        if (irregular != null) {
+            return Optional.of(irregular);
         }
         return Optional.of("advancements." + path.replace('/', '.') + ".title");
     }

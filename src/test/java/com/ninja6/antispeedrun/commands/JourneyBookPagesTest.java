@@ -27,6 +27,8 @@ import com.ninja6.antispeedrun.config.PluginConfig.JourneyBook;
 import com.ninja6.antispeedrun.config.PluginConfig.VillagerProgression;
 import com.ninja6.antispeedrun.progression.MilestoneRequirement;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TranslatableComponent;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -113,9 +115,11 @@ class JourneyBookPagesTest {
             String text = book(shipped());
             assertTrue(text.contains("The Nether"));
             assertTrue(text.contains("The End"));
-            assertTrue(text.contains("<lang:advancements.story.smelt_iron.title>"));
-            assertTrue(text.contains("<lang:advancements.nether.find_fortress.title>"));
-            assertFalse(text.contains("minecraft:story/smelt_iron"),
+            assertTrue(text.contains(
+                    "<lang_or:advancements.story.smelt_iron.title:'minecraft:story/smelt_iron'>"));
+            assertTrue(text.contains(
+                    "<lang_or:advancements.nether.find_fortress.title:'minecraft:nether/find_fortress'>"));
+            assertFalse(text.contains("- minecraft:story/smelt_iron"),
                     "a vanilla key is shown by its title, not printed as a key");
         }
 
@@ -221,6 +225,55 @@ class JourneyBookPagesTest {
             assertEquals(Optional.empty(), JourneyBookPages.translationKey("minecraft:root"));
             assertEquals(Optional.empty(), JourneyBookPages.translationKey("minecraft:story/<red>"));
             assertEquals(Optional.empty(), JourneyBookPages.translationKey(null));
+        }
+
+        @Test
+        @DisplayName("the three vanilla advancements whose translation key does not follow the id")
+        void irregularTranslationKeys() {
+            // Read from the 1.21.4 server jar: every other advancement's title key is its id with
+            // slashes as dots; these three are not, and the id-derived key would render raw.
+            assertEquals(Optional.of("advancements.husbandry.breed_all_animals.title"),
+                    JourneyBookPages.translationKey("minecraft:husbandry/bred_all_animals"));
+            assertEquals(Optional.of("advancements.husbandry.netherite_hoe.title"),
+                    JourneyBookPages.translationKey("minecraft:husbandry/obtain_netherite_hoe"));
+            assertEquals(Optional.of("advancements.adventure.read_power_from_chiseled_bookshelf.title"),
+                    JourneyBookPages.translationKey("minecraft:adventure/read_power_of_chiseled_bookshelf"));
+        }
+
+        @Test
+        @DisplayName("every advancement title falls back to its id if the client lacks the key")
+        void translationFallsBackToTheId() {
+            Component rendered = MINI.deserialize(
+                    JourneyBookPages.advancement("minecraft:story/some_future_advancement").markup());
+            TranslatableComponent title = translatable(rendered);
+            assertEquals("advancements.story.some_future_advancement.title", title.key());
+            assertEquals("minecraft:story/some_future_advancement", title.fallback());
+
+            TranslatableComponent irregular = translatable(MINI.deserialize(
+                    JourneyBookPages.advancement("minecraft:husbandry/bred_all_animals").markup()));
+            assertEquals("advancements.husbandry.breed_all_animals.title", irregular.key());
+            assertEquals("minecraft:husbandry/bred_all_animals", irregular.fallback());
+        }
+
+        private TranslatableComponent translatable(Component component) {
+            if (component instanceof TranslatableComponent translatable) {
+                return translatable;
+            }
+            for (Component child : component.children()) {
+                TranslatableComponent found = translatableOrNull(child);
+                if (found != null) {
+                    return found;
+                }
+            }
+            throw new AssertionError("no translatable component in " + component);
+        }
+
+        private TranslatableComponent translatableOrNull(Component component) {
+            try {
+                return translatable(component);
+            } catch (AssertionError none) {
+                return null;
+            }
         }
 
         @Test
