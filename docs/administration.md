@@ -103,8 +103,8 @@ refuse, and `/progress` points at `/asr inspect <player>`.
 | `antispeedrun.admin.bypass` | op | `/asr bypass` (the right to hand out a bypass). |
 | `antispeedrun.admin.inspect` | op | `/asr inspect`. |
 | `antispeedrun.bypass` | false | Parent of the three bypass nodes below. |
-| `antispeedrun.bypass.gates` | false | Exempt from dimension gates (foot, vehicle and stasis access). |
-| `antispeedrun.bypass.items` | false | Exempt from item pickup, dispenser and container restrictions. |
+| `antispeedrun.bypass.gates` | false | Exempt from dimension gates (foot, vehicle and stasis access) and the Dragon's Breath bottling gate. |
+| `antispeedrun.bypass.items` | false | Exempt from item pickup, dispenser, container and Allay restrictions, and Dragon's Breath bottling. |
 | `antispeedrun.bypass.anticheese` | false | Exempt from the early Eye of Ender throw block. |
 
 ### 4.2 Why operator status does not grant a bypass
@@ -343,8 +343,10 @@ back.
 ### 7.5 An item cannot be picked up
 
 Item progression refuses pickup, equipping, dispenser-fired armor, and taking gated
-items out of containers and bundles, off armor stands or out of item frames until the
-player has earned the tier. The message
+items out of containers and bundles, off armor stands, out of item frames, or to and
+from an Allay until the player has earned the tier. Bottling Dragon's Breath is refused
+until the player meets the End gate's requirement, while `dimension-gates.the-end` is
+enabled; the End waivers and `antispeedrun.bypass.items` both exempt it. The message
 is `item-progression.rejection-message` with `{ITEM}` and `{REQUIREMENT}` filled in,
 throttled to one per `feedback-cooldown-seconds`. A player can always re-collect an
 item they dropped (`drop-recall-enabled`). Exempt with `antispeedrun.bypass.items` or

@@ -11,6 +11,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.bukkit.Material;
 import org.bukkit.Tag;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.Allay;
+import org.bukkit.entity.AreaEffectCloud;
+import org.bukkit.entity.EnderDragon;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Cancellable;
@@ -29,12 +32,16 @@ import org.bukkit.event.inventory.TradeSelectEvent;
 import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
 import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.EntityEquipment;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Merchant;
 import org.bukkit.inventory.MerchantRecipe;
 import org.bukkit.inventory.meta.BundleMeta;
 import org.bukkit.inventory.meta.EnchantmentStorageMeta;
+import org.bukkit.util.BoundingBox;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
@@ -42,6 +49,7 @@ import com.ninja6.antispeedrun.config.PluginConfig.ItemTier;
 import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
 import com.ninja6.antispeedrun.progression.PlayerStateMap;
+import com.ninja6.antispeedrun.storage.DimensionUnlock;
 
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent.ItemFrameChangeAction;
@@ -81,6 +89,10 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * <p>Plus armor stands and item frames (#16), the two entities that display an item a player can
  * take straight into their hand without opening anything: {@link #onArmorStandManipulate} and
  * {@link #onItemFrameChange}.
+ *
+ * <p>Plus two #17 channels: handing an item to an Allay or taking it back
+ * ({@link #onAllayInteract}), and bottling Dragon's Breath ({@link #onBottleDragonBreath}), which
+ * is gated on The End rather than on a tier.
  *
  * <p>Plus the three handlers that maintain §4 drop recall, which decides nothing and gates nothing;
  * see {@link DropRecall}.
@@ -577,6 +589,98 @@ public final class ItemProgressionListener implements Listener {
             return;
         }
         refuse(event.getPlayer(), framed.getType(), event);
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // #17 - to or from an Allay, and out of a Dragon's Breath cloud
+    // -------------------------------------------------------------------------------------------
+
+    /**
+     * A player handing an item to an Allay, or taking the one it holds back.
+     *
+     * <p>{@link AllayHandoffRules#transfer} decides which stack the click moves, and that stack gets
+     * the flat material check every other channel uses. Handing over is refused because an Allay
+     * given a gated item goes on to collect every matching stack it can find and deliver them; taking
+     * back is refused because it puts the Allay's item straight into the player's hand, past the
+     * pickup gate.
+     *
+     * <p>Only the player's click is gated. An Allay picking items up off the ground and dropping them
+     * at a note block or at its player is left entirely alone, so sorters keep working, and what it
+     * delivers to a player lands as an item entity where {@link #onAttemptPickup} applies. This is
+     * also why mob pickup itself is not cancelled — see {@code docs/provenance-model.md}.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onAllayInteract(PlayerInteractEntityEvent event) {
+        if (!(event.getRightClicked() instanceof Allay allay)) {
+            return;
+        }
+        Player player = event.getPlayer();
+        ItemStack held = player.getInventory().getItem(event.getHand());
+        EntityEquipment equipment = allay.getEquipment();
+        ItemStack carried = equipment == null ? null : equipment.getItemInMainHand();
+        boolean playerEmpty = held == null || held.getType().isAir();
+        boolean allayEmpty = carried == null || carried.getType().isAir();
+
+        ItemStack moving = switch (AllayHandoffRules.transfer(
+                allayEmpty, playerEmpty, event.getHand() == EquipmentSlot.HAND)) {
+            case GIVEN -> held;
+            case RETURNED -> carried;
+            case NONE -> null;
+        };
+        if (moving != null) {
+            refuse(player, moving.getType(), event);
+        }
+    }
+
+    /**
+     * A glass bottle used inside a cloud of Dragon's Breath.
+     *
+     * <p>Bottling puts {@code DRAGON_BREATH} straight into the inventory, so it is gated here on the
+     * End requirement rather than on any tier; {@link DragonBreathRules} says why. The cloud search
+     * is the vanilla one — an {@link AreaEffectCloud} owned by an {@link EnderDragon}, within
+     * {@link DragonBreathRules#REACH} of the player's box — so a bottle used anywhere else, filling
+     * from water included, is not touched.
+     *
+     * <p>Not {@code ignoreCancelled}, for the reason {@link #onBundleUse} gives: a right click on air
+     * arrives already cancelled. Only the item use is denied, so a right click on a chest or a
+     * cauldron still does what it did. The material test comes first and allocates nothing, then the
+     * config read, and only then the entity search, because every interaction passes through here.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onBottleDragonBreath(PlayerInteractEvent event) {
+        Action action = event.getAction();
+        if (action != Action.RIGHT_CLICK_AIR && action != Action.RIGHT_CLICK_BLOCK) {
+            return;
+        }
+        ItemStack item = event.getItem();
+        if (item == null || item.getType() != Material.GLASS_BOTTLE
+                || event.useItemInHand() == Event.Result.DENY) {
+            return;
+        }
+        PluginConfig config = plugin.configuration();
+        if (!DragonBreathRules.armed(config)) {
+            return;
+        }
+        Player player = event.getPlayer();
+        BoundingBox reach = player.getBoundingBox().expand(DragonBreathRules.REACH);
+        if (player.getWorld().getNearbyEntities(reach, entity -> entity instanceof AreaEffectCloud cloud
+                && cloud.getSource() instanceof EnderDragon).isEmpty()) {
+            return;
+        }
+        if (DragonBreathRules.waived(
+                player.hasPermission(BYPASS_PERMISSION),
+                player.hasPermission(ProgressionGateListener.BYPASS_PERMISSION),
+                plugin.bypasses().hasBypass(player, System.currentTimeMillis()),
+                plugin.dimensionUnlocks().isUnlocked(DimensionUnlock.THE_END))) {
+            return;
+        }
+        EligibilityResult result = plugin.progression().evaluate(
+                player, config, DragonBreathRules.requirement(config));
+        if (result.eligible()) {
+            return;
+        }
+        event.setUseItemInHand(Event.Result.DENY);
+        reject(player, config, DragonBreathRules.FEEDBACK_KEY, "", result, Material.DRAGON_BREATH);
     }
 
     // -------------------------------------------------------------------------------------------
