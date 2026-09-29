@@ -109,17 +109,43 @@ jobs:
           fi
           echo "folia-supported: true is declared."
 
+      - name: Test Snapshot Version and Artifact Checks
+        run: python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+
+      # N6-CI-09: a snapshot names the commit CI built. The checkout above is that commit,
+      # which on a pull request is the synthetic merge commit, and fetch-depth: 0 brings the
+      # history and tags the selector needs to find the nearest reachable release tag.
+      - name: Determine Snapshot Version
+        id: version
+        run: |
+          VERSION="$(python3 scripts/snapshot-version.py)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Snapshot version: $VERSION"
+
       - name: Run Tests
-        run: ./gradlew test --no-daemon
+        env:
+          PLUGIN_VERSION: ${{ steps.version.outputs.version }}
+        run: ./gradlew test -PpluginVersion="$PLUGIN_VERSION" --no-daemon
 
       - name: Build JAR
-        run: ./gradlew build --no-daemon
+        env:
+          PLUGIN_VERSION: ${{ steps.version.outputs.version }}
+        run: ./gradlew build -PpluginVersion="$PLUGIN_VERSION" --no-daemon
+
+      # Testing the selector alone does not prove the build carried the value through. This
+      # checks that build/libs holds exactly AntiSpeedrun-<version>.jar and that its embedded
+      # plugin.yml says the same version, before anything is uploaded.
+      - name: Verify Snapshot Artifact
+        env:
+          PLUGIN_VERSION: ${{ steps.version.outputs.version }}
+        run: python3 scripts/verify-snapshot-artifact.py "$PLUGIN_VERSION"
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: AntiSpeedrun-SNAPSHOT
-          path: build/libs/*.jar
+          path: build/libs/AntiSpeedrun-${{ steps.version.outputs.version }}.jar
+          if-no-files-found: error
           retention-days: 7
 
   folia-smoke:

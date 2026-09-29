@@ -21,6 +21,17 @@ This document defines the versioning rules, release channels and publishing proc
 | Beta | `vX.Y.Z-beta.N` | Pre-release |
 | Stable | `vX.Y.Z` | Latest Release |
 
+### CI snapshots
+
+CI builds are not releases. Every CI run names its JAR, and the `version:` in its
+`plugin.yml`, after the commit it built: the nearest reachable release tag (`vX.Y.Z`,
+optionally with `-alpha.N`, `-beta.N` or `-rc.N`, matched in full) without its leading `v`,
+then the distance and commit, for example `1.0.0-beta.1-4-g1a2b3c4`
+(`1.0.0-beta.1-0-g1a2b3c4` on the tagged commit itself). With no such tag reachable it is
+`0.0.0-SNAPSHOT-g1a2b3c4`. `scripts/snapshot-version.py` derives it and
+`scripts/verify-snapshot-artifact.py` checks the packaged JAR before upload (`N6-CI-09`). A
+build without `-PpluginVersion` keeps the version in `build.gradle.kts`.
+
 ---
 
 ## 3. How to Execute a Release
