@@ -491,21 +491,6 @@ public final class ItemGateCompiler {
         }
 
         /**
-         * Folds a configured name list to upper case, warning about any entry that is not a real
-         * material.
-         *
-         * <p>An entry that <em>is</em> a real material but that this tier never matches is left
-         * alone deliberately: {@code CHAIN} and {@code LANTERN} are exactly that in the shipped
-         * file — defensive exclusions that keep working if the patterns around them widen later.
-         * A name that resolves to nothing at all is a different thing, usually a typo or a
-         * material from a different game version, and it is worth saying so.
-         *
-         * @param consequence what the operator loses by the entry being dropped, appended to the
-         *                    warning; it differs between {@code items} and {@code exclude-materials}
-         * @param droppedRules counter of rules that reduce gating, or {@code null} for a list whose
-         *                     dropped entries can only over-gate
-         */
-        /**
          * Materials Mojang renamed inside the supported version range, each mapped to its name on
          * the other side of the rename. A configured name the running server does not know is
          * read as its counterpart when the server knows that instead; it is never used to add a
@@ -517,6 +502,24 @@ public final class ItemGateCompiler {
                 "CHAIN", "IRON_CHAIN",
                 "IRON_CHAIN", "CHAIN");
 
+        /**
+         * Folds a configured name list to upper case, warning about any entry that is not a real
+         * material.
+         *
+         * <p>An entry that <em>is</em> a real material but that this tier never matches is left
+         * alone deliberately: {@code LANTERN} is exactly that in the shipped file, a defensive
+         * exclusion that keeps working if the patterns around it widen later. {@code CHAIN} was
+         * too until 1.21.9 renamed it {@code IRON_CHAIN}, which {@code IRON_*} matches; that
+         * exclusion now does real work, and {@link #RENAMED} keeps it working on either side of
+         * the rename. A name that resolves to nothing at all, even through {@link #RENAMED}, is a
+         * different thing, usually a typo or a material from a different game version, and it is
+         * worth saying so.
+         *
+         * @param consequence what the operator loses by the entry being dropped, appended to the
+         *                    warning; it differs between {@code items} and {@code exclude-materials}
+         * @param droppedRules counter of rules that reduce gating, or {@code null} for a list whose
+         *                     dropped entries can only over-gate
+         */
         private static Set<String> names(List<String> raw, Set<String> known, String path,
                                          String consequence, List<String> warnings,
                                          int[] droppedRules) {
