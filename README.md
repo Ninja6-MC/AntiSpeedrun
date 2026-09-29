@@ -119,6 +119,17 @@ from one category each.
 
 ---
 
+## Documentation
+
+- [Administration guide](docs/administration.md) -- installation, first start, commands
+  and permissions, profiles, dimension unlock, temporary bypass, persisted state,
+  backup boundaries and troubleshooting.
+- [Configuration reference](docs/configuration.md) -- every `config.yml` section, its
+  defaults, validation and reload behavior, the three profiles, and which modules are
+  still planned.
+
+---
+
 ## License
 
 [GNU General Public License v3.0](LICENSE).
