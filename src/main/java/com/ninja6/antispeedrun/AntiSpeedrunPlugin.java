@@ -14,6 +14,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import com.ninja6.antispeedrun.commands.AntiSpeedrunCommand;
+import com.ninja6.antispeedrun.commands.JourneyBookCommand;
 import com.ninja6.antispeedrun.commands.ProgressCommand;
 import com.ninja6.antispeedrun.config.BukkitConfigSection;
 import com.ninja6.antispeedrun.config.ConfigLoadException;
@@ -26,6 +27,7 @@ import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.gating.MaterialGates;
 import com.ninja6.antispeedrun.listeners.EyeThrowListener;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
+import com.ninja6.antispeedrun.listeners.JourneyBookListener;
 import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
@@ -243,6 +245,19 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
             progressCommand.setTabCompleter(progress);
         }
 
+        // /journeybook (#5), reachable as /asr book the same way, and the first-join delivery. After
+        // the stores: both read journeyBook() on every delivery.
+        JourneyBookCommand book = new JourneyBookCommand(this);
+        getServer().getPluginManager().registerEvents(new JourneyBookListener(this, book), this);
+        PluginCommand bookCommand = getCommand("journeybook");
+        if (bookCommand == null) {
+            getLogger().severe("plugin.yml declares no \"journeybook\" command, so /journeybook is "
+                    + "unavailable. This build is broken; reinstall the plugin jar.");
+        } else {
+            bookCommand.setExecutor(book);
+            bookCommand.setTabCompleter(book);
+        }
+
         // Players already online -- a hot install, or a /reload -- never fire PlayerJoinEvent for
         // this listener, so without priming here their first advancement would announce every gate
         // they had already cleared.
@@ -306,9 +321,8 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * Whether a player has already been given the Journey Guide Book (#57).
      *
      * <p>The replacement for {@code !player.hasPlayedBefore()}, which is false for everyone who
-     * joined before the plugin was installed. Nothing consults this yet: the journey-book feature
-     * itself is a separate task, and this store is published ahead of it so that task has a
-     * persisted flag to read rather than inventing a second one.
+     * joined before the plugin was installed. Read and set by {@code JourneyBookCommand} (#5), on
+     * the player's own region thread; see {@link JourneyBookStore}.
      */
     public JourneyBookStore journeyBook() {
         return journeyBook;

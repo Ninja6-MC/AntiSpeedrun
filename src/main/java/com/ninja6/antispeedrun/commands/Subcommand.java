@@ -19,11 +19,13 @@ import java.util.Optional;
  * {@code antispeedrun.admin.bypass} is the right to hand a bypass out, which is a different thing
  * from holding one.
  *
- * <p>{@link #PROGRESS} is the exception to the admin tree, and is why {@link #administrative()}
- * exists. It is a delegate to the standalone {@code /progress}, so it is gated on that command's
- * own {@code antispeedrun.progress} — which defaults to {@code true} — rather than on a node under
- * {@code antispeedrun.admin}. Folding it into the admin tree would make a player's view of their
- * own progression an operator privilege depending on which spelling they typed.
+ * <p>{@link #PROGRESS} and {@link #BOOK} are the exceptions to the admin tree, and are why
+ * {@link #administrative()} exists. Each is a delegate to a standalone player command
+ * ({@code /progress}, {@code /journeybook}), so each is gated on that command's own node —
+ * {@code antispeedrun.progress} and {@code antispeedrun.book}, both defaulting to {@code true} —
+ * rather than on a node under {@code antispeedrun.admin}. Folding them into the admin tree would
+ * make a player's view of their own progression, or their copy of the rules, an operator
+ * privilege depending on which spelling they typed.
  */
 public enum Subcommand {
 
@@ -54,7 +56,15 @@ public enum Subcommand {
      * different spelling of the same command, is a node an operator has to discover and grant
      * before {@code /asr progress} works for someone {@code /progress} already worked for.
      */
-    PROGRESS("progress", "antispeedrun.progress", "/asr progress");
+    PROGRESS("progress", "antispeedrun.progress", "/asr progress"),
+
+    /**
+     * {@code /asr book} — the delegate to {@code /journeybook}, Task 2.2.2 (#5).
+     *
+     * <p>Gated on {@code antispeedrun.book}, the standalone command's own node, for the reason
+     * {@link #PROGRESS} gives: one capability, one node, whichever spelling is typed.
+     */
+    BOOK("book", "antispeedrun.book", "/asr book");
 
     private final String label;
     private final String permission;
@@ -84,7 +94,7 @@ public enum Subcommand {
     /** Every label, in declaration order. */
     public static List<String> labels() {
         return List.of(RELOAD.label, PROFILE.label, UNLOCK.label, BYPASS.label, INSPECT.label,
-                PROGRESS.label);
+                PROGRESS.label, BOOK.label);
     }
 
     /**

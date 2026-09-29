@@ -43,7 +43,8 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * <p>And one that is not administration: {@code progress} (#3), which delegates to
  * {@link ProgressCommand} and is gated on {@code antispeedrun.progress}, the same node the
  * standalone {@code /progress} uses. It is here because {@code plugin.yml} advertised it before it
- * existed, which #73 had to withdraw; this is the delegate that line was promising.
+ * existed, which #73 had to withdraw; this is the delegate that line was promising. {@code book}
+ * (#5) is the same arrangement for {@link JourneyBookCommand}, on {@code antispeedrun.book}.
  *
  * <h2>Threading — the part that is easy to get wrong on Folia</h2>
  *
@@ -83,9 +84,13 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
     /** What {@code /asr progress} delegates to. Stateless; one instance is enough. */
     private final ProgressCommand progress;
 
+    /** What {@code /asr book} delegates to. */
+    private final JourneyBookCommand book;
+
     public AntiSpeedrunCommand(AntiSpeedrunPlugin plugin) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.progress = new ProgressCommand(plugin);
+        this.book = new JourneyBookCommand(plugin);
     }
 
     // -----------------------------------------------------------------------------------------
@@ -125,6 +130,8 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
             // this method carried in: /asr progress and /progress are the same command reached two
             // ways, so a second rendering here is a second thing to keep in step (#3, #73).
             case PROGRESS -> progress.show(sender, config);
+            // The same arrangement for /asr book and /journeybook (#5).
+            case BOOK -> book.give(sender, config);
         }
         return true;
     }

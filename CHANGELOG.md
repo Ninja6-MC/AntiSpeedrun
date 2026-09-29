@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `antispeedrun.bypass.anticheese`, an `/asr bypass` grant, or `/asr unlock the_end`. The refusal
   line is the new `anti-cheese.early-eye-rejection-message`, validated as MiniMessage at load like
   every other rejection message.
+- The Journey Guide Book. `/journeybook` (alias `/rulesbook`) and `/asr book` hand the player a
+  written book generated from the live configuration: the dimension gates and what each requires,
+  the item tiers with their hints, and the Eye of Ender and Mending rules while they are on.
+  Vanilla advancements are named by their in-game titles in the reader's own language. With
+  `journey-book.give-on-first-join` on, a player who has never received the book is given one a
+  tick after joining — including players who joined before the plugin was installed, since
+  delivery is decided by the plugin's own persisted flag rather than `hasPlayedBefore()`. Both
+  spellings of the command are gated on `antispeedrun.book` and refuse while the player already
+  carries a copy or has no room for one.
 - Brand vector master (`docs/assets/icon-master.svg`) and automated multi-resolution icon suite
   (`scripts/export-icons.mjs`) featuring the Progression Crown and Tri-Realm Apex, with CI drift
   gate enforcement (`.github/workflows/icons.yml`).
@@ -97,8 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the journey-book delivered flag live in the player's persistent data container.
 - Journey-book delivery is recorded by the plugin rather than inferred from
   `hasPlayedBefore()`, which is false for every player who joined before the plugin was installed
-  and would have skipped an established server's entire population. No listener consumes the flag
-  yet; the journey-book feature itself is a separate task.
+  and would have skipped an established server's entire population.
 - Configuration profile presets shipped as `profiles/casual.yml`, `profiles/smp_standard.yml` and
   `profiles/hardcore.yml`. `/asr profile apply` copies the previous `config.yml` to
   `backups/config-<timestamp>.yml` before overwriting it.
