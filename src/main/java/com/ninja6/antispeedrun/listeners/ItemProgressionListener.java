@@ -19,6 +19,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.block.BlockDispenseArmorEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.TradeSelectEvent;
@@ -490,6 +491,23 @@ public final class ItemProgressionListener implements Listener {
     // -------------------------------------------------------------------------------------------
     // §4 drop recall - bookkeeping only; nothing below gates anything
     // -------------------------------------------------------------------------------------------
+
+    /**
+     * A dispenser equipping armour onto a player standing in front of it.
+     *
+     * <p>This is a fourth way for a gated piece to reach a player's body without passing through a
+     * pickup, a container click or a trade: the dispenser fires the armour straight onto whoever
+     * stands at its face. The event is cancelled before the item leaves the dispenser, so the stack
+     * stays where it was and the dispenser simply does not fire, and the target player is the one
+     * told why. Only players are gated; a dispenser dressing a zombie or an armor stand is not what
+     * this refuses, for the same reason mob pickups are out of scope on {@link #onAttemptPickup}.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onDispenseArmor(BlockDispenseArmorEvent event) {
+        if (event.getTargetEntity() instanceof Player player) {
+            refuse(player, event.getItem().getType(), event);
+        }
+    }
 
     /**
      * A player throwing an item down, stamped so they can pick it back up.
