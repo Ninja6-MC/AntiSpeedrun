@@ -5,7 +5,8 @@ jar on first start. This page lists every section, its keys, and their defaults;
 installation, commands and troubleshooting see [administration.md](administration.md).
 
 A default below is the value used when the key is absent from `config.yml`. It is
-the same as the value in the shipped `SMP_STANDARD` file unless noted. 
+the same as the value in the shipped `SMP_STANDARD` file unless noted.
+
 ## 1. Sections at a glance
 
 | Section | Status | Purpose |
@@ -97,9 +98,15 @@ Advancement keys are `namespace:path`. The `minecraft:` namespace is added when 
 leave it off, so `story/smelt_iron` and `minecraft:story/smelt_iron` are the same. Spaces
 around a key are ignored.
 
-MiniMessage settings (`rejection-message`, `early-eye-rejection-message`, `message`,
-`title`, `hint`) accept MiniMessage tags such as `<red>` and `<gold>`. Legacy `&`
-codes are not MiniMessage and are rejected with a warning.
+MiniMessage settings (`rejection-message`, `early-eye-rejection-message`, `message`
+and `title`) accept MiniMessage tags such as `<red>` and `<gold>`. A section-sign
+(`§`) code is not MiniMessage: it is refused with a warning and the default is used.
+An `&` code is not detected; it loads without a warning and is shown as written.
+
+Hints (`hint` on an item tier and on `villager-progression`) are plain text. They are
+checked at load like the settings above, but a tag in a hint is shown to the player
+literally. A `§` code in a tier hint drops that hint; in the villager hint it is
+replaced by the default.
 
 ### 3.1 Reload behavior
 
@@ -162,7 +169,7 @@ Each tier under `gated-items` takes:
 | `require-advancements` | `[]` | List of advancement keys, all required. There is no built-in default, so an empty list requires nothing for the tier. |
 | `require-playtime-hours` | `0` | Decimal hours. |
 | `require-account-age-days` | `0` | Whole days. |
-| `hint` | empty | MiniMessage text shown as `{REQUIREMENT}`. |
+| `hint` | empty | Plain text shown as `{REQUIREMENT}`. |
 
 The shipped file defines `iron-tier`, `diamond-tier`, `nether-tier`, `end-tier` and
 `netherite-tier`. When two tiers claim one material, the tier whose requirements are a
@@ -233,7 +240,7 @@ grant, or `/asr unlock end`.
 | :--- | :--- | :--- |
 | `gate-mending-trade` | `false` | When true, the Mending trade is refused until the player has earned `required-advancement`. |
 | `required-advancement` | `minecraft:story/cure_zombie_villager` | Must not be blank while `gate-mending-trade` is true. |
-| `hint` | `Cure a Zombie Villager (Zombie Doctor)` | MiniMessage. A warning is logged if you change `required-advancement` and leave the shipped hint. |
+| `hint` | `Cure a Zombie Villager (Zombie Doctor)` | Plain text. A warning is logged if you change `required-advancement` and leave the shipped hint. |
 
 ## 5. Profiles
 

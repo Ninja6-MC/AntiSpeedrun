@@ -273,10 +273,11 @@ alternative is to run on built-in defaults that gate no items.
 
 | Log message contains | Cause | Fix |
 | :--- | :--- | :--- |
-| `will not start while config.yml names an advancement this server cannot resolve` | An enabled gate or item tier has an advancement key that is not a valid `namespace:path` key (upper case, a space inside, a stray character). The key is named in the error above. | Correct the key (lower case; `a-z 0-9 / . _ -`), or disable the gate, then restart. |
+| `will not start while config.yml names an advancement this server cannot resolve` | An enabled gate or item tier has an advancement key that is not a valid `namespace:path` key (upper case, a space inside, a stray character). The key is named in the error above. | Correct the key (lower case; `a-z 0-9 / . _ -`), or disable the gate, then restart. The same message is logged for the other unenforceable-gate errors listed in [configuration.md](configuration.md#3-validation-fallback-and-refusal): an all-blank or single-value `require-advancements`, and `gate-mending-trade: true` with a blank `required-advancement`. |
 | `will not start while item-progression.gated-items contains an unresolvable tier collision` | Two tiers claim the same material and neither requires a superset of the other's requirements. | Change `match-patterns` or `items` so one tier dominates, or add the material to `exclude-materials`. The tiers are named in the log. |
 | `config.yml parsed, but the item gate table could not be built from it` | The file loaded but the gate table could not be built. | Fix what the log above it names. |
-| `plugin.yml declares no "..." command` | The jar is damaged or was built wrongly. | Reinstall the jar. |
+
+If the log says `plugin.yml declares no "..." command`, the jar is damaged or was built wrongly. The plugin still enables, but that one command (`/asr`, `/progress` or `/journeybook`) is unavailable; reinstall the jar.
 
 A file that cannot be parsed at all (invalid YAML) does not stop startup. The plugin
 logs `config.yml was rejected` and runs on the built-in defaults, with a warning that no
@@ -333,9 +334,11 @@ Reasons a player passes when you expect a refusal:
   runtime the plugin waives that requirement rather than enforce something nobody
   can earn, and logs the key once. Check the log for a warning naming it.
 
-Teleports the plugin does not regulate (an operator's `/tp`, a warp from another
-plugin) are not blocked by the gate itself. A player who ends up in a gated dimension
-without qualifying or being waived is sent back.
+Teleports the plugin does not regulate, such as an operator's `/tp`, are honoured on
+both Paper and Folia: the player is not sent back. On Folia a teleport from another
+plugin raises no event and is judged when the player arrives. Any other arrival in a
+gated dimension without qualifying, a waiver, or a recorded exempt teleport is sent
+back.
 
 ### 7.5 An item cannot be picked up
 
