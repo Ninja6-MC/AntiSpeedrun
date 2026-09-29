@@ -193,7 +193,7 @@ deleted. Inspect the release in the browser:
 
 * **An older stable release took Latest** (two stable publish jobs ran at once). The release
   itself is correct, so do not delete it. Edit the newer stable release in the browser and
-  mark it Latest, then re-run the older job's failed job; it now finds everything complete.
+  mark it Latest, then re-run the older release's failed job; it now finds everything complete.
 * **Anything else is wrong with the release:** delete the release, never the tag, and
   re-run the failed job. If the tag must change, it names a new version.
 
