@@ -227,9 +227,14 @@ public final class ProgressionManager {
         if (!player.isOnline()) {
             // PlayerQuitEvent has already run, so PlayerStateRegistry.forget has already cleared
             // this player's row and nothing will clear it again: an entry installed now lives until
-            // onDisable. Answer the caller from a throwaway capture instead of caching it. See the
-            // insertion-point rule in the class javadoc.
-            return waive(player, capture(player, config), mustCover);
+            // onDisable. So nothing is cached here -- see the insertion-point rule in the class
+            // javadoc -- and nothing is read either. isOnline() is still true for the whole of
+            // PlayerQuitEvent, and a task on the player's EntityScheduler is retired rather than run
+            // once they are removed, so every caller that reaches this branch holds a stale
+            // reference from some other context: a region or global task, or an async callback. No
+            // region owns a removed player, so no thread can show that getStatistic,
+            // getFirstPlayed or getAdvancementProgress is legal for it under Folia.
+            return offline(config, mustCover);
         }
         PlayerProgressionSnapshot held = cache.get(id, () -> capture(player, config));
 
@@ -260,15 +265,24 @@ public final class ProgressionManager {
         return held.withWaived(uncovered);
     }
 
-    /** The waive-and-report tail of {@link #snapshot}, shared with the uncached offline path. */
-    private PlayerProgressionSnapshot waive(Player player, PlayerProgressionSnapshot held,
-                                            Iterable<String> mustCover) {
-        Set<String> uncovered = held.uncovered(mustCover);
-        if (uncovered.isEmpty()) {
-            return held;
+    /**
+     * The answer for a player who has already left: every requirement unmet, built without touching
+     * the {@link Player} at all.
+     *
+     * <p>Fail-closed, unlike the waivers elsewhere in this class, and deliberately so. Those protect
+     * a player who is present from a lock-out they cannot act on; an absent player can act on
+     * nothing, and the one thing a stale reference must never do is clear a gate. Every requirement
+     * key is recorded as queried and unearned, playtime as zero and account age as a known zero, so
+     * {@link MilestoneEvaluator} finds each kind of requirement outstanding and never reaches the
+     * R-15 unknown-age waiver. The snapshot is an answer for one call, not a fact about the player,
+     * and is not cached.
+     */
+    private PlayerProgressionSnapshot offline(PluginConfig config, Iterable<String> mustCover) {
+        Set<String> queried = new LinkedHashSet<>(Milestone.allRequiredAdvancements(config));
+        for (String key : mustCover) {
+            queried.add(key);
         }
-        reportUncovered(player, uncovered);
-        return held.withWaived(uncovered);
+        return new PlayerProgressionSnapshot(queried, Set.of(), Set.of(), 0.0D, 0L, true, clock.get());
     }
 
     /**
