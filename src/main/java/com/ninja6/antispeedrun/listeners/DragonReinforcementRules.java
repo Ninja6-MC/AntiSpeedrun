@@ -1,5 +1,7 @@
 package com.ninja6.antispeedrun.listeners;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -79,13 +81,17 @@ public final class DragonReinforcementRules {
     /**
      * How many dragons, primary included, a party of {@code partySize} fights.
      *
-     * <p>{@code max(1, min(max-dragons, round(partySize * multiplier)))}, rounded half up, with one
-     * exception: a party of one (or none) always fights exactly one dragon, whatever the multiplier.
-     * A multiplier above {@code 1.0} is valid, and without the exception it would give a solo player
-     * more than the one dragon Task 6.1.1 promises them. The
-     * configurable rounding modes are Task 6.1.2 (#38); until then {@code rounding-mode} is read by
-     * nothing and every mode behaves as {@code HALF_UP}, the shipped default. With
-     * {@code multi-dragon.enabled: false} the answer is always one.
+     * <p>{@code max(1, min(max-dragons, round(partySize * multiplier)))}, where {@code round} is
+     * {@code multi-dragon.rounding-mode} (Task 6.1.2, #38): {@code HALF_UP} rounds a half up,
+     * {@code CEIL} rounds any fraction up and {@code FLOOR} drops it. One exception: a party of one
+     * (or none) always fights exactly one dragon, whatever the multiplier or mode. A multiplier
+     * above {@code 1.0} is valid, and without the exception it would give a solo player more than
+     * the one dragon Task 6.1.1 promises them. With {@code multi-dragon.enabled: false} the answer
+     * is always one.
+     *
+     * <p>The product is taken in decimal, on the multiplier as written in the config, so
+     * {@code 10 * 0.7} is exactly {@code 7} under {@code CEIL} rather than the binary
+     * {@code 7.000000000000001} that would round up to eight.
      *
      * @param partySize players counted on the main island; zero or less yields one
      */
@@ -94,8 +100,20 @@ public final class DragonReinforcementRules {
         if (!multiDragon.enabled() || partySize <= 1) {
             return 1;
         }
-        long scaled = (long) Math.floor(partySize * multiDragon.multiplier() + 0.5D);
+        long scaled = round(BigDecimal.valueOf(multiDragon.multiplier())
+                .multiply(BigDecimal.valueOf(partySize)), multiDragon.roundingMode());
         return (int) Math.max(1L, Math.min(multiDragon.maxDragons(), scaled));
+    }
+
+    /** {@code value} rounded to a whole number under {@code mode}, saturating at {@code Long.MAX_VALUE}. */
+    static long round(BigDecimal value, PluginConfig.RoundingMode mode) {
+        RoundingMode rounding = switch (Objects.requireNonNull(mode, "mode")) {
+            case HALF_UP -> RoundingMode.HALF_UP;
+            case CEIL -> RoundingMode.CEILING;
+            case FLOOR -> RoundingMode.FLOOR;
+        };
+        BigDecimal whole = value.setScale(0, rounding);
+        return whole.compareTo(BigDecimal.valueOf(Long.MAX_VALUE)) > 0 ? Long.MAX_VALUE : whole.longValue();
     }
 
     /** How many dragons the window spawns on top of the primary: {@link #dragonCount} less one. */

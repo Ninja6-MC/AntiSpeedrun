@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The reinforcement window's decisions (#37, Task 6.1.1). {@link BossCombatListener} needs a running
+ * The reinforcement window's decisions (#37, Task 6.1.1) and its rounding modes (#38, Task 6.1.2). {@link BossCombatListener} needs a running
  * server and its schedulers, and stays untested for the reason {@link ItemGateRulesTest} records;
  * the window, the census join and the spawn arithmetic it drives are tested here.
  */
@@ -29,7 +29,12 @@ class DragonReinforcementTest {
     private static final PluginConfig.MultiDragon SHIPPED = PluginConfig.defaults().bossScaling().multiDragon();
 
     private static PluginConfig.MultiDragon multi(boolean enabled, double multiplier, int max) {
-        return new PluginConfig.MultiDragon(enabled, multiplier, PluginConfig.RoundingMode.HALF_UP, max, true);
+        return multi(enabled, multiplier, PluginConfig.RoundingMode.HALF_UP, max);
+    }
+
+    private static PluginConfig.MultiDragon multi(boolean enabled, double multiplier,
+            PluginConfig.RoundingMode mode, int max) {
+        return new PluginConfig.MultiDragon(enabled, multiplier, mode, max, true);
     }
 
     @Nested
@@ -71,10 +76,79 @@ class DragonReinforcementTest {
         }
 
         @Test
-        @DisplayName("half rounds up until #38 adds the other modes")
+        @DisplayName("the shipped HALF_UP rounds a half up")
         void halfUp() {
             assertEquals(2, DragonReinforcementRules.dragonCount(3, SHIPPED));
             assertEquals(3, DragonReinforcementRules.dragonCount(5, SHIPPED));
+        }
+    }
+
+    @Nested
+    @DisplayName("rounding modes across parties of one to ten")
+    class Rounding {
+
+        private static final PluginConfig.RoundingMode HALF_UP = PluginConfig.RoundingMode.HALF_UP;
+        private static final PluginConfig.RoundingMode CEIL = PluginConfig.RoundingMode.CEIL;
+        private static final PluginConfig.RoundingMode FLOOR = PluginConfig.RoundingMode.FLOOR;
+
+        /** {@code expected[n - 1]} is the dragon count for a party of {@code n}; max-dragons is ten. */
+        private static void assertCounts(double multiplier, PluginConfig.RoundingMode mode, int... expected) {
+            PluginConfig.MultiDragon config = multi(true, multiplier, mode, 10);
+            for (int n = 1; n <= 10; n++) {
+                assertEquals(expected[n - 1], DragonReinforcementRules.dragonCount(n, config),
+                        mode + " at " + multiplier + " for a party of " + n);
+                assertEquals(expected[n - 1] - 1, DragonReinforcementRules.secondaryCount(n, config));
+            }
+        }
+
+        @Test
+        @DisplayName("HALF_UP rounds a half up and anything less down")
+        void halfUp() {
+            assertCounts(0.5, HALF_UP, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5);
+            assertCounts(0.3, HALF_UP, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3);
+            assertCounts(0.7, HALF_UP, 1, 1, 2, 3, 4, 4, 5, 6, 6, 7);
+        }
+
+        @Test
+        @DisplayName("CEIL rounds any fraction up")
+        void ceil() {
+            assertCounts(0.5, CEIL, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5);
+            assertCounts(0.3, CEIL, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3);
+            assertCounts(0.7, CEIL, 1, 2, 3, 3, 4, 5, 5, 6, 7, 7);
+        }
+
+        @Test
+        @DisplayName("FLOOR drops any fraction, and never goes below one dragon")
+        void floor() {
+            assertCounts(0.5, FLOOR, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5);
+            assertCounts(0.3, FLOOR, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3);
+            assertCounts(0.7, FLOOR, 1, 1, 2, 2, 3, 4, 4, 5, 6, 7);
+        }
+
+        @Test
+        @DisplayName("a whole product is not pushed over by binary error: 10 * 0.7 is seven under CEIL")
+        void exactProduct() {
+            assertEquals(7, DragonReinforcementRules.dragonCount(10, multi(true, 0.7, CEIL, 10)));
+            assertEquals(3, DragonReinforcementRules.dragonCount(10, multi(true, 0.3, FLOOR, 10)));
+        }
+
+        @Test
+        @DisplayName("every mode keeps a solo player at one dragon, even with a multiplier above one")
+        void soloUnderEveryMode() {
+            for (PluginConfig.RoundingMode mode : PluginConfig.RoundingMode.values()) {
+                assertEquals(1, DragonReinforcementRules.dragonCount(1, multi(true, 1.5, mode, 10)), mode.name());
+                assertEquals(3, DragonReinforcementRules.dragonCount(2, multi(true, 1.5, mode, 10)), mode.name());
+            }
+        }
+
+        @Test
+        @DisplayName("every mode is capped by max-dragons, including a huge multiplier")
+        void cappedUnderEveryMode() {
+            for (PluginConfig.RoundingMode mode : PluginConfig.RoundingMode.values()) {
+                assertEquals(4, DragonReinforcementRules.dragonCount(10, multi(true, 0.7, mode, 4)), mode.name());
+                assertEquals(5, DragonReinforcementRules.dragonCount(10, multi(true, Double.MAX_VALUE, mode, 5)),
+                        mode.name());
+            }
         }
     }
 

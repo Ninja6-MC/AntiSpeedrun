@@ -436,6 +436,29 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("rounding-mode accepts each option in any case, and an unknown one warns and falls back to HALF_UP")
+        void roundingMode() throws Exception {
+            for (PluginConfig.RoundingMode mode : PluginConfig.RoundingMode.values()) {
+                PluginConfig config = PluginConfig.from(yaml("""
+                        boss-scaling:
+                          multi-dragon:
+                            rounding-mode: %s
+                        """.formatted(mode.name().toLowerCase(java.util.Locale.ROOT))));
+                assertEquals(mode, config.bossScaling().multiDragon().roundingMode());
+                assertFalse(mentions(config.warnings(), "rounding-mode"), mode.name());
+            }
+
+            PluginConfig config = PluginConfig.from(yaml("""
+                    boss-scaling:
+                      multi-dragon:
+                        rounding-mode: ROUND
+                    """));
+            assertEquals(PluginConfig.RoundingMode.HALF_UP, config.bossScaling().multiDragon().roundingMode());
+            assertTrue(mentions(config.warnings(),
+                    "boss-scaling.multi-dragon.rounding-mode: \"ROUND\" is not one of"));
+        }
+
+        @Test
         @DisplayName("a documented invariant violation warns and falls back")
         void invariantViolation() throws Exception {
             PluginConfig config = PluginConfig.from(yaml("""
