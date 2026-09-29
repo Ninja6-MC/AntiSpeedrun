@@ -18,7 +18,7 @@ the same as the value in the shipped `SMP_STANDARD` file unless noted.
 | `idle-reminder` | Live | Standing-still reminder of the next goal. |
 | `progress-card` | Live | How `/progress` renders. |
 | `journey-book` | Live | The Journey Guide Book. |
-| `boss-scaling` | **Planned** | Multi-dragon scaling. |
+| `boss-scaling` | Partly live | Only `enabled`, `battle-prep-seconds` and `multi-dragon.enabled`, `multiplier` and `max-dragons` do anything. |
 | `anti-cheese` | Partly live | Only `enabled`, `block-early-eye-throwing` and `early-eye-rejection-message` do anything. |
 | `villager-progression` | Live | Optional Mending trade gate. |
 
@@ -230,10 +230,20 @@ their requirements, the item tiers with their hints, and the Eye of Ender and Me
 rules while they are on. `/journeybook` refuses while the player already carries a
 copy or has no room for one.
 
-### 4.8 `boss-scaling` (planned)
+### 4.8 `boss-scaling`
 
-`enabled`, `scale-resummoned-dragons`, `battle-prep-seconds`, `multi-dragon.*`,
-`exit-portal-egg.*`, `skull-drop-chance`, `exit-portal-lock-during-battle` and
+The reinforcement window is live. The first player to enter an End whose dragon has
+never been killed starts a countdown of `battle-prep-seconds`; the dragon is not held
+back and fights from the start. When the countdown ends, every survival or adventure
+player within 300 blocks of the centre is counted, and the party fights
+`max(1, min(max-dragons, round(players * multiplier)))` dragons: the extra ones spawn
+above the main island at that moment. With `enabled: false` nothing happens, and with
+`multi-dragon.enabled: false` the count is always one. `battle-prep-seconds: 0` counts
+on entry. Rounding is half up whatever `rounding-mode` says, until
+[#38](https://github.com/Ninja6-MC/AntiSpeedrun/issues/38).
+
+`scale-resummoned-dragons`, `rounding-mode`, `balanced-xp`, `exit-portal-egg.*`,
+`skull-drop-chance`, `exit-portal-lock-during-battle` and
 `exit-portal-lock-release-minutes` are parsed only. Tracked in
 [#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46). Validation still applies:
 `battle-prep-seconds` and `exit-portal-lock-release-minutes` have minimum `0`,

@@ -75,7 +75,10 @@ read and validated at load but nothing acts on them, with the exception of
 `anti-cheese.enabled` noted above.
 
 - **Multi-dragon boss scaling** (`boss-scaling`) -- tracked in
-  [#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46).
+  [#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46). Only the reinforcement
+  window is live: the extra dragons a party earns on its first End entry
+  (`enabled`, `battle-prep-seconds`, `multi-dragon.enabled`, `multiplier`,
+  `max-dragons`).
 - **Remaining anti-cheese rules** (`anti-cheese`) -- Bed and Respawn Anchor damage
   against bosses (`block-bed-anchor-boss-damage`), the single-hit boss damage cap
   (`max-single-hit-boss-damage`), exit portal crystal placement

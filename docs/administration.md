@@ -370,6 +370,6 @@ backed up in `plugins/AntiSpeedrun/backups/`. `CUSTOM` cannot be applied.
 
 ## 8. Planned modules
 
-`boss-scaling`, the remaining `anti-cheese` rules and `trim-progression` have no
+The remaining `boss-scaling` and `anti-cheese` rules and `trim-progression` have no
 runtime behavior yet (see the README). Their keys are validated and otherwise ignored,
 so there is nothing to administer or troubleshoot for them.
