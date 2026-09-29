@@ -1,0 +1,111 @@
+name: Latest Server Compatibility
+
+# ci.yml boots the plugin on pinned Paper and Folia builds, which is what makes it a stable
+# gate, and also what makes it blind to releases that do not exist yet. This resolves the
+# newest Paper and Folia release at run time and boots the plugin on it, so a new upstream
+# version that breaks AntiSpeedrun shows up here rather than in a server owner's report.
+#
+# It is expected to fail sometimes; that is its purpose. It never runs on a pull request or a
+# merge group, so an upstream release cannot turn an unrelated change red, and it is not a
+# required check. A failure here is a reason to fix the plugin or move the pins in ci.yml.
+on:
+  schedule:
+    # Mondays, 05:17 UTC -- off the hour, when scheduled runs queue less.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Reads the repository and downloads public server jars; it writes nothing back.
+permissions:
+  contents: read
+
+jobs:
+  latest:
+    name: Latest ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [paper, folia]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # Newest release version (release candidates and pre-releases skipped), its newest build
+      # preferring STABLE, and the server jar verified against the SHA-256 the API publishes.
+      # It also reports the minimum Java that version runs on, which the next step installs.
+      - name: Resolve and Download Latest ${{ matrix.platform }}
+        id: server
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: python3 scripts/fetch-server.py --project "$PLATFORM" --version latest --out server.jar
+
+      - name: Set up Java ${{ steps.server.outputs.java }} For The Server
+        id: server-java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: ${{ steps.server.outputs.java }}
+          distribution: 'temurin'
+
+      # Installed second so it is the default JAVA_HOME for Gradle. The server keeps the JDK
+      # above, whose path setup-java reports as an output.
+      - name: Set up Java 21 For The Build
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Validate Gradle Wrapper
+        id: wrapper
+        continue-on-error: true
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Wait Before Revalidating
+        if: steps.wrapper.outcome == 'failure'
+        run: sleep 15
+
+      - name: Validate Gradle Wrapper (retry)
+        if: steps.wrapper.outcome == 'failure'
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      # Same snapshot version and artifact check as ci.yml, so the jar booted here names the
+      # commit it was built from.
+      - name: Build Plugin
+        id: version
+        run: |
+          chmod +x ./gradlew
+          VERSION="$(python3 scripts/snapshot-version.py)"
+          ./gradlew build -x test -PpluginVersion="$VERSION" --no-daemon
+          python3 scripts/verify-snapshot-artifact.py "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Boot Latest ${{ matrix.platform }}
+        timeout-minutes: 8
+        env:
+          SERVER_JAVA: ${{ steps.server-java.outputs.path }}/bin/java
+          PLUGIN_JAR: build/libs/AntiSpeedrun-${{ steps.version.outputs.version }}.jar
+          LABEL: ${{ matrix.platform }} ${{ steps.server.outputs.minecraft }} build ${{ steps.server.outputs.build }} (${{ steps.server.outputs.channel }})
+        run: >-
+          python3 scripts/boot-smoke.py --server-jar server.jar --plugin-jar "$PLUGIN_JAR"
+          --java "$SERVER_JAVA" --workdir run --label "$LABEL"
+
+      - name: Upload Server Log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-log-${{ matrix.platform }}-latest
+          path: run/server.log
+          retention-days: 14
+          if-no-files-found: warn
