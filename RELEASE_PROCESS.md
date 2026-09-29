@@ -17,7 +17,7 @@ series and where a build is published.
   alpha (`alpha.2`, ...) is cut whenever the fixes since the last one include a major
   change; minor fixes wait for the next alpha.
 * **Alpha settled** -- `v1.0.0-beta.N`, incremented the same way as the alphas.
-* **Stable** -- `v1.0.0`.
+* **Stable** -- `v1.0.0`, and every later `vX.Y.Z` (X >= 1) stable tag.
 
 After `v1.0.0`, MAJOR is a breaking configuration schema, incompatible command or
 permission change, or architecture rewrite; MINOR is a new gameplay feature or gate; PATCH
@@ -30,9 +30,9 @@ is a bug fix, optimization or small documentation correction.
 | Phase | Tag Pattern | GitHub Release Type | Modrinth / Hangar |
 | :--- | :--- | :--- | :--- |
 | Development | `v0.Y.Z` | Pre-release, never Latest | None |
-| Alpha | `v1.0.0-alpha.N` | Pre-release | Alpha channel |
-| Beta | `v1.0.0-beta.N` | Pre-release | Beta channel |
-| Stable | `v1.0.0` | Latest Release | Release channel |
+| Alpha | `v1.0.0-alpha.N` (and later `vX.Y.Z-alpha.N`) | Pre-release | Alpha channel |
+| Beta | `v1.0.0-beta.N` (and later `vX.Y.Z-beta.N`) | Pre-release | Beta channel |
+| Stable | `vX.Y.Z` (X >= 1) | Latest Release | Release channel |
 
 Development builds are never marked Latest and never go to a distributor. Distributor
 publication starts at `v1.0.0-alpha.1`. GitHub publication is implemented by #140 and
@@ -70,6 +70,6 @@ git push origin v1.0.0
 
 ## 4. Distribution Platforms
 * **GitHub Releases** -- Every release: development builds and alphas/betas as
-  pre-releases, `v1.0.0` as the full release. Implemented by #140.
+  pre-releases, stable `vX.Y.Z` tags as full releases. Implemented by #140.
 * **Modrinth & Hangar** -- From `v1.0.0-alpha.1` onward, on the alpha, beta and release
   channels matching the table in section 2. Implemented by #167.
