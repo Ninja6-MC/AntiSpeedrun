@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Handing a tier-gated item to an Allay, or taking one back from it, is refused for a player who
+  has not earned the tier. Allays collecting and delivering items on their own are unaffected, so
+  sorters keep working. Bottling Dragon's Breath is refused until the player meets the End gate's
+  requirement; it follows `dimension-gates.the-end.enabled` and is waived by the End waivers and
+  the item bypass. Mobs picking up items are not gated.
 - Taking a tier-gated item off an armor stand or out of an item frame is refused for a player who
   has not earned the tier. Swapping an item onto an armor stand slot that holds a gated piece counts
   as taking it, and a framed item knocked out by the player's punch or projectile stays in the frame.
