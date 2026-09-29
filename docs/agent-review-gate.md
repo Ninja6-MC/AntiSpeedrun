@@ -10,15 +10,28 @@
 ## Decision
 
 **`.github/workflows/agent-review-gate.yml` keeps ownership of the `ninja6-agent/review`
-commit status for the context's whole lifecycle.** It gains a
-`pull_request_review: [submitted]` trigger and, when the review author is
-`ninja6-agent[bot]`, maps the review verdict onto the status:
+commit status for the context's whole lifecycle on same-repository pull requests.** It
+gains a `pull_request_review: [submitted, dismissed]` trigger and, when the review author
+is `ninja6-agent[bot]`, maps the review verdict onto the status:
 
 | Review state | Status | Meaning |
 | :--- | :--- | :--- |
 | `APPROVE` | success | Reviewed and cleared |
 | `REQUEST_CHANGES` | failure | Reviewed, changes required |
 | `COMMENT` | pending | Reviewed, findings still outstanding |
+| Dismissed | from the latest standing review on the head, else pending | Reviewed, no longer cleared |
+
+A dismissal re-derives the status rather than forcing it to pending, because the review
+dismissed may not be the one the status came from: dismissing an old failing review
+beneath a newer approval must leave the approval standing. With no `ninja6-agent[bot]`
+review left standing on the head commit, the status is pending (issue #85).
+
+**Fork pull requests get nothing from the workflow.** GitHub gives them a read-only
+`GITHUB_TOKEN`, so any status write would fail with 403 and show the contributor a red
+check they cannot act on. Both jobs are therefore skipped unless the head repository is
+this one. On a fork pull request the context appears only if the reviewer's own status
+call writes it with the App's token; the context is not required, so its absence blocks
+nothing.
 
 `agent/tools/review-as-bot.mjs status` continues to write the same context as the
 reviewer's own last step. **The two are deliberately not exclusive.** The tool is the
@@ -98,27 +111,30 @@ Options 1 and 2 are not exclusive; 1 is the safety net for 2.
 
 ## Which copy of this workflow runs
 
-GitHub documents `pull_request_review` as running in the **base-branch context**: the copy
-of `agent-review-gate.yml` on `main`, not the copy on the pull request's head branch. This
-decision record originally stated that as settled, and drew two consequences from it — that
-the fix could only take effect after merging, and that it could not be exercised on the
-pull request introducing it.
+Two questions are easy to conflate here. GitHub documents which **ref and SHA** a
+`pull_request_review` run executes against. Which copy of the workflow **definition** is
+loaded for that run is a separate question. This decision record originally assumed the
+definition on `main` would be used, and drew two consequences from it — that the fix could
+only take effect after merging, and that it could not be exercised on the pull request
+introducing it.
 
 **Both were contradicted by the first review this gate handled.** When the reviewer
 approved that pull request, GitHub ran a `pull_request_review` workflow at head `4191386`
 whose jobs were `Register Review Status` and `Resolve Review Status`. Those job names
 existed only on the head branch — `main` carried a single job named `gate` and no
-`pull_request_review` trigger at all — so the run cannot have come from `main`. The head
-copy ran, and it resolved `ninja6-agent/review` to `success` correctly.
+`pull_request_review` trigger at all — so that definition cannot have come from `main`.
+The head branch's definition ran, and it resolved `ninja6-agent/review` to `success`
+correctly.
 
 What that does and does not establish:
 
-- It establishes that the `resolve` job worked, on a same-repo pull request, before merging.
-- It does **not** establish a general rule in the opposite direction. It is one observation
-  against documented behaviour, and the documented behaviour may hold in cases not tested
-  here.
-- Fork pull requests were **not** tested. There the `GITHUB_TOKEN` is read-only, so the
-  status write fails regardless of which copy runs.
+- It establishes that, for a same-repository pull request, the head branch's definition of
+  this workflow ran on `pull_request_review`, and that the `resolve` job worked before
+  merging.
+- It says nothing about which ref the run executed against, and does **not** contradict
+  GitHub's documentation of that.
+- Fork pull requests were **not** tested, and both jobs are now skipped for them (see the
+  decision above).
 
 When changing the `resolve` job, check which jobs a run actually executed rather than
 assuming either rule.
