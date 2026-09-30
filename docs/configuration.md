@@ -194,11 +194,14 @@ gated on having entered the Nether, not on being allowed to, so they cannot be h
 before the first visit. Exception: `BREEZE_ROD` and `WIND_CHARGE` are in `nether-tier` but come from overworld trial chambers, so a player who finds them before entering the Nether meets the lock. The `HARDCORE` profile uses the same diamond and Nether-tier keys and
 adds its playtime requirement; `CASUAL` and `SMP_STANDARD` match the table above.
 
-### 4.4 `trim-progression` (planned)
+### 4.4 `trim-progression` (partially implemented)
 
-Keys `enabled`, `gate-natural-trim-chests`, `block-unearned-template-duplication`,
-`block-unearned-smithing` and `block-wearing-unearned-trims` are parsed only. Tracked
-in [#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45).
+With `enabled` and `block-unearned-template-duplication` set to `true`, a player cannot
+copy a gated template in a crafting table until they have earned its structure
+advancement. Crafters use the advancement record of the player who placed them; they
+continue to work while that player is offline. A Crafter without a recorded owner
+refuses gated template recipes. The other trim locks remain tracked in
+[#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45).
 
 The structure each lock will require is fixed, not configured:
 
