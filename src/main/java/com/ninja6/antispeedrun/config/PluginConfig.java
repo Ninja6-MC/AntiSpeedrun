@@ -684,7 +684,7 @@ public record PluginConfig(
     /**
      * Section 6.
      *
-     * @param enabled                      default {@code true}
+     * @param enabled                      default {@code false}
      * @param scaleResummonedDragons       default {@code true}
      * @param battlePrepSeconds            reinforcement window on End entry or resummon; default {@code 30}
      * @param multiDragon                  multi-dragon scaling sub-section
