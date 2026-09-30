@@ -436,6 +436,19 @@ class PluginConfigTest {
         }
 
         @Test
+        @DisplayName("balanced XP can be disabled without disabling multi-dragon fights")
+        void balancedXpOff() throws Exception {
+            PluginConfig config = PluginConfig.from(yaml("""
+                    boss-scaling:
+                      multi-dragon:
+                        balanced-xp: false
+                    """));
+
+            assertTrue(config.bossScaling().multiDragon().enabled());
+            assertFalse(config.bossScaling().multiDragon().balancedXp());
+        }
+
+        @Test
         @DisplayName("rounding-mode accepts each option in any case, and an unknown one warns and falls back to HALF_UP")
         void roundingMode() throws Exception {
             for (PluginConfig.RoundingMode mode : PluginConfig.RoundingMode.values()) {

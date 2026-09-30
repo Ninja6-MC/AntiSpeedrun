@@ -29,11 +29,11 @@ import java.util.Locale;
  */
 public final class DragonReconciliationRules {
 
-    /**
-     * Vanilla's XP for a dragon killed after the first: {@code EnderDragon#getExpReward}'s 500. The
-     * most a secondary drops until the balanced XP of Task 6.2.1 (#22) replaces it.
-     */
+    /** Vanilla's XP for a dragon killed after the first: {@code EnderDragon#getExpReward}'s 500. */
     public static final int REPEAT_KILL_EXPERIENCE = 500;
+
+    /** Balanced XP for each secondary dragon when configured. */
+    public static final int BALANCED_SECONDARY_EXPERIENCE = 1_000;
 
     private DragonReconciliationRules() {
     }
@@ -49,12 +49,16 @@ public final class DragonReconciliationRules {
     }
 
     /**
-     * The XP a dying secondary drops: vanilla's amount, capped at {@link #REPEAT_KILL_EXPERIENCE}.
-     * A secondary the server attached to the battle would otherwise pay the 12,000 first-kill award
-     * before the fight is over; one with {@code doMobLoot} off still drops nothing.
+     * The XP a dying secondary drops. Balanced XP awards 1,000; otherwise the existing 500 cap
+     * remains. A secondary the server attached to the battle must not pay the 12,000 first-kill
+     * award before the fight is over; one with {@code doMobLoot} off still drops nothing.
      */
-    public static int secondaryExperience(int vanilla) {
-        return Math.max(0, Math.min(vanilla, REPEAT_KILL_EXPERIENCE));
+    public static int secondaryExperience(int vanilla, boolean balancedXp) {
+        if (vanilla <= 0) {
+            return 0;
+        }
+        return balancedXp ? BALANCED_SECONDARY_EXPERIENCE
+                : Math.min(vanilla, REPEAT_KILL_EXPERIENCE);
     }
 
     /**
