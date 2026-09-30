@@ -13,6 +13,10 @@ import java.util.logging.Logger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.ninja6.antispeedrun.listeners.TemplateDuplicationRules;
+import com.ninja6.antispeedrun.listeners.TemplateDuplicationRules.CrafterVerdict;
+import com.ninja6.antispeedrun.progression.TrimProgressionManager;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -74,6 +78,33 @@ class ExploredStructureStoreTest {
         assertTrue(after.hasExplored(owner, CITY));
         assertFalse(after.hasExplored(owner, BASTION));
         assertFalse(after.hasExplored(UUID.randomUUID(), CITY));
+    }
+
+    @Test
+    @DisplayName("an already placed Crafter becomes eligible when its online owner is primed")
+    void existingCrafterAfterPriming() {
+        InMemoryStateFile file = new InMemoryStateFile();
+        UUID owner = UUID.randomUUID();
+        String stamp = owner.toString();
+        ExploredStructureStore store = store(file);
+        store.loadNow();
+
+        assertEquals(CrafterVerdict.UNEXPLORED, TemplateDuplicationRules.crafter(
+                TemplateDuplicationRules.owner(stamp), TrimProgressionManager.ANCIENT_CITY,
+                store::hasExplored));
+
+        // The advancement may have been earned while trim progression was disabled. Priming the
+        // already-online owner must update the record without requiring a new Crafter placement.
+        store.record(owner, TrimProgressionManager.ANCIENT_CITY.id(), true);
+        assertEquals(CrafterVerdict.ALLOW, TemplateDuplicationRules.crafter(
+                TemplateDuplicationRules.owner(stamp), TrimProgressionManager.ANCIENT_CITY,
+                store::hasExplored));
+
+        ExploredStructureStore afterRestart = store(file);
+        afterRestart.loadNow();
+        assertEquals(CrafterVerdict.ALLOW, TemplateDuplicationRules.crafter(
+                TemplateDuplicationRules.owner(stamp), TrimProgressionManager.ANCIENT_CITY,
+                afterRestart::hasExplored));
     }
 
     @Test
