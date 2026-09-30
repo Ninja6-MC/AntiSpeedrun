@@ -3,6 +3,7 @@ package com.ninja6.antispeedrun.listeners;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -26,7 +27,9 @@ import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.entity.EntityRemoveEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
+import org.bukkit.event.world.EntitiesUnloadEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.persistence.PersistentDataType;
 
@@ -36,13 +39,14 @@ import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.title.Title;
 
 /**
  * Multi-dragon boss combat (Epic 6). This class currently holds the reinforcement window (#37,
  * Task 6.1.1), its rounding modes (#38, Task 6.1.2), resummoned fights (#20, Task 6.1.3) and
- * single-battle reconciliation (#56, Task 6.1.5); secondary AI and boss bars (#21), XP (#22) and the
- * exit lock (#23) build on it.
+ * single-battle reconciliation (#56, Task 6.1.5), and secondary AI and boss bars (#21).
+ * XP (#22) and the exit lock (#23) build on it.
  *
  * <h2>The reinforcement window</h2>
  *
@@ -122,10 +126,20 @@ public final class BossCombatListener implements Listener {
     /** When each world last told its players the primary cannot fall yet, in epoch milliseconds. */
     private final Map<UUID, AtomicLong> lastRefusalNotice = new ConcurrentHashMap<>();
 
+    /** Only the dragon's region writes its health; viewers consume immutable snapshots on their own. */
+    private final SecondaryBarBoard secondaryBars = new SecondaryBarBoard();
+    private final Set<UUID> publishingDragons = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, ViewerBars<BossBar>> viewerBars = new ConcurrentHashMap<>();
+
     public BossCombatListener(AntiSpeedrunPlugin plugin, ReinforcedFightStore reinforcedFights) {
         this.plugin = plugin;
         this.secondaryDragon = new NamespacedKey(plugin, SECONDARY_DRAGON_KEY);
         this.reinforcedFights = reinforcedFights;
+        plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(plugin, task -> {
+            for (Player player : List.copyOf(plugin.getServer().getOnlinePlayers())) {
+                player.getScheduler().run(plugin, scheduled -> refreshBars(player), null);
+            }
+        }, SecondaryDragonRules.BAR_INTERVAL_TICKS, SecondaryDragonRules.BAR_INTERVAL_TICKS);
     }
 
     /** The key {@link #SECONDARY_DRAGON_KEY} names under this plugin's namespace. */
@@ -136,6 +150,7 @@ public final class BossCombatListener implements Listener {
     /** Entry by portal, command or any other transit. */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onChangedWorld(PlayerChangedWorldEvent event) {
+        clearBars(event.getPlayer());
         entered(event.getPlayer().getWorld());
     }
 
@@ -146,10 +161,16 @@ public final class BossCombatListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
+    public void onQuit(PlayerQuitEvent event) {
+        clearBars(event.getPlayer());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onWorldUnload(WorldUnloadEvent event) {
         UUID world = event.getWorld().getUID();
         windows.remove(world);
         rosters.remove(world);
+        secondaryBars.forgetWorld(world);
         lastRefusalNotice.remove(world);
         ResummonFight resummon = resummons.remove(world);
         if (resummon != null) {
@@ -170,9 +191,20 @@ public final class BossCombatListener implements Listener {
         for (Entity entity : event.getEntities()) {
             if (entity instanceof EnderDragon dragon && isSecondary(dragon)) {
                 roster(world).track(dragon.getUniqueId());
+                activateSecondary(dragon);
                 if (window(world).markResolved()) {
                     reinforcedFights.markReinforced(world.getUID(), System.currentTimeMillis());
                 }
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntitiesUnload(EntitiesUnloadEvent event) {
+        for (Entity entity : event.getEntities()) {
+            if (entity instanceof EnderDragon dragon && isSecondary(dragon)) {
+                secondaryBars.withdraw(event.getWorld().getUID(), dragon.getUniqueId());
+                publishingDragons.remove(dragon.getUniqueId());
             }
         }
     }
@@ -214,9 +246,14 @@ public final class BossCombatListener implements Listener {
     /** A dragon removed any way but an unload is gone: a plugin, a discard or a kill. */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onDragonRemoved(EntityRemoveEvent event) {
-        if (event.getEntity() instanceof EnderDragon dragon
-                && !DragonReconciliationRules.survivesRemoval(event.getCause().name())) {
-            gone(dragon);
+        if (event.getEntity() instanceof EnderDragon dragon) {
+            if (isSecondary(dragon)) {
+                secondaryBars.withdraw(dragon.getWorld().getUID(), dragon.getUniqueId());
+                publishingDragons.remove(dragon.getUniqueId());
+            }
+            if (!DragonReconciliationRules.survivesRemoval(event.getCause().name())) {
+                gone(dragon);
+            }
         }
     }
 
@@ -260,6 +297,10 @@ public final class BossCombatListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onDragonPhase(EnderDragonChangePhaseEvent event) {
         EnderDragon dragon = event.getEntity();
+        if (isSecondary(dragon)
+                && SecondaryDragonRules.needsFightingPhase(event.getNewPhase().name())) {
+            event.setNewPhase(EnderDragon.Phase.CIRCLING);
+        }
         if (event.getNewPhase() != EnderDragon.Phase.DYING
                 || dragon.getWorld().getEnvironment() != World.Environment.THE_END) {
             return;
@@ -417,6 +458,69 @@ public final class BossCombatListener implements Listener {
         if (!roster(world).trackSpawned(dragon.getUniqueId(), dragon.isValid())) {
             plugin.getLogger().info(() -> "Secondary dragon spawn in " + world.getName()
                     + " was cancelled; it is not counted.");
+        } else {
+            activateSecondary(dragon);
+        }
+    }
+
+    /** Starts vanilla's active phase and publishes health on the dragon's own region. */
+    private void activateSecondary(EnderDragon dragon) {
+        if (SecondaryDragonRules.needsFightingPhase(dragon.getPhase().name())) {
+            dragon.setPhase(EnderDragon.Phase.CIRCLING);
+        }
+        UUID id = dragon.getUniqueId();
+        if (!publishingDragons.add(id)) {
+            return;
+        }
+        dragon.getScheduler().runAtFixedRate(plugin, task -> {
+            if (!dragon.isValid() || dragon.isDead()) {
+                secondaryBars.withdraw(dragon.getWorld().getUID(), id);
+                publishingDragons.remove(id);
+                task.cancel();
+                return;
+            }
+            secondaryBars.publish(dragon.getWorld().getUID(), id,
+                    SecondaryDragonRules.progress(dragon.getHealth(), dragon.getMaxHealth()));
+        }, () -> publishingDragons.remove(id), 1L, SecondaryDragonRules.BAR_INTERVAL_TICKS);
+    }
+
+    /** Called on the player's region; no dragon or other player's live state is touched. */
+    private void refreshBars(Player player) {
+        UUID worldId = player.getWorld().getUID();
+        Location at = player.getLocation();
+        boolean visible = player.getWorld().getEnvironment() == World.Environment.THE_END
+                && SecondaryDragonRules.seesBossBars(true, player.isDead(),
+                        at.getX(), at.getY(), at.getZ());
+        ViewerBars<BossBar> bars = viewerBars.computeIfAbsent(player.getUniqueId(), id ->
+                new ViewerBars<>(new ViewerBars.Display<>() {
+                    @Override
+                    public BossBar create(float progress) {
+                        return BossBar.bossBar(Component.text("Ender Dragon Reinforcement"), progress,
+                                BossBar.Color.PURPLE, BossBar.Overlay.PROGRESS);
+                    }
+
+                    @Override
+                    public void show(BossBar bar) {
+                        player.showBossBar(bar);
+                    }
+
+                    @Override
+                    public void fill(BossBar bar, float progress) {
+                        bar.progress(progress);
+                    }
+
+                    @Override
+                    public void hide(BossBar bar) {
+                        player.hideBossBar(bar);
+                    }
+                }));
+        bars.sync(visible ? secondaryBars.snapshot(worldId) : Map.of());
+    }
+
+    private void clearBars(Player player) {
+        ViewerBars<BossBar> bars = viewerBars.remove(player.getUniqueId());
+        if (bars != null) {
+            bars.hideAll();
         }
     }
 
@@ -428,6 +532,8 @@ public final class BossCombatListener implements Listener {
         World world = dragon.getWorld();
         if (isSecondary(dragon)) {
             roster(world).forget(dragon.getUniqueId());
+            secondaryBars.withdraw(world.getUID(), dragon.getUniqueId());
+            publishingDragons.remove(dragon.getUniqueId());
             return;
         }
         ResummonFight fight = resummons.get(world.getUID());
