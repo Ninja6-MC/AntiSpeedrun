@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `boss-scaling.multi-dragon.balanced-xp` now awards 1,000 XP per extra dragon when enabled.
+  Turning it off retains the previous 500 XP cap. The original dragon keeps vanilla's
+  first-kill or resummon reward, and `doMobLoot` still prevents XP drops.
 - `boss-scaling.scale-resummoned-dragons`, which until now was parsed and read by nothing, scales
   fights resummoned with four End crystals. The resummoned dragon opens its own
   `battle-prep-seconds` window when it appears, and the party on the main island is counted and
@@ -19,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fights one dragon under every mode, and an unknown mode warns and falls back to `HALF_UP`.
 - One victory for a multi-dragon fight. The original Ender Dragon cannot die while an extra dragon
   lives, so the exit portal, the egg, the 12,000 XP award and the "dragon killed" flag wait for the
-  last dragon. Extra dragons drop at most 500 XP and do not heal from End crystals. A resolved
+  last dragon. Extra dragons do not heal from End crystals. A resolved
   reinforcement window is recorded in `dragon-fights.yml`, so a restart mid-fight no longer spawns
   a second set of extra dragons.
 - The multi-dragon reinforcement window. The first player to enter an End whose dragon has never
@@ -27,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the dragon fights from the start, so a solo player is never kept waiting. When it ends, survival
   and adventure players within 300 blocks of the centre are counted and the extra dragons the
   party earns under `multi-dragon.multiplier` and `max-dragons` spawn above the main island.
-  Secondary dragon AI, XP and the exit lock are not yet applied.
+  The exit lock is not yet applied.
 - Handing a tier-gated item to an Allay, or taking one back from it, is refused for a player who
   has not earned the tier. Allays collecting and delivering items on their own are unaffected, so
   sorters keep working. Bottling Dragon's Breath is refused until the player meets the End gate's

@@ -66,18 +66,28 @@ class DragonReconciliationTest {
     class Experience {
 
         @Test
-        @DisplayName("the 12,000 first-kill award is cut to vanilla's repeat-kill 500")
-        void firstKillCapped() {
-            assertEquals(500, DragonReconciliationRules.secondaryExperience(12_000));
+        @DisplayName("balanced XP gives each secondary 1,000 instead of a first-kill award")
+        void balanced() {
+            assertEquals(1_000, DragonReconciliationRules.secondaryExperience(12_000, true));
+            assertEquals(1_000, DragonReconciliationRules.secondaryExperience(500, true));
+            assertEquals(1_000, DragonReconciliationRules.secondaryExperience(120, true));
         }
 
         @Test
-        @DisplayName("smaller amounts, including doMobLoot's zero, pass through")
-        void smallerKept() {
-            assertEquals(500, DragonReconciliationRules.secondaryExperience(500));
-            assertEquals(120, DragonReconciliationRules.secondaryExperience(120));
-            assertEquals(0, DragonReconciliationRules.secondaryExperience(0));
-            assertEquals(0, DragonReconciliationRules.secondaryExperience(-5));
+        @DisplayName("without balanced XP the earlier vanilla repeat-kill cap remains")
+        void unbalanced() {
+            assertEquals(500, DragonReconciliationRules.secondaryExperience(12_000, false));
+            assertEquals(500, DragonReconciliationRules.secondaryExperience(500, false));
+            assertEquals(120, DragonReconciliationRules.secondaryExperience(120, false));
+        }
+
+        @Test
+        @DisplayName("doMobLoot's zero is never converted into an award")
+        void noMobLoot() {
+            assertEquals(0, DragonReconciliationRules.secondaryExperience(0, true));
+            assertEquals(0, DragonReconciliationRules.secondaryExperience(0, false));
+            assertEquals(0, DragonReconciliationRules.secondaryExperience(-5, true));
+            assertEquals(0, DragonReconciliationRules.secondaryExperience(-5, false));
         }
     }
 

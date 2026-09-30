@@ -78,8 +78,10 @@ read and validated at load but nothing acts on them, with the exception of
   [#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46). Only the reinforcement
   window is live: the extra dragons a party earns on its first End entry and on each
   four-crystal resummon (`enabled`, `scale-resummoned-dragons`, `battle-prep-seconds`,
-  `multi-dragon.enabled`, `multiplier`, `rounding-mode`, `max-dragons`), with the original dragon held until the extra ones are dead so
-  the fight ends in one victory.
+  `multi-dragon.enabled`, `multiplier`, `rounding-mode`, `max-dragons`), with the original
+  dragon held until the extra ones are dead so the fight ends in one victory. The
+  `multi-dragon.balanced-xp` option sets each extra dragon's reward to 1,000 XP;
+  turning it off retains the earlier 500 XP cap.
 - **Remaining anti-cheese rules** (`anti-cheese`) -- Bed and Respawn Anchor damage
   against bosses (`block-bed-anchor-boss-damage`), the single-hit boss damage cap
   (`max-single-hit-boss-damage`), exit portal crystal placement

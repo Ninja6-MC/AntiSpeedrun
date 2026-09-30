@@ -45,8 +45,8 @@ import net.kyori.adventure.title.Title;
 /**
  * Multi-dragon boss combat (Epic 6). This class currently holds the reinforcement window (#37,
  * Task 6.1.1), its rounding modes (#38, Task 6.1.2), resummoned fights (#20, Task 6.1.3) and
- * single-battle reconciliation (#56, Task 6.1.5), and secondary AI and boss bars (#21).
- * XP (#22) and the exit lock (#23) build on it.
+ * single-battle reconciliation (#56, Task 6.1.5), secondary AI and boss bars (#21), and
+ * balanced secondary XP (#22). The exit lock (#23) builds on it.
  *
  * <h2>The reinforcement window</h2>
  *
@@ -74,7 +74,7 @@ import net.kyori.adventure.title.Title;
  *
  * Vanilla's victory sequence belongs to the primary alone, so the primary cannot die while a
  * secondary lives: its death is cancelled at one health and its {@code DYING} phase is refused.
- * Secondaries die normally, drop at most vanilla's repeat-kill XP, and do not heal from End
+ * Secondaries die normally, drop their configured XP, and do not heal from End
  * crystals. The reasoning is in {@link DragonReconciliationRules}; the live count of secondaries is
  * a {@link SecondaryRoster} per world, which every handler reads and writes on the thread that owns
  * the entity the event is about.
@@ -211,8 +211,7 @@ public final class BossCombatListener implements Listener {
 
     /**
      * On the dragon's region. The primary cannot die while a secondary lives, whether it is killed in
-     * flight, on the perch or by {@code /kill}; a secondary's XP is capped at vanilla's repeat-kill
-     * amount.
+     * flight, on the perch or by {@code /kill}; a secondary's XP follows balanced-xp.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onDragonDeath(EntityDeathEvent event) {
@@ -221,7 +220,8 @@ public final class BossCombatListener implements Listener {
             return;
         }
         if (isSecondary(dragon)) {
-            event.setDroppedExp(DragonReconciliationRules.secondaryExperience(event.getDroppedExp()));
+            event.setDroppedExp(DragonReconciliationRules.secondaryExperience(event.getDroppedExp(),
+                    plugin.configuration().bossScaling().multiDragon().balancedXp()));
             return;
         }
         int living = roster(dragon.getWorld()).living();

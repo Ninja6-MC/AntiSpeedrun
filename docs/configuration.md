@@ -291,10 +291,12 @@ any extra dragon is alive, the original one cannot die. A killing blow leaves it
 health, and players in the End are told how many extra dragons remain. Once the last
 extra dragon is dead, the original can be killed and vanilla's victory runs once: the
 portal opens, the egg forms, the 12,000 XP drops and the flag is set. Anything keyed to
-that flag, such as the outer-End boundary, holds for the whole fight. Each extra dragon
-drops at most 500 XP, vanilla's amount for a repeat kill, until balanced XP
-([#22](https://github.com/Ninja6-MC/AntiSpeedrun/issues/22)) lands. This applies to
-extra dragons already alive even after `enabled` is set to `false`.
+that flag, such as the outer-End boundary, holds for the whole fight. The primary's XP
+is untouched: 12,000 on the world's first kill and 500 on a resummoned kill. With
+`multi-dragon.balanced-xp: true` (the default), each extra dragon drops 1,000 XP.
+With it off, each extra dragon drops at most 500 XP, vanilla's repeat-kill amount.
+An extra dragon drops no XP when `doMobLoot` disables the vanilla reward. This applies
+to extra dragons already alive even after `enabled` is set to `false`.
 
 **Crystal healing.** Extra dragons do not heal from End crystals; the original dragon
 still does. The pillar crystals are sized for one dragon. If every dragon could heal
@@ -303,7 +305,7 @@ and a larger party would face an easier fight per dragon. Without it, each extra
 has a fixed 200 health however the crystals go. The client may still draw a crystal
 beam to an extra dragon; the beam heals nothing.
 
-`balanced-xp`, `exit-portal-egg.*`, `skull-drop-chance`, `exit-portal-lock-during-battle` and
+`exit-portal-egg.*`, `skull-drop-chance`, `exit-portal-lock-during-battle` and
 `exit-portal-lock-release-minutes` are parsed only. Tracked in
 [#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46). Validation still applies:
 `battle-prep-seconds` and `exit-portal-lock-release-minutes` have minimum `0`,
