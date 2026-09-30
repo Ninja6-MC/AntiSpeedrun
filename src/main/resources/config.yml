@@ -265,7 +265,7 @@ journey-book:
 
 # 6. Multi-Dragon Boss Combat Scaling
 boss-scaling:
-  enabled: true
+  enabled: false                       # Development build: enable after Epic 6 is complete.
   scale-resummoned-dragons: true       # Scale 4-End-Crystal respawn rituals
   battle-prep-seconds: 30              # Party reinforcement window upon End entry / resummon
   multi-dragon:

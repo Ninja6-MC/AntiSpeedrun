@@ -159,7 +159,7 @@ journey-book:
 
 # 6. Multi-Dragon Boss Combat Scaling
 boss-scaling:
-  enabled: true
+  enabled: false                       # Development build: enable after Epic 6 is complete.
   scale-resummoned-dragons: false
   battle-prep-seconds: 15
   multi-dragon:
