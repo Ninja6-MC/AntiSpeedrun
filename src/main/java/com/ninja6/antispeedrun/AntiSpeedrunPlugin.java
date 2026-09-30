@@ -88,6 +88,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * anything watched them. Volatile for the same reason as {@link #configHolder}.
      */
     private volatile ProgressionListener progressionListener;
+    private volatile TemplateDuplicationListener templateDuplicationListener;
 
     /**
      * The idle reminder engine (#4). Held rather than registered and discarded for the same reason
@@ -247,10 +248,10 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
         if (!exploredStructures.loadNow()) {
             getLogger().warning("Starting with no explored structures recorded. Crafters refuse gated "
-                    + "templates until their owners next join.");
+                    + "templates until their owners are primed or next join.");
         }
-        getServer().getPluginManager().registerEvents(
-                new TemplateDuplicationListener(this, exploredStructures), this);
+        this.templateDuplicationListener = new TemplateDuplicationListener(this, exploredStructures);
+        getServer().getPluginManager().registerEvents(templateDuplicationListener, this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
@@ -689,12 +690,18 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     private void primeOnlinePlayers(PluginConfig config) {
         ProgressionListener listener = progressionListener;
         IdleReminderEngine reminders = idleReminders;
+        TemplateDuplicationListener templates = templateDuplicationListener;
         for (Player player : getServer().getOnlinePlayers()) {
             player.getScheduler().run(this, task -> {
                 if (!player.isOnline()) {
                     return;
                 }
                 progression.primeUnlocks(player, config);
+                if (templates != null) {
+                    // Players already online on enable or reload have no join event to update the
+                    // record used by Crafters, including advancements earned while trims were off.
+                    templates.refresh(player, config);
+                }
                 if (reminders != null) {
                     // Both callers need this and for the same reason the watch below does. At
                     // onEnable these players never fire PlayerJoinEvent for PlayerIdleListener, so

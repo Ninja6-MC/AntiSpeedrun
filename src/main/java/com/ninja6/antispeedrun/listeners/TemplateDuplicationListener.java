@@ -56,9 +56,9 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * block's region whether or not its owner is online, and even an online owner is usually owned by a
  * different region thread, where their advancements cannot be read. The record is refreshed from the
  * owner's own context whenever their exploration is known to be current: on join, on earning one of
- * the structure advancements, on placing a Crafter, and on every template craft they attempt by
- * hand. A player who explored a structure before this lock existed is therefore recorded the next
- * time they join.
+ * the structure advancements, on placing a Crafter, on every template craft they attempt by hand,
+ * and when online players are primed after startup or reload. A player who explored a structure
+ * before this lock existed is therefore recorded when online priming or their next join runs.
  *
  * <p>Bypasses do not carry over to a Crafter. A permission cannot be read for an offline player, so
  * a Crafter works for exactly the owners who have explored the structure.
@@ -182,7 +182,7 @@ public final class TemplateDuplicationListener implements Listener {
         tile.getPersistentDataContainer().set(
                 ownerKey, PersistentDataType.STRING, player.getUniqueId().toString());
         tile.update(true, false);
-        refresh(player);
+        refresh(player, plugin.configuration());
     }
 
     /** Refuses a Crafter's craft of a gated template unless its owner has explored the structure. */
@@ -215,7 +215,7 @@ public final class TemplateDuplicationListener implements Listener {
     /** Records a joining player's exploration, including anything earned before this lock existed. */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        refresh(event.getPlayer());
+        refresh(event.getPlayer(), plugin.configuration());
     }
 
     /** Records a structure advancement as soon as it is earned. */
@@ -228,19 +228,19 @@ public final class TemplateDuplicationListener implements Listener {
                 // order within a priority is registration order; invalidating here does not depend
                 // on it.
                 plugin.progression().invalidate(event.getPlayer().getUniqueId());
-                refresh(event.getPlayer());
+                refresh(event.getPlayer(), plugin.configuration());
                 return;
             }
         }
     }
 
     /**
-     * Evaluates every structure for {@code player} and records the answers. Skipped while section 3
+     * Evaluates every structure for {@code player} and records the answers. Called on the player's
+     * region thread, including while already-online players are primed. Skipped while section 3
      * is inactive, because {@link TrimProgressionManager#evaluate} then passes everything and would
      * record every player as having explored every structure.
      */
-    private void refresh(Player player) {
-        PluginConfig config = plugin.configuration();
+    public void refresh(Player player, PluginConfig config) {
         if (!TrimProgressionManager.isActive(config)) {
             return;
         }
