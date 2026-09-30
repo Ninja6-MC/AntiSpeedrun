@@ -383,7 +383,7 @@ public record PluginConfig(
                 egg.enumValue("placement-mode", PlacementMode.class, PlacementMode.TOP_PILLAR));
 
         return new BossScaling(
-                r.bool("enabled", true),
+                r.bool("enabled", false),
                 r.bool("scale-resummoned-dragons", true),
                 r.atLeast("battle-prep-seconds", 30, 0),
                 multiDragon,

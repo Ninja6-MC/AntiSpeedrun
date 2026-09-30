@@ -242,6 +242,11 @@ copy or has no room for one.
 
 ### 4.8 `boss-scaling`
 
+The default config and every bundled profile set `enabled: false` for `v0.1.0`, while
+the multi-dragon feature group is still in progress. Set it to `true` to try the current
+behaviour on a test server. A profile application keeps it off until a later build ships
+the complete fight.
+
 The reinforcement window is live. The first player to enter an End whose dragon has
 never been killed starts a countdown of `battle-prep-seconds`; the dragon is not held
 back and fights from the start. When the countdown ends, every survival or adventure

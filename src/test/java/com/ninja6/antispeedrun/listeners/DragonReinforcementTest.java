@@ -331,9 +331,9 @@ class DragonReinforcementTest {
         }
 
         @Test
-        @DisplayName("scale-resummoned-dragons is on in the shipped config, and needs boss-scaling.enabled")
+        @DisplayName("resummon scaling is off by default and needs boss-scaling.enabled")
         void armed() {
-            assertTrue(DragonReinforcementRules.resummonArmed(PluginConfig.defaults().bossScaling()));
+            assertFalse(DragonReinforcementRules.resummonArmed(PluginConfig.defaults().bossScaling()));
             assertTrue(DragonReinforcementRules.resummonArmed(scaling(true, true)));
             assertFalse(DragonReinforcementRules.resummonArmed(scaling(true, false)));
             assertFalse(DragonReinforcementRules.resummonArmed(scaling(false, true)));
