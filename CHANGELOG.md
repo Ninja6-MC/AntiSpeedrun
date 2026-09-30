@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Resummoned dragon fights keep the exit portal sealed in its bedrock basin until
+  victory, with a configurable inactivity escape. Repeat victories award a
+  configurable Dragon Egg trophy, and each dragon can drop a Dragon Head.
 - `boss-scaling.multi-dragon.balanced-xp` now awards 1,000 XP per extra dragon when enabled.
   Turning it off retains the previous 500 XP cap. The original dragon keeps vanilla's
   first-kill or resummon reward, and `doMobLoot` still prevents XP drops.
@@ -30,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the dragon fights from the start, so a solo player is never kept waiting. When it ends, survival
   and adventure players within 300 blocks of the centre are counted and the extra dragons the
   party earns under `multi-dragon.multiplier` and `max-dragons` spawn above the main island.
-  The exit lock is not yet applied.
+  Resummoned fights can now lock their existing exit portal.
 - Handing a tier-gated item to an Allay, or taking one back from it, is refused for a player who
   has not earned the tier. Allays collecting and delivering items on their own are unaffected, so
   sorters keep working. Bottling Dragon's Breath is refused until the player meets the End gate's

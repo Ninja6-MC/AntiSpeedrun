@@ -309,9 +309,22 @@ and a larger party would face an easier fight per dragon. Without it, each extra
 has a fixed 200 health however the crystals go. The client may still draw a crystal
 beam to an extra dragon; the beam heals nothing.
 
-`exit-portal-egg.*`, `skull-drop-chance`, `exit-portal-lock-during-battle` and
-`exit-portal-lock-release-minutes` are parsed only. Tracked in
-[#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46). Validation still applies:
+During a resummoned fight, `exit-portal-lock-during-battle: true` keeps the existing
+exit portal a solid bedrock basin. Portal transit is refused even if another plugin
+reopens its blocks. The first fight has no exit portal until victory, so it keeps
+vanilla's first-entry behaviour. The lock ends when the resummoned primary dies,
+after every extra dragon has fallen. `exit-portal-lock-release-minutes` opens the
+portal early after that many minutes without a successful player hit on any dragon;
+`0` disables this escape. Turning the lock off with `/asr reload` also opens it.
+
+On a resummoned victory, `exit-portal-egg.enabled` awards another egg. Placement
+mode `TOP_PILLAR` puts it above the centre pillar if the space is empty, and drops
+the item there if that space is occupied. `ITEM_DROP` always drops the item, and
+`NONE` awards no egg. The first victory's egg is still vanilla's. Each dragon death
+independently rolls `skull-drop-chance` for a Dragon Head, respecting `doMobLoot`.
+These features run only with `boss-scaling.enabled: true`.
+
+Validation still applies:
 `battle-prep-seconds` and `exit-portal-lock-release-minutes` have minimum `0`,
 `multi-dragon.multiplier` must be greater than `0.0`, `multi-dragon.max-dragons` has
 minimum `1`, and `rounding-mode` and `placement-mode` must be one of their options.

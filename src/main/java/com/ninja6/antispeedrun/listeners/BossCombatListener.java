@@ -8,9 +8,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 
+import org.bukkit.GameRule;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.boss.DragonBattle;
@@ -21,17 +24,21 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreatureSpawnEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EnderDragonChangePhaseEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.entity.EntityRemoveEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.world.EntitiesUnloadEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.inventory.ItemStack;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
@@ -46,7 +53,7 @@ import net.kyori.adventure.title.Title;
  * Multi-dragon boss combat (Epic 6). This class currently holds the reinforcement window (#37,
  * Task 6.1.1), its rounding modes (#38, Task 6.1.2), resummoned fights (#20, Task 6.1.3) and
  * single-battle reconciliation (#56, Task 6.1.5), secondary AI and boss bars (#21), and
- * balanced secondary XP (#22). The exit lock (#23) builds on it.
+ * balanced secondary XP (#22), and the resummoned exit lock and trophies (#23).
  *
  * <h2>The reinforcement window</h2>
  *
@@ -109,6 +116,9 @@ public final class BossCombatListener implements Listener {
 
     /** Refused-death notices go out at most this often per world, however hard the primary is hit. */
     private static final long REFUSAL_NOTICE_INTERVAL_MILLIS = 3_000L;
+
+    /** The opening around the central pillar is inside this square. */
+    private static final int EXIT_PORTAL_RADIUS = 2;
 
     private final AntiSpeedrunPlugin plugin;
     private final NamespacedKey secondaryDragon;
@@ -222,6 +232,7 @@ public final class BossCombatListener implements Listener {
         if (isSecondary(dragon)) {
             event.setDroppedExp(DragonReconciliationRules.secondaryExperience(event.getDroppedExp(),
                     plugin.configuration().bossScaling().multiDragon().balancedXp()));
+            maybeDropHead(event);
             return;
         }
         int living = roster(dragon.getWorld()).living();
@@ -229,7 +240,9 @@ public final class BossCombatListener implements Listener {
             event.setCancelled(true);
             event.setReviveHealth(1.0D);
             noticeRefusal(dragon.getWorld(), living);
+            return;
         }
+        maybeDropHead(event);
     }
 
     /**
@@ -239,7 +252,10 @@ public final class BossCombatListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDragonDied(EntityDeathEvent event) {
         if (event.getEntity() instanceof EnderDragon dragon) {
-            gone(dragon);
+            ResummonFight ended = gone(dragon);
+            if (ended != null) {
+                finishResummon(dragon.getWorld(), ended, true);
+            }
         }
     }
 
@@ -252,8 +268,44 @@ public final class BossCombatListener implements Listener {
                 publishingDragons.remove(dragon.getUniqueId());
             }
             if (!DragonReconciliationRules.survivesRemoval(event.getCause().name())) {
-                gone(dragon);
+                ResummonFight ended = gone(dragon);
+                if (ended != null) {
+                    finishResummon(dragon.getWorld(), ended, false);
+                }
             }
+        }
+    }
+
+    /** A successful player hit postpones the resummoned fight's inactivity escape. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDragonDamaged(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof EnderDragon dragon)
+                || dragon.getWorld().getEnvironment() != World.Environment.THE_END
+                || event.getFinalDamage() <= 0.0D
+                || !(event.getDamageSource().getCausingEntity() instanceof Player)) {
+            return;
+        }
+        ResummonFight fight = resummons.get(dragon.getWorld().getUID());
+        if (fight != null && fight.ongoing()
+                && (fight.primary().equals(dragon.getUniqueId()) || isSecondary(dragon))) {
+            fight.playerDamagedDragon(System.currentTimeMillis());
+        }
+    }
+
+    /** Refuse an exit even if another plugin recreates portal blocks during a locked resummon. */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onExitPortal(PlayerPortalEvent event) {
+        if (event.getCause() != PlayerTeleportEvent.TeleportCause.END_PORTAL
+                || event.getFrom().getWorld().getEnvironment() != World.Environment.THE_END) {
+            return;
+        }
+        PluginConfig.BossScaling config = plugin.configuration().bossScaling();
+        ResummonFight fight = resummons.get(event.getFrom().getWorld().getUID());
+        if (config.enabled() && config.exitPortalLockDuringBattle()
+                && fight != null && fight.ongoing() && !fight.exitReleased()) {
+            event.setCancelled(true);
+            event.getPlayer().sendActionBar(Component.text(
+                    "The exit portal is sealed while the dragons fight", NamedTextColor.LIGHT_PURPLE));
         }
     }
 
@@ -273,7 +325,7 @@ public final class BossCombatListener implements Listener {
             return;
         }
         PluginConfig config = plugin.configuration();
-        if (!DragonReinforcementRules.resummonArmed(config.bossScaling())) {
+        if (!config.bossScaling().enabled()) {
             return;
         }
         ResummonFight fight = new ResummonFight(dragon.getUniqueId());
@@ -281,12 +333,26 @@ public final class BossCombatListener implements Listener {
         if (previous != null) {
             previous.supersede();
         }
-        if (!fight.window().tryOpen()) {
+        plugin.getServer().getRegionScheduler().execute(plugin, world, 0, 0,
+                () -> startResummon(world, fight));
+    }
+
+    /** Confirms the ritual on the battle's region before touching its portal or opening a window. */
+    private void startResummon(World world, ResummonFight fight) {
+        Resummoned resummoned = new Resummoned(world, fight);
+        if (!resummoned.ongoing()) {
+            resummons.remove(world.getUID(), fight);
             return;
         }
-        int seconds = config.bossScaling().battlePrepSeconds();
-        Fight resummoned = new Resummoned(world, fight);
-        plugin.getServer().getRegionScheduler().execute(plugin, world, 0, 0, () -> begin(resummoned, seconds));
+        PluginConfig.BossScaling config = plugin.configuration().bossScaling();
+        if (config.enabled() && config.exitPortalLockDuringBattle()) {
+            lockExit(world, fight);
+        } else {
+            fight.releaseExit();
+        }
+        if (DragonReinforcementRules.resummonArmed(config) && fight.window().tryOpen()) {
+            begin(resummoned, config.battlePrepSeconds());
+        }
     }
 
     /**
@@ -528,18 +594,125 @@ public final class BossCombatListener implements Listener {
      * On {@code dragon}'s region, once it has died or been removed: a secondary leaves the roster and
      * a resummoned primary ends its fight.
      */
-    private void gone(EnderDragon dragon) {
+    private ResummonFight gone(EnderDragon dragon) {
         World world = dragon.getWorld();
         if (isSecondary(dragon)) {
             roster(world).forget(dragon.getUniqueId());
             secondaryBars.withdraw(world.getUID(), dragon.getUniqueId());
             publishingDragons.remove(dragon.getUniqueId());
-            return;
+            return null;
         }
         ResummonFight fight = resummons.get(world.getUID());
         if (fight != null && fight.end(dragon.getUniqueId())) {
             resummons.remove(world.getUID(), fight);
+            return fight;
         }
+        return null;
+    }
+
+    /** Give each actual dragon death its configured head chance, respecting doMobLoot. */
+    private void maybeDropHead(EntityDeathEvent event) {
+        PluginConfig.BossScaling config = plugin.configuration().bossScaling();
+        if (config.enabled()
+                && Boolean.TRUE.equals(event.getEntity().getWorld().getGameRuleValue(GameRule.DO_MOB_LOOT))
+                && DragonExitRules.dropsHead(config.skullDropChance(),
+                        ThreadLocalRandom.current().nextDouble())) {
+            event.getDrops().add(new ItemStack(Material.DRAGON_HEAD));
+        }
+    }
+
+    /** On the battle region: fill the portal's open basin and run the inactivity escape timer. */
+    private void lockExit(World world, ResummonFight fight) {
+        DragonBattle battle = world.getEnderDragonBattle();
+        Location portal = battle == null ? null : battle.getEndPortalLocation();
+        if (portal == null) {
+            plugin.getLogger().warning("Cannot seal the End exit in " + world.getName()
+                    + ": its dragon battle has no portal location.");
+            fight.releaseExit();
+            return;
+        }
+        int centerX = portal.getBlockX();
+        int centerY = portal.getBlockY();
+        int centerZ = portal.getBlockZ();
+        for (int chunkX = Math.floorDiv(centerX - EXIT_PORTAL_RADIUS, 16);
+                chunkX <= Math.floorDiv(centerX + EXIT_PORTAL_RADIUS, 16); chunkX++) {
+            for (int chunkZ = Math.floorDiv(centerZ - EXIT_PORTAL_RADIUS, 16);
+                    chunkZ <= Math.floorDiv(centerZ + EXIT_PORTAL_RADIUS, 16); chunkZ++) {
+                int fromX = Math.max(centerX - EXIT_PORTAL_RADIUS, chunkX << 4);
+                int toX = Math.min(centerX + EXIT_PORTAL_RADIUS, (chunkX << 4) + 15);
+                int fromZ = Math.max(centerZ - EXIT_PORTAL_RADIUS, chunkZ << 4);
+                int toZ = Math.min(centerZ + EXIT_PORTAL_RADIUS, (chunkZ << 4) + 15);
+                plugin.getServer().getRegionScheduler().execute(plugin, world, chunkX, chunkZ, () -> {
+                    if (resummons.get(world.getUID()) != fight || fight.exitReleased()) {
+                        return;
+                    }
+                    for (int x = fromX; x <= toX; x++) {
+                        for (int z = fromZ; z <= toZ; z++) {
+                            int dx = x - centerX;
+                            int dz = z - centerZ;
+                            if (!DragonExitRules.inBasin(dx, dz)) {
+                                continue;
+                            }
+                            Material existing = world.getBlockAt(x, centerY, z).getType();
+                            if (existing == Material.AIR || existing == Material.END_PORTAL) {
+                                world.getBlockAt(x, centerY, z).setType(Material.BEDROCK, false);
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        plugin.getServer().getRegionScheduler().runAtFixedRate(plugin, world, 0, 0, task -> {
+            if (resummons.get(world.getUID()) != fight || !fight.ongoing()) {
+                task.cancel();
+                return;
+            }
+            PluginConfig.BossScaling config = plugin.configuration().bossScaling();
+            if ((!config.enabled() || !config.exitPortalLockDuringBattle()) && fight.releaseExit()
+                    || fight.releaseExitAfter(System.currentTimeMillis(),
+                            config.exitPortalLockReleaseMinutes())) {
+                task.cancel();
+                reopenExit(world);
+            }
+        }, TICKS_PER_SECOND, TICKS_PER_SECOND);
+    }
+
+    /** The battle API restores the canonical portal shape; false keeps the first-kill egg unique. */
+    private void reopenExit(World world) {
+        DragonBattle battle = world.getEnderDragonBattle();
+        if (battle != null) {
+            battle.generateEndPortal(false);
+        }
+    }
+
+    /** A death earns a repeat-fight egg; any other primary removal only restores the exit. */
+    private void finishResummon(World world, ResummonFight fight, boolean victory) {
+        plugin.getServer().getRegionScheduler().runDelayed(plugin, world, 0, 0, task -> {
+            if (resummons.containsKey(world.getUID())) {
+                return;
+            }
+            if (!fight.exitReleased()) {
+                reopenExit(world);
+            }
+            PluginConfig.ExitPortalEgg egg = plugin.configuration().bossScaling().exitPortalEgg();
+            if (!victory || !egg.enabled() || egg.placementMode() == PluginConfig.PlacementMode.NONE) {
+                return;
+            }
+            DragonBattle battle = world.getEnderDragonBattle();
+            Location portal = battle == null ? null : battle.getEndPortalLocation();
+            if (portal == null) {
+                plugin.getLogger().warning("Cannot place the repeat-fight egg in " + world.getName()
+                        + ": its dragon battle has no portal location.");
+                return;
+            }
+            Location trophy = portal.clone().add(0.5D, 4.0D, 0.5D);
+            if (egg.placementMode() == PluginConfig.PlacementMode.TOP_PILLAR
+                    && trophy.getBlock().getType() == Material.AIR) {
+                trophy.getBlock().setType(Material.DRAGON_EGG, false);
+            } else {
+                world.dropItemNaturally(trophy, new ItemStack(Material.DRAGON_EGG));
+            }
+        }, 1L);
     }
 
     /** This world's window, created on first use from the persisted record. */
