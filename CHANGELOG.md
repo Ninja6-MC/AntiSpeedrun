@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-30
+
 ### Added
 - Resummoned dragon fights keep the exit portal sealed in its bedrock basin until
   victory, with a configurable inactivity escape. Repeat victories award a
