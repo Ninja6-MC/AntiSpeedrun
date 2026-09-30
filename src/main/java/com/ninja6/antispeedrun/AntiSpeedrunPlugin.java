@@ -31,6 +31,7 @@ import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
 import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
+import com.ninja6.antispeedrun.listeners.TrimSmithingListener;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
 import com.ninja6.antispeedrun.progression.IdleReminderEngine;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
@@ -216,6 +217,8 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // only holds a compiled table once applyConfiguration() above has run. Both are in place
         // by this line.
         getServer().getPluginManager().registerEvents(new ItemProgressionListener(this), this);
+        // The trim smithing and wearing locks (#19): read bypasses() like the item gate.
+        getServer().getPluginManager().registerEvents(new TrimSmithingListener(this), this);
 
         // The early Eye of Ender rule (#7). After the stores for the same reason as the two gates
         // above: it reads bypasses() and dimensionUnlocks() on every refused throw.

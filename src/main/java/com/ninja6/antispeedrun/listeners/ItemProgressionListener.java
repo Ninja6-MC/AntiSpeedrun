@@ -486,6 +486,24 @@ public final class ItemProgressionListener implements Listener {
     }
 
     /**
+     * Right-click equip bypasses the inventory click gate. Check the base armor material before
+     * vanilla moves it from the hand into an armor slot, while preserving block interaction.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onEquipArmorFromHand(PlayerInteractEvent event) {
+        Action action = event.getAction();
+        if (action != Action.RIGHT_CLICK_AIR && action != Action.RIGHT_CLICK_BLOCK) {
+            return;
+        }
+        ItemStack item = event.getItem();
+        if (item == null || !item.getType().getEquipmentSlot().isArmor()
+                || event.useItemInHand() == Event.Result.DENY) {
+            return;
+        }
+        refuse(event.getPlayer(), item.getType(), new ItemUseDenial(event));
+    }
+
+    /**
      * Refuses this player whatever this bundle holds if any of it is a stack they may not have,
      * cancelling {@code event} and telling them why.
      *
