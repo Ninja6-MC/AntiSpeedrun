@@ -200,7 +200,8 @@ With `enabled` and `block-unearned-template-duplication` set to `true`, a player
 copy a gated template in a crafting table until they have earned its structure
 advancement. Crafters use the advancement record of the player who placed them; they
 continue to work while that player is offline. A Crafter without a recorded owner
-refuses gated template recipes. The other trim locks remain tracked in
+refuses gated template recipes. Smithing and wearing locks also apply to unearned trims.
+The natural trim chest lock remains tracked in
 [#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45).
 
 The structure each lock will require is fixed, not configured:
