@@ -31,6 +31,7 @@ import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
 import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
+import com.ninja6.antispeedrun.listeners.TemplateDuplicationListener;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
 import com.ninja6.antispeedrun.progression.IdleReminderEngine;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
@@ -39,6 +40,7 @@ import com.ninja6.antispeedrun.progression.ProgressionManager;
 import com.ninja6.antispeedrun.progression.UnlockWatch;
 import com.ninja6.antispeedrun.storage.BypassStore;
 import com.ninja6.antispeedrun.storage.DimensionUnlockStore;
+import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
 import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
 import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
@@ -233,6 +235,19 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                     + "dragons already in the End are still found when their chunks load.");
         }
         getServer().getPluginManager().registerEvents(new BossCombatListener(this, reinforcedFights), this);
+
+        // The template duplication lock (#18). Its record of explored structures is read before the
+        // listener exists, so a Crafter whose owner is offline works from the first tick.
+        ExploredStructureStore exploredStructures = new ExploredStructureStore(
+                getLogger(),
+                new YamlStateFile(new File(getDataFolder(), "explored-structures.yml").toPath()),
+                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
+        if (!exploredStructures.loadNow()) {
+            getLogger().warning("Starting with no explored structures recorded. Crafters refuse gated "
+                    + "templates until their owners next join.");
+        }
+        getServer().getPluginManager().registerEvents(
+                new TemplateDuplicationListener(this, exploredStructures), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
