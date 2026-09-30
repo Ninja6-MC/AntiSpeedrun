@@ -45,6 +45,7 @@ import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
 import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
 import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
+import com.ninja6.antispeedrun.storage.PortalLockStore;
 import com.ninja6.antispeedrun.storage.YamlStateFile;
 
 /**
@@ -238,7 +239,13 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
             getLogger().warning("Starting with no reinforced dragon fights recorded. Secondary "
                     + "dragons already in the End are still found when their chunks load.");
         }
-        getServer().getPluginManager().registerEvents(new BossCombatListener(this, reinforcedFights), this);
+        PortalLockStore portalLocks = new PortalLockStore(
+                getLogger(),
+                new YamlStateFile(new File(getDataFolder(), "portal-locks.yml").toPath()),
+                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
+        portalLocks.loadNow();
+        getServer().getPluginManager().registerEvents(
+                new BossCombatListener(this, reinforcedFights, portalLocks), this);
 
         // The template duplication lock (#18). Its record of explored structures is read before the
         // listener exists, so a Crafter whose owner is offline works from the first tick.

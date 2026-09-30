@@ -316,6 +316,8 @@ vanilla's first-entry behaviour. The lock ends when the resummoned primary dies,
 after every extra dragon has fallen. `exit-portal-lock-release-minutes` opens the
 portal early after that many minutes without a successful player hit on any dragon;
 `0` disables this escape. Turning the lock off with `/asr reload` also opens it.
+After a server restart or plugin reload, a sealed exit is reopened on startup using
+the durable marker in `portal-locks.yml`; a new resummon must start to lock it again.
 
 On a resummoned victory, `exit-portal-egg.enabled` awards another egg. Placement
 mode `TOP_PILLAR` puts it above the centre pillar if the space is empty, and drops

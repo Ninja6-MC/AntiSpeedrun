@@ -232,6 +232,7 @@ persistent data, and the persistent data of the extra dragons it spawns.
 | :--- | :--- | :--- |
 | Dimension unlocks | `plugins/AntiSpeedrun/state.yml`, keys `dimension-unlocks.nether` and `dimension-unlocks.the_end` (unlock time in epoch milliseconds) | Server-wide |
 | Reinforced dragon fights | `plugins/AntiSpeedrun/dragon-fights.yml`, one key `reinforced-fights.<world-uid>` per End world whose reinforcement window has run (time in epoch milliseconds) | Per End world |
+| Sealed resummon exits | `plugins/AntiSpeedrun/portal-locks.yml`, one key `locked-exits.<world-uid>` per End world whose exit basin was sealed | Per End world |
 | Extra dragon tag | Entity persistent data on each extra dragon, key `antispeedrun:n6_asr_secondary_dragon` | Per dragon |
 | Bypass grants | Player persistent data, key `antispeedrun:bypass-expires-at` | Per player |
 | Journey book delivered flag | Player persistent data, key `antispeedrun:journey-book-delivered` | Per player |
@@ -262,6 +263,10 @@ own and are only read by the plugin.
   If it cannot be read, the plugin logs `SEVERE`, starts with nothing recorded and
   moves the damaged file aside as `dragon-fights.yml.corrupt-<yyyyMMdd-HHmmss>`
   before its next write, as for `state.yml` below.
+- `portal-locks.yml` is written before a resummon exit is sealed. If the server or
+  plugin stops mid-fight, the next enable restores the active portal on its owning
+  region, then removes the marker. Keep this file with the world during backup and
+  restore; deleting it while the basin is sealed prevents automatic recovery.
 - While an extra dragon lives, the original dragon cannot die, including by `/kill`.
   Killing an extra dragon with `/kill` counts as a death. An extra dragon that was
   never saved to disk (lost in a crash before a chunk save) is not waited for: only

@@ -36,6 +36,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.world.EntitiesUnloadEvent;
+import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.inventory.ItemStack;
@@ -43,6 +44,7 @@ import org.bukkit.inventory.ItemStack;
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
+import com.ninja6.antispeedrun.storage.PortalLockStore;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -123,6 +125,7 @@ public final class BossCombatListener implements Listener {
     private final AntiSpeedrunPlugin plugin;
     private final NamespacedKey secondaryDragon;
     private final ReinforcedFightStore reinforcedFights;
+    private final PortalLockStore portalLocks;
 
     /** One window per End world, keyed by world UID. Removed when the world unloads. */
     private final Map<UUID, ReinforcementWindow> windows = new ConcurrentHashMap<>();
@@ -133,6 +136,9 @@ public final class BossCombatListener implements Listener {
     /** The current resummoned fight per End world, keyed by world UID. Removed when it ends. */
     private final Map<UUID, ResummonFight> resummons = new ConcurrentHashMap<>();
 
+    /** Prevent concurrent region callbacks from scheduling a second restoration of one basin. */
+    private final Set<UUID> restoringExits = ConcurrentHashMap.newKeySet();
+
     /** When each world last told its players the primary cannot fall yet, in epoch milliseconds. */
     private final Map<UUID, AtomicLong> lastRefusalNotice = new ConcurrentHashMap<>();
 
@@ -141,10 +147,15 @@ public final class BossCombatListener implements Listener {
     private final Set<UUID> publishingDragons = ConcurrentHashMap.newKeySet();
     private final Map<UUID, ViewerBars<BossBar>> viewerBars = new ConcurrentHashMap<>();
 
-    public BossCombatListener(AntiSpeedrunPlugin plugin, ReinforcedFightStore reinforcedFights) {
+    public BossCombatListener(AntiSpeedrunPlugin plugin, ReinforcedFightStore reinforcedFights,
+            PortalLockStore portalLocks) {
         this.plugin = plugin;
         this.secondaryDragon = new NamespacedKey(plugin, SECONDARY_DRAGON_KEY);
         this.reinforcedFights = reinforcedFights;
+        this.portalLocks = portalLocks;
+        for (World world : plugin.getServer().getWorlds()) {
+            recoverExit(world);
+        }
         plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(plugin, task -> {
             for (Player player : List.copyOf(plugin.getServer().getOnlinePlayers())) {
                 player.getScheduler().run(plugin, scheduled -> refreshBars(player), null);
@@ -161,13 +172,20 @@ public final class BossCombatListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onChangedWorld(PlayerChangedWorldEvent event) {
         clearBars(event.getPlayer());
+        recoverExit(event.getPlayer().getWorld());
         entered(event.getPlayer().getWorld());
     }
 
     /** A player who logs out in the End and back in never changes world, but still arrives. */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
+        recoverExit(event.getPlayer().getWorld());
         entered(event.getPlayer().getWorld());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onWorldLoad(WorldLoadEvent event) {
+        recoverExit(event.getWorld());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -180,6 +198,7 @@ public final class BossCombatListener implements Listener {
         UUID world = event.getWorld().getUID();
         windows.remove(world);
         rosters.remove(world);
+        restoringExits.remove(world);
         secondaryBars.forgetWorld(world);
         lastRefusalNotice.remove(world);
         ResummonFight resummon = resummons.remove(world);
@@ -302,6 +321,7 @@ public final class BossCombatListener implements Listener {
         PluginConfig.BossScaling config = plugin.configuration().bossScaling();
         ResummonFight fight = resummons.get(event.getFrom().getWorld().getUID());
         if (config.enabled() && config.exitPortalLockDuringBattle()
+                && portalLocks.isLocked(event.getFrom().getWorld().getUID())
                 && fight != null && fight.ongoing() && !fight.exitReleased()) {
             event.setCancelled(true);
             event.getPlayer().sendActionBar(Component.text(
@@ -346,7 +366,17 @@ public final class BossCombatListener implements Listener {
         }
         PluginConfig.BossScaling config = plugin.configuration().bossScaling();
         if (config.enabled() && config.exitPortalLockDuringBattle()) {
-            lockExit(world, fight);
+            portalLocks.arm(world.getUID(), saved -> plugin.getServer().getRegionScheduler().execute(
+                    plugin, world, 0, 0, () -> {
+                        if (!saved || resummons.get(world.getUID()) != fight || !fight.ongoing()) {
+                            fight.releaseExit();
+                            if (saved) {
+                                restoreExit(world);
+                            }
+                            return;
+                        }
+                        lockExit(world, fight);
+                    }));
         } else {
             fight.releaseExit();
         }
@@ -621,6 +651,18 @@ public final class BossCombatListener implements Listener {
         }
     }
 
+    /** A persisted seal with no live fight is reopened after startup, reload or world load. */
+    private void recoverExit(World world) {
+        if (world.getEnvironment() != World.Environment.THE_END || !portalLocks.isLocked(world.getUID())) {
+            return;
+        }
+        plugin.getServer().getRegionScheduler().execute(plugin, world, 0, 0, () -> {
+            if (portalLocks.isLocked(world.getUID()) && !resummons.containsKey(world.getUID())) {
+                restoreExit(world);
+            }
+        });
+    }
+
     /** On the battle region: fill the portal's open basin and run the inactivity escape timer. */
     private void lockExit(World world, ResummonFight fight) {
         DragonBattle battle = world.getEnderDragonBattle();
@@ -629,6 +671,7 @@ public final class BossCombatListener implements Listener {
             plugin.getLogger().warning("Cannot seal the End exit in " + world.getName()
                     + ": its dragon battle has no portal location.");
             fight.releaseExit();
+            restoreExit(world);
             return;
         }
         int centerX = portal.getBlockX();
@@ -668,20 +711,82 @@ public final class BossCombatListener implements Listener {
                 return;
             }
             PluginConfig.BossScaling config = plugin.configuration().bossScaling();
-            if ((!config.enabled() || !config.exitPortalLockDuringBattle()) && fight.releaseExit()
-                    || fight.releaseExitAfter(System.currentTimeMillis(),
-                            config.exitPortalLockReleaseMinutes())) {
+            if (!config.enabled() || !config.exitPortalLockDuringBattle()) {
+                fight.releaseExit();
+            } else {
+                fight.releaseExitAfter(System.currentTimeMillis(), config.exitPortalLockReleaseMinutes());
+            }
+            if (fight.exitReleased()) {
+                restoreExit(world);
+            }
+            if (fight.exitReleased() && !portalLocks.isLocked(world.getUID())) {
                 task.cancel();
-                reopenExit(world);
             }
         }, TICKS_PER_SECOND, TICKS_PER_SECOND);
     }
 
-    /** The battle API restores the canonical portal shape; false keeps the first-kill egg unique. */
-    private void reopenExit(World world) {
+    /** Restore the exact active portal cells on their owning regions, then clear the durable marker. */
+    private void restoreExit(World world) {
+        UUID worldId = world.getUID();
+        if (!portalLocks.isLocked(worldId) || !restoringExits.add(worldId)) {
+            return;
+        }
         DragonBattle battle = world.getEnderDragonBattle();
-        if (battle != null) {
-            battle.generateEndPortal(false);
+        Location portal = battle == null ? null : battle.getEndPortalLocation();
+        if (portal == null) {
+            restoringExits.remove(worldId);
+            plugin.getLogger().warning("Cannot restore the End exit in " + world.getName()
+                    + ": its dragon battle has no portal location.");
+            return;
+        }
+        int centerX = portal.getBlockX();
+        int centerY = portal.getBlockY();
+        int centerZ = portal.getBlockZ();
+        int fromChunkX = Math.floorDiv(centerX - EXIT_PORTAL_RADIUS, 16);
+        int toChunkX = Math.floorDiv(centerX + EXIT_PORTAL_RADIUS, 16);
+        int fromChunkZ = Math.floorDiv(centerZ - EXIT_PORTAL_RADIUS, 16);
+        int toChunkZ = Math.floorDiv(centerZ + EXIT_PORTAL_RADIUS, 16);
+        AtomicInteger remaining = new AtomicInteger(
+                (toChunkX - fromChunkX + 1) * (toChunkZ - fromChunkZ + 1));
+        AtomicInteger openCells = new AtomicInteger();
+        for (int chunkX = fromChunkX; chunkX <= toChunkX; chunkX++) {
+            for (int chunkZ = fromChunkZ; chunkZ <= toChunkZ; chunkZ++) {
+                int minX = Math.max(centerX - EXIT_PORTAL_RADIUS, chunkX << 4);
+                int maxX = Math.min(centerX + EXIT_PORTAL_RADIUS, (chunkX << 4) + 15);
+                int minZ = Math.max(centerZ - EXIT_PORTAL_RADIUS, chunkZ << 4);
+                int maxZ = Math.min(centerZ + EXIT_PORTAL_RADIUS, (chunkZ << 4) + 15);
+                plugin.getServer().getRegionScheduler().execute(plugin, world, chunkX, chunkZ, () -> {
+                    for (int x = minX; x <= maxX; x++) {
+                        for (int z = minZ; z <= maxZ; z++) {
+                            int dx = x - centerX;
+                            int dz = z - centerZ;
+                            if ((dx == 0 && dz == 0) || !DragonExitRules.inBasin(dx, dz)) {
+                                continue;
+                            }
+                            Material existing = world.getBlockAt(x, centerY, z).getType();
+                            if (existing == Material.BEDROCK || existing == Material.AIR) {
+                                world.getBlockAt(x, centerY, z).setType(Material.END_PORTAL, false);
+                                openCells.incrementAndGet();
+                            } else if (existing == Material.END_PORTAL) {
+                                openCells.incrementAndGet();
+                            }
+                        }
+                    }
+                    if (remaining.decrementAndGet() == 0) {
+                        plugin.getServer().getRegionScheduler().execute(plugin, world, 0, 0, () -> {
+                            if (openCells.get() > 0) {
+                                portalLocks.clear(worldId);
+                                plugin.getLogger().info("Restored the End exit portal in "
+                                        + world.getName() + '.');
+                            } else {
+                                plugin.getLogger().warning("No exit portal cells could be restored in "
+                                        + world.getName() + "; the recovery marker remains.");
+                            }
+                            restoringExits.remove(worldId);
+                        });
+                    }
+                });
+            }
         }
     }
 
@@ -691,8 +796,8 @@ public final class BossCombatListener implements Listener {
             if (resummons.containsKey(world.getUID())) {
                 return;
             }
-            if (!fight.exitReleased()) {
-                reopenExit(world);
+            if (portalLocks.isLocked(world.getUID())) {
+                restoreExit(world);
             }
             PluginConfig.ExitPortalEgg egg = plugin.configuration().bossScaling().exitPortalEgg();
             if (!victory || !egg.enabled() || egg.placementMode() == PluginConfig.PlacementMode.NONE) {

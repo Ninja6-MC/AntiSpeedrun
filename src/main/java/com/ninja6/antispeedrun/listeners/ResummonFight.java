@@ -23,9 +23,10 @@ import java.util.UUID;
  *
  * <h2>Across a restart</h2>
  *
- * Nothing here is persisted. A resummoned primary loaded from disk after a restart is not a fresh
- * spawn and opens no window, so a fight already reinforced is never reinforced twice; a restart
- * during the countdown costs that fight its reinforcements.
+ * The fight and its timer are not persisted. A resummoned primary loaded from disk after a restart
+ * is not a fresh spawn and opens no window, so a fight already reinforced is never reinforced twice;
+ * a restart during the countdown costs that fight its reinforcements. The exit lock has its own
+ * durable marker: after a restart the listener opens that portal rather than recreating this timer.
  */
 public final class ResummonFight {
 
