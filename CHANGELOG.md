@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-02
+
+### Fixed
+- Journey Guide Book delivery on first join and through `/journeybook` or `/asr book`
+  no longer fails with a `NoSuchMethodError` on Paper 26.2. The compatible Paper
+  1.21.4 API baseline is retained.
+
 ## [0.1.0] - 2026-09-30
 
 ### Added
