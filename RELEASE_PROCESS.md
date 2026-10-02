@@ -9,10 +9,12 @@ This document defines the versioning rules, release channels and publishing proc
 Versions follow SemVer 2.0.0, applied in three phases. The phase decides the version
 series and where a build is published.
 
-* **Development** -- `v0.Y.Z`, one build per finished feature group. `v0.1.0` is Epics 1-4,
+* **Development** -- `v0.Y.Z`, with Y incremented for each finished feature group.
+  `v0.1.0` is Epics 1-4,
   `v0.2.0` is Epic 6, `v0.3.0` is Epic 5 and `v0.4.0` is Epic 7. Config and commands may
   change between development builds, so testers regenerate `config.yml` between builds
-  until config versioning (#168) lands.
+  until config versioning (#168) lands. Increment Z for compatible bug fixes between
+  feature-group releases, such as `v0.1.1`; `v0.2.0` remains Epic 6.
 * **Feature-complete** -- `v1.0.0-alpha.1` once every feature group has shipped. A new
   alpha (`alpha.2`, ...) is cut whenever the fixes since the last one include a major
   change; minor fixes wait for the next alpha.
