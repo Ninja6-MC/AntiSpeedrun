@@ -166,7 +166,8 @@ public final class JourneyBookCommand implements CommandExecutor, TabCompleter {
         for (String page : JourneyBookPages.pages(config)) {
             pages.add(MINI.deserialize(page));
         }
-        meta.pages(pages);
+        // addPages has a stable void descriptor; pages(List) changes its return type in Paper 26.2.
+        meta.addPages(pages.toArray(Component[]::new));
         meta.getPersistentDataContainer().set(marker, PersistentDataType.BYTE, (byte) 1);
         item.setItemMeta(meta);
         return item;
