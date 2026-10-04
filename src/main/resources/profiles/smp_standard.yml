@@ -194,7 +194,7 @@ boss-scaling:
 # 7. Anti-Cheese Engine
 anti-cheese:
   enabled: true
-  block-bed-anchor-boss-damage: true   # Cancels DamageType.BAD_RESPAWN_POINT against bosses
+  block-bed-anchor-boss-damage: false  # Off until the v0.2.0/v0.3.0 playtest. Cancels DamageType.BAD_RESPAWN_POINT against bosses
   # Off by default; set true to enforce max-single-hit-boss-damage.
   cap-single-hit-boss-damage: false
   # Time-to-kill budget, not just an anti-1-shot guard. The Ender Dragon has 200 HP and
