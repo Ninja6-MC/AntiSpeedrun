@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <b>Anti-speedrun dimension and item progression gates for PaperMC &amp; Folia, with anti-cheese and multi-dragon boss scaling planned.</b>
+  <b>Anti-speedrun dimension and item progression gates for PaperMC &amp; Folia, with trim gating, anti-cheese rules and multi-dragon boss scaling.</b>
 </p>
 
 <p align="center">
@@ -24,19 +24,18 @@ Part of the [Ninja6-MC](https://github.com/Ninja6-MC) plugin suite.
 Under active development. Development builds are published as GitHub pre-releases,
 with the plugin jar and its checksum, on the
 [Releases page](https://github.com/Ninja6-MC/AntiSpeedrun/releases), which lists the
-current build. There is no stable release yet. Only the modules listed under
-"Implemented" below do anything on a running server. Everything under "Planned" has
-configuration keys that are parsed and validated but no runtime behavior behind them, so
-switching those keys on has no effect yet. Every anti-cheese rule beyond the Eye of Ender
-block ships off and must be enabled by the server operator.
+current build. There is no stable release yet. Everything listed under "Implemented"
+below runs on a server. Some of it ships off and must be enabled by the server
+operator: every anti-cheese rule except the Eye of Ender block, natural trim-chest
+gating, and boss scaling as a whole.
 
 ---
 
 ## What it does
 
 AntiSpeedrun paces early-game survival progression on multiplayer Minecraft servers:
-it gates dimensions and gear behind milestones, points players at their next step, and
-is intended to grow boss-combat scaling and further anti-cheese protection.
+it gates dimensions, gear and armor trims behind milestones, points players at their next
+step, adds optional anti-cheese rules, and can scale the Ender Dragon fight to the party.
 
 ### Implemented
 
@@ -76,7 +75,15 @@ is intended to grow boss-combat scaling and further anti-cheese protection.
   `multi-dragon.enabled`, `multiplier`, `rounding-mode`, `max-dragons`), with the original
   dragon held until the extra ones are dead so the fight ends in one victory. The
   `multi-dragon.balanced-xp` option sets each extra dragon's reward to 1,000 XP;
-  turning it off retains the earlier 500 XP cap.
+  turning it off retains the earlier 500 XP cap. Ships off: `boss-scaling.enabled` is
+  `false` and must be set to `true`.
+- **Armor trim and smithing template gating** (`trim-progression`) -- on by default
+  (`enabled: true`). Duplicating a trim template in a crafting table or Crafter
+  (`block-unearned-template-duplication`), applying a trim at a smithing table
+  (`block-unearned-smithing`) and wearing a trimmed piece (`block-wearing-unearned-trims`)
+  are refused until the player has discovered the matching structure; all three are on by
+  default. Gating templates in natural trim chests (`gate-natural-trim-chests`) is off by
+  default.
 - **Anti-cheese rules** (`anti-cheese`) -- `enabled`,
   `block-early-eye-throwing`, `early-eye-rejection-message`, the single-hit cap
   (`cap-single-hit-boss-damage`, off by default, with `max-single-hit-boss-damage`), the
@@ -85,13 +92,10 @@ is intended to grow boss-combat scaling and further anti-cheese protection.
   Outer End boundary (`block-gateway-pre-dragon`, off by default, `outer-end-radius`,
   `outer-end-poll-seconds`).
 
-### Planned
+### Next
 
-These are tracked in issues and are not implemented. Their keys in `config.yml` are
-read and validated at load but nothing acts on them.
-
-- **Armor trim and smithing template gating** (`trim-progression`) -- tracked in
-  [#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45).
+Further feature groups are tracked in issues and ship in later development builds, ahead
+of the first alpha.
 
 ---
 
@@ -141,8 +145,7 @@ from one category each.
   and permissions, profiles, dimension unlock, temporary bypass, persisted state,
   backup boundaries and troubleshooting.
 - [Configuration reference](docs/configuration.md) -- every `config.yml` section, its
-  defaults, validation and reload behavior, the three profiles, and which modules are
-  still planned.
+  defaults, validation and reload behavior, and the three profiles.
 
 ---
 
