@@ -60,6 +60,11 @@ untouched. See [configuration.md](configuration.md#32-upgrading-an-older-configy
 state files are not versioned yet, so keep a backup of `plugins/AntiSpeedrun/` and
 `playerdata` before a jump between builds.
 
+A clean install is also fine: back up `plugins/AntiSpeedrun/`, delete `config.yml`,
+install the jar and restart. The plugin writes a fresh default `config.yml`, and the
+state files carry over. Every anti-cheese rule added since v0.1.x ships off, so enable
+the ones you want in `config.yml`.
+
 ## 3. Verifying a successful start
 
 The server log should contain these lines and no `SEVERE` line from AntiSpeedrun:

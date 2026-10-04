@@ -21,7 +21,10 @@ Part of the [Ninja6-MC](https://github.com/Ninja6-MC) plugin suite.
 
 ## Status
 
-Under active development; there is no public release yet. Only the modules listed
+Under active development. Development builds are published as GitHub pre-releases,
+with the plugin jar and its checksum, on the
+[Releases page](https://github.com/Ninja6-MC/AntiSpeedrun/releases); the latest is
+v0.2.0. There is no stable release yet. Only the modules listed
 under "Implemented" below do anything on a running server. Everything under "Planned"
 has configuration keys that are parsed and validated but no runtime behavior behind
 them, so switching those keys on has no effect yet. The one shared key is
@@ -107,8 +110,10 @@ read and validated at load but nothing acts on them, with the exception of
 - Floodgate is optional. When present on the server it lets `/progress` detect
   Bedrock players and use the glyph-safe card.
 
-Build with `./gradlew build`. The plugin jar is produced by the build; no released
-artifact is published yet.
+Download the plugin jar from the
+[Releases page](https://github.com/Ninja6-MC/AntiSpeedrun/releases), or build it with
+`./gradlew build`. Releases to date are pre-releases. Upgrading from v0.1.x: see
+[docs/administration.md](docs/administration.md#2-installation).
 
 ---
 
