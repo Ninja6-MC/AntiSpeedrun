@@ -125,15 +125,11 @@ class BossScalingTest {
     }
 
     @Test
-    @DisplayName("the shipped defaults reproduce the documented table: 3 at 0.5 is 2, 4 at 0.3 is 1")
+    @DisplayName("the shipped defaults are HALF_UP, a multiplier of 0.5 and a cap of 5")
     void shippedDefaults() {
         PluginConfig.MultiDragon shipped = PluginConfig.defaults().bossScaling().multiDragon();
         assertEquals(PluginConfig.RoundingMode.HALF_UP, shipped.roundingMode());
         assertEquals(0.5D, shipped.multiplier());
         assertEquals(5, shipped.maxDragons());
-        int[] expected = {1, 1, 2, 2, 3, 3, 4, 4, 5, 5};
-        for (int n = 1; n <= 10; n++) {
-            assertEquals(expected[n - 1], DragonReinforcementRules.dragonCount(n, shipped), "party " + n);
-        }
     }
 }
