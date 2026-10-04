@@ -60,9 +60,10 @@ untouched. See [configuration.md](configuration.md#32-upgrading-an-older-configy
 state files are not versioned yet, so keep a backup of `plugins/AntiSpeedrun/` and
 `playerdata` before a jump between builds.
 
-A clean install is also fine: back up `plugins/AntiSpeedrun/`, delete `config.yml`,
-install the jar and restart. The plugin writes a fresh default `config.yml`, and the
-state files carry over. Every anti-cheese rule added since v0.1.x ships off, so enable
+A clean install is also fine: back up `plugins/AntiSpeedrun/` and `playerdata`, delete
+`config.yml`, install the jar and restart. Deleting `config.yml` loses every local edit
+and any preset applied with `/asr profile apply`; the plugin writes a fresh default
+`config.yml` (the `SMP_STANDARD` profile), and the state files carry over. Every anti-cheese rule added since v0.1.x ships off, so enable
 the ones you want in `config.yml`.
 
 ## 3. Verifying a successful start

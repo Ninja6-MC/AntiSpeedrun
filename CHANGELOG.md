@@ -26,8 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `plugins/AntiSpeedrun/backups/`, and switches `block-gateway-pre-dragon`,
   `block-exit-portal-crystal-place` and `block-bed-anchor-boss-damage` from `true` to
   `false`, once, because in 0.1.x they did nothing. Set one back to `true` to enforce it.
-- A clean install also works: back up `plugins/AntiSpeedrun/`, delete `config.yml`,
-  install the jar and restart. State files carry over.
+- A clean install also works: back up `plugins/AntiSpeedrun/` and `playerdata`, delete
+  `config.yml`, install the jar and restart. Deleting `config.yml` loses every local edit
+  and any preset applied with `/asr profile apply`; the regenerated file is the default
+  `SMP_STANDARD`. State files carry over.
 
 ## [0.1.1] - 2026-10-02
 

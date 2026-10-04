@@ -23,12 +23,12 @@ Part of the [Ninja6-MC](https://github.com/Ninja6-MC) plugin suite.
 
 Under active development. Development builds are published as GitHub pre-releases,
 with the plugin jar and its checksum, on the
-[Releases page](https://github.com/Ninja6-MC/AntiSpeedrun/releases); the latest is
-v0.2.0. There is no stable release yet. Only the modules listed
-under "Implemented" below do anything on a running server. Everything under "Planned"
-has configuration keys that are parsed and validated but no runtime behavior behind
-them, so switching those keys on has no effect yet. The one shared key is
-`anti-cheese.enabled`, which is live because the Eye of Ender block reads it.
+[Releases page](https://github.com/Ninja6-MC/AntiSpeedrun/releases), which lists the
+current build. There is no stable release yet. Only the modules listed under
+"Implemented" below do anything on a running server. Everything under "Planned" has
+configuration keys that are parsed and validated but no runtime behavior behind them, so
+switching those keys on has no effect yet. Every anti-cheese rule beyond the Eye of Ender
+block ships off and must be enabled by the server operator.
 
 ---
 
@@ -70,29 +70,26 @@ is intended to grow boss-combat scaling and further anti-cheese protection.
   `anti-cheese.block-early-eye-throwing`) can be switched in `config.yml`. The
   `/progress` card, the Journey Guide Book and the administrative commands have no
   on/off switch.
-
-### Planned
-
-These are tracked in issues and are not implemented. Their keys in `config.yml` are
-read and validated at load but nothing acts on them, with the exception of
-`anti-cheese.enabled` noted above.
-
-- **Multi-dragon boss scaling** (`boss-scaling`) -- tracked in
-  [#46](https://github.com/Ninja6-MC/AntiSpeedrun/issues/46). Only the reinforcement
-  window is live: the extra dragons a party earns on its first End entry and on each
+- **Multi-dragon boss scaling** (`boss-scaling`) -- the reinforcement
+  window: the extra dragons a party earns on its first End entry and on each
   four-crystal resummon (`enabled`, `scale-resummoned-dragons`, `battle-prep-seconds`,
   `multi-dragon.enabled`, `multiplier`, `rounding-mode`, `max-dragons`), with the original
   dragon held until the extra ones are dead so the fight ends in one victory. The
   `multi-dragon.balanced-xp` option sets each extra dragon's reward to 1,000 XP;
   turning it off retains the earlier 500 XP cap.
-- **Remaining anti-cheese rules** (`anti-cheese`) -- tracked
-  in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47). Live: `enabled`,
+- **Anti-cheese rules** (`anti-cheese`) -- `enabled`,
   `block-early-eye-throwing`, `early-eye-rejection-message`, the single-hit cap
   (`cap-single-hit-boss-damage`, off by default, with `max-single-hit-boss-damage`), the
   exit portal centre crystal block (`block-exit-portal-crystal-place`, off by default), the
   bed and Respawn Anchor boss damage block (`block-bed-anchor-boss-damage`, off by default) and the
   Outer End boundary (`block-gateway-pre-dragon`, off by default, `outer-end-radius`,
   `outer-end-poll-seconds`).
+
+### Planned
+
+These are tracked in issues and are not implemented. Their keys in `config.yml` are
+read and validated at load but nothing acts on them.
+
 - **Armor trim and smithing template gating** (`trim-progression`) -- tracked in
   [#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45).
 
