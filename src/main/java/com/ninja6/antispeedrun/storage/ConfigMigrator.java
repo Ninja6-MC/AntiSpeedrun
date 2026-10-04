@@ -30,12 +30,22 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  *
  * <h2>What a migration may and may not do</h2>
  *
- * A step <strong>adds a key that is missing, with its shipped default, and nothing else</strong>.
- * It never rewrites, moves or removes a value the operator has, and a key already present is left
- * alone even when its value differs from the default. The default written is the one the step
- * itself carries, frozen when the step was written, so changing a shipped default later cannot
- * change what an old step does to an old file. Every key added so far ships off, so a migrated
- * server enforces exactly what it enforced before; a step that adds a rule must add it disabled.
+ * A step <strong>adds a key that is missing, with its shipped default</strong>. It never moves or
+ * removes a value the operator has, and a key already present is left alone even when its value
+ * differs from the default. The default written is the one the step itself carries, frozen when
+ * the step was written, so changing a shipped default later cannot change what an old step does to
+ * an old file. Every key added so far ships off; a step that adds a rule must add it disabled.
+ *
+ * <p><strong>The one exception</strong> is a {@link Reset}: the step to version 1 sets
+ * {@code anti-cheese.block-bed-anchor-boss-damage}, {@code block-exit-portal-crystal-place} and
+ * {@code block-gateway-pre-dragon} to {@code false} where they read {@code true}. v0.1.x shipped
+ * all three {@code true} in {@code config.yml} and in the presets, but no code enforced them, so a
+ * v0.1.x server never applied them. Carrying the {@code true} forward would switch on three rules
+ * the operator never saw working; {@code false} keeps the server doing what it did. This runs once,
+ * on the move from version 0, and only on a literal {@code true}: the value is edited in place,
+ * its trailing comment kept, the backup taken first covers it, and each change is reported
+ * separately from the additions so the caller can log it. An operator who wants a rule on sets it
+ * back to {@code true}; a file already at version 1 is never reset.
  *
  * <p>A section the operator has deleted is not recreated. An absent section already behaves as the
  * defaults, so there is nothing to fill and nothing is added.
@@ -60,8 +70,19 @@ public final class ConfigMigrator {
     record Addition(String section, String key, List<String> lines) {
     }
 
-    /** What moving to {@code to} adds. */
-    record Step(int to, List<Addition> additions) {
+    /**
+     * A boolean under a top-level section that is switched from {@code true} to {@code false},
+     * because the version it is migrated from shipped it {@code true} without enforcing it.
+     */
+    record Reset(String section, String key) {
+    }
+
+    /** What moving to {@code to} adds, and the unenforced values it switches off. */
+    record Step(int to, List<Addition> additions, List<Reset> resets) {
+        Step {
+            additions = List.copyOf(additions);
+            resets = List.copyOf(resets);
+        }
     }
 
     /**
@@ -73,7 +94,11 @@ public final class ConfigMigrator {
             new Step(1, List.of(new Addition("anti-cheese", "cap-single-hit-boss-damage", List.of(
                     "# Caps what one hit can do to the Ender Dragon or the Wither, measured after armour and",
                     "# resistance. Off by default: set it to true to enforce max-single-hit-boss-damage.",
-                    "cap-single-hit-boss-damage: false")))));
+                    "cap-single-hit-boss-damage: false"))),
+                    // Shipped true in v0.1.x but enforced by nothing; see the class comment.
+                    List.of(new Reset("anti-cheese", "block-bed-anchor-boss-damage"),
+                            new Reset("anti-cheese", "block-exit-portal-crystal-place"),
+                            new Reset("anti-cheese", "block-gateway-pre-dragon"))));
 
     private static final List<String> VERSION_HEADER = List.of(
             "# Schema version of this file, kept current by the plugin. Do not edit or remove it:",
@@ -82,6 +107,8 @@ public final class ConfigMigrator {
 
     private static final Pattern VERSION_LINE =
             Pattern.compile("^" + Pattern.quote(PluginConfig.VERSION_KEY) + ":[ \\t]*(.*?)[ \\t]*(#.*)?$");
+
+    private static final Pattern DOCUMENT_START = Pattern.compile("^---([ \\t].*)?$");
 
     private static final Pattern QUOTES = Pattern.compile("^[\"']|[\"']$");
 
@@ -95,11 +122,14 @@ public final class ConfigMigrator {
      * @param to      the version it now declares
      * @param text    the migrated document; equal to the input when nothing was needed
      * @param added   the dotted keys that were added
+     * @param changed the dotted keys whose value was switched from {@code true} to {@code false}
      * @param skipped the dotted keys a step wanted to add but could not place
      */
-    public record Outcome(int from, int to, String text, List<String> added, List<String> skipped) {
+    public record Outcome(int from, int to, String text, List<String> added, List<String> changed,
+                          List<String> skipped) {
         public Outcome {
             added = List.copyOf(added);
+            changed = List.copyOf(changed);
             skipped = List.copyOf(skipped);
         }
 
@@ -121,7 +151,7 @@ public final class ConfigMigrator {
      */
     public static Outcome migrateText(String text) throws ConfigVersionException {
         Objects.requireNonNull(text, "text");
-        boolean bom = text.startsWith("﻿");
+        boolean bom = text.startsWith("\uFEFF");
         String body = bom ? text.substring(1) : text;
         String eol = body.contains("\r\n") ? "\r\n" : "\n";
         List<String> lines = new ArrayList<>(List.of(body.split("\r?\n", -1)));
@@ -143,10 +173,11 @@ public final class ConfigMigrator {
                     + "version, or restore a config.yml from backups/ that this build can read.");
         }
         if (from == PluginConfig.CONFIG_VERSION) {
-            return new Outcome(from, from, text, List.of(), List.of());
+            return new Outcome(from, from, text, List.of(), List.of(), List.of());
         }
 
         List<String> added = new ArrayList<>();
+        List<String> changed = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         for (Step step : STEPS) {
             if (step.to() <= from) {
@@ -160,6 +191,11 @@ public final class ConfigMigrator {
                     skipped.add(dotted);
                 }
             }
+            for (Reset reset : step.resets()) {
+                if (switchOff(lines, reset)) {
+                    changed.add(reset.section() + "." + reset.key());
+                }
+            }
         }
 
         String stamp = PluginConfig.VERSION_KEY + ": " + PluginConfig.CONFIG_VERSION;
@@ -169,10 +205,66 @@ public final class ConfigMigrator {
             List<String> header = new ArrayList<>(VERSION_HEADER);
             header.add(stamp);
             header.add("");
-            lines.addAll(0, header);
+            lines.addAll(headerPosition(lines), header);
         }
         return new Outcome(from, PluginConfig.CONFIG_VERSION,
-                (bom ? "﻿" : "") + String.join(eol, lines), added, skipped);
+                (bom ? "\uFEFF" : "") + String.join(eol, lines), added, changed, skipped);
+    }
+
+    /**
+     * Where the version header goes: after any {@code %} directives and the document-start marker
+     * that precede the first key, never before them. Above a {@code ---} it would sit in a document
+     * of its own, and the file would no longer load as one.
+     */
+    private static int headerPosition(List<String> lines) {
+        int position = 0;
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (line.startsWith("%")) {
+                position = i + 1;
+            } else if (DOCUMENT_START.matcher(line).matches()) {
+                return i + 1;
+            } else if (isContent(line)) {
+                break;
+            }
+        }
+        return position;
+    }
+
+    /**
+     * Rewrites {@code key: true} as {@code key: false} under its section, keeping the spacing and
+     * any trailing comment. Returns false, changing nothing, when the key is absent or is anything
+     * other than a literal {@code true}.
+     */
+    private static boolean switchOff(List<String> lines, Reset reset) {
+        int header = sectionHeader(lines, reset.section());
+        if (header < 0) {
+            return false;
+        }
+        int childIndent = -1;
+        for (int i = header + 1; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (!isContent(line)) {
+                continue;
+            }
+            int indent = indentOf(line);
+            if (indent == 0) {
+                break;
+            }
+            if (childIndent < 0) {
+                childIndent = indent;
+            }
+            if (indent != childIndent) {
+                continue;
+            }
+            Matcher match = Pattern.compile("^( {" + indent + "}" + Pattern.quote(reset.key())
+                    + ":[ \\t]*)true([ \\t]*(#.*)?)$").matcher(line);
+            if (match.matches()) {
+                lines.set(i, match.group(1) + "false" + match.group(2));
+                return true;
+            }
+        }
+        return false;
     }
 
     private static int parseVersion(String raw) throws ConfigVersionException {
@@ -296,6 +388,18 @@ public final class ConfigMigrator {
     public static Optional<Result> migrateFile(Path configFile, Path backupDirectory, Instant at,
                                                ZoneId zone) throws IOException, ConfigVersionException {
         Objects.requireNonNull(configFile, "configFile");
+        if (!Files.isRegularFile(configFile)) {
+            return Optional.empty();
+        }
+        // The same lock /asr profile apply holds, so a reload's migration cannot interleave with a
+        // preset being written: whichever runs second reads the other's finished file.
+        synchronized (ProfileApplier.APPLY_LOCK) {
+            return migrateLocked(configFile, backupDirectory, at, zone);
+        }
+    }
+
+    private static Optional<Result> migrateLocked(Path configFile, Path backupDirectory, Instant at,
+                                                  ZoneId zone) throws IOException, ConfigVersionException {
         if (!Files.isRegularFile(configFile)) {
             return Optional.empty();
         }

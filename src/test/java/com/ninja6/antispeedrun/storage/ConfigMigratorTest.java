@@ -57,7 +57,7 @@ class ConfigMigratorTest {
     }
 
     @Test
-    @DisplayName("a v0.1.x file with operator edits gains config-version and the one missing key, off, and nothing else changes")
+    @DisplayName("a v0.1.x file with operator edits gains config-version and the missing key, switches off the unenforced rules, and nothing else changes")
     void upgradesV01xShapeWithoutTouchingOperatorValues() throws Exception {
         String before = resource("/config-v0.1.1-edited.yml");
         assertFalse(before.contains("config-version"));
@@ -68,12 +68,23 @@ class ConfigMigratorTest {
         assertEquals(0, outcome.from());
         assertEquals(PluginConfig.CONFIG_VERSION, outcome.to());
         assertEquals(List.of("anti-cheese.cap-single-hit-boss-damage"), outcome.added());
+        // The operator had already turned block-bed-anchor-boss-damage off, so only the two rules
+        // still reading the v0.1.1 default of true are changed.
+        assertEquals(List.of("anti-cheese.block-exit-portal-crystal-place",
+                "anti-cheese.block-gateway-pre-dragon"), outcome.changed());
         assertEquals(List.of(), outcome.skipped());
 
-        // Line level: every original line survives, in order, and the only new lines are the
-        // version stamp (header comments, key, blank) and the added key with its comment.
+        // Line level: every original line survives, in order, apart from the two switched off,
+        // which change only their value and keep their spacing and trailing comment. The only new
+        // lines are the version stamp (header comments, key, blank) and the added key with its
+        // comment.
         List<String> after = new ArrayList<>(lines(outcome.text()));
-        List<String> original = lines(before);
+        List<String> original = lines(before.replace(
+                "  block-exit-portal-crystal-place: true\n",
+                "  block-exit-portal-crystal-place: false\n").replace(
+                "  block-gateway-pre-dragon: true       # Block bridging",
+                "  block-gateway-pre-dragon: false       # Block bridging"));
+        assertFalse(original.equals(lines(before)), "the fixture must contain both v0.1.1 lines");
         List<String> added = new ArrayList<>();
         int next = 0;
         for (String line : after) {
@@ -88,9 +99,8 @@ class ConfigMigratorTest {
         assertTrue(added.contains("  cap-single-hit-boss-damage: false"));
         assertEquals(3 + 1 + 1 + 2 + 1, added.size(), "unexpected extra lines: " + added);
 
-        // Value level: parsed, the result equals the old file except for the one new field, and
-        // that field is off. The values the operator set, and the two v0.1.1 defaults that later
-        // builds flipped off, are still exactly as they were.
+        // Value level: parsed, the result equals the old file except for the new field and the
+        // three unenforced rules, all of which are off. The values the operator set are kept.
         PluginConfig old = parse(before);
         PluginConfig migrated = parse(outcome.text());
         assertTrue(migrated.isClean(), "migrated file warns: " + migrated.warnings());
@@ -104,11 +114,84 @@ class ConfigMigratorTest {
         assertEquals(20.0, migrated.antiCheese().maxSingleHitBossDamage());
         assertEquals(750, migrated.antiCheese().outerEndRadius());
         assertFalse(migrated.antiCheese().blockBedAnchorBossDamage());
-        assertTrue(migrated.antiCheese().blockExitPortalCrystalPlace());
-        assertTrue(migrated.antiCheese().blockGatewayPreDragon());
+        assertFalse(migrated.antiCheese().blockExitPortalCrystalPlace());
+        assertFalse(migrated.antiCheese().blockGatewayPreDragon());
         assertFalse(migrated.antiCheese().capSingleHitBossDamage());
-        assertEquals(old.antiCheese(), migrated.antiCheese(), "cap defaults to false when absent, so the "
-                + "migrated section must equal the old one");
+        PluginConfig.AntiCheese was = old.antiCheese();
+        assertEquals(new PluginConfig.AntiCheese(was.enabled(), false, false,
+                was.maxSingleHitBossDamage(), was.blockEarlyEyeThrowing(),
+                was.earlyEyeRejectionMessage(), false, false, was.outerEndRadius(),
+                was.outerEndPollSeconds()), migrated.antiCheese());
+    }
+
+    @Test
+    @DisplayName("the v0.1.1 hardcore and smp_standard presets migrate with all three unenforced rules switched off")
+    void v011PresetsMigrateTheSameWay() throws Exception {
+        for (String name : List.of("/profile-v0.1.1-hardcore.yml", "/profile-v0.1.1-smp_standard.yml")) {
+            String before = resource(name);
+            ConfigMigrator.Outcome outcome = ConfigMigrator.migrateText(before);
+            assertEquals(List.of("anti-cheese.block-bed-anchor-boss-damage",
+                    "anti-cheese.block-exit-portal-crystal-place",
+                    "anti-cheese.block-gateway-pre-dragon"), outcome.changed(), name);
+            PluginConfig migrated = parse(outcome.text());
+            assertTrue(migrated.isClean(), name + " warns: " + migrated.warnings());
+            assertFalse(migrated.antiCheese().blockBedAnchorBossDamage(), name);
+            assertFalse(migrated.antiCheese().blockExitPortalCrystalPlace(), name);
+            assertFalse(migrated.antiCheese().blockGatewayPreDragon(), name);
+            assertFalse(migrated.antiCheese().capSingleHitBossDamage(), name);
+            PluginConfig old = parse(before);
+            assertEquals(old.dimensionGates(), migrated.dimensionGates(), name);
+            assertEquals(old.itemProgression(), migrated.itemProgression(), name);
+            assertEquals(old.bossScaling(), migrated.bossScaling(), name);
+            assertEquals(old.antiCheese().maxSingleHitBossDamage(),
+                    migrated.antiCheese().maxSingleHitBossDamage(), name);
+        }
+    }
+
+    @Test
+    @DisplayName("a file already at version 1 keeps the three rules on when the operator turned them on")
+    void currentFileIsNeverReset() throws Exception {
+        String current = "config-version: 1\nanti-cheese:\n  enabled: true\n"
+                + "  block-bed-anchor-boss-damage: true\n"
+                + "  block-exit-portal-crystal-place: true\n"
+                + "  block-gateway-pre-dragon: true   # on, deliberately\n";
+        ConfigMigrator.Outcome outcome = ConfigMigrator.migrateText(current);
+        assertFalse(outcome.migrated());
+        assertEquals(current, outcome.text());
+        assertEquals(List.of(), outcome.changed());
+    }
+
+    @Test
+    @DisplayName("only a literal true is switched off; other values and nested keys of the same name are left alone")
+    void resetIsNarrow() throws Exception {
+        String before = "anti-cheese:\n  enabled: true\n  block-bed-anchor-boss-damage: false\n"
+                + "  nested:\n    block-gateway-pre-dragon: true\n"
+                + "  block-exit-portal-crystal-place: yes\n"
+                + "villager-progression:\n  block-gateway-pre-dragon: true\n";
+        ConfigMigrator.Outcome outcome = ConfigMigrator.migrateText(before);
+        assertEquals(List.of(), outcome.changed());
+        assertTrue(outcome.text().contains("    block-gateway-pre-dragon: true\n"));
+        assertTrue(outcome.text().contains("  block-exit-portal-crystal-place: yes\n"));
+        assertTrue(outcome.text().endsWith("villager-progression:\n  block-gateway-pre-dragon: true\n"));
+    }
+
+    @Test
+    @DisplayName("the version header goes after a document-start marker or a %YAML directive, and the result still loads as one document")
+    void headerAfterDirectivesAndDocumentStart() throws Exception {
+        for (String start : List.of("---\n", "%YAML 1.1\n---\n", "# note\n--- # start\n",
+                "%YAML 1.1\n%TAG ! tag:example.com,2026:\n---\n")) {
+            String before = start + "profile: CASUAL\nanti-cheese:\n  enabled: true\n"
+                    + "  block-gateway-pre-dragon: true\n";
+            String out = ConfigMigrator.migrateText(before).text();
+            assertTrue(out.startsWith(start), "the prefix moved: " + out);
+            assertTrue(out.indexOf("config-version: 1") > out.indexOf("---"));
+            Object loaded = new Yaml().load(out);
+            Map<?, ?> root = (Map<?, ?>) loaded;
+            assertEquals(1, root.get("config-version"), start);
+            assertEquals("CASUAL", root.get("profile"), start);
+            PluginConfig parsed = parse(out);
+            assertFalse(parsed.antiCheese().blockGatewayPreDragon(), start);
+        }
     }
 
     @Test
@@ -148,9 +231,9 @@ class ConfigMigratorTest {
     @Test
     @DisplayName("windows line endings, a BOM and a missing trailing newline are kept")
     void preservesFileFormat() throws Exception {
-        String crlf = "﻿profile: CASUAL\r\nanti-cheese:\r\n  enabled: true\r\n";
+        String crlf = "\uFEFFprofile: CASUAL\r\nanti-cheese:\r\n  enabled: true\r\n";
         String out = ConfigMigrator.migrateText(crlf).text();
-        assertTrue(out.startsWith("﻿# Schema version"));
+        assertTrue(out.startsWith("\uFEFF# Schema version"));
         assertFalse(out.replace("\r\n", "").contains("\n"), "a bare LF was introduced");
         assertTrue(out.endsWith("  cap-single-hit-boss-damage: false\r\n"));
 
@@ -278,6 +361,11 @@ class ConfigMigratorTest {
                                 + "default changed and needs a new step");
                 assertEquals(false, section.get(addition.key()),
                         "a migrated-in rule must ship off");
+            }
+            for (ConfigMigrator.Reset reset : step.resets()) {
+                Map<?, ?> section = (Map<?, ?>) shipped.get(reset.section());
+                assertEquals(false, section.get(reset.key()), reset.section() + "." + reset.key()
+                        + " is switched off by a migration, so the shipped file must ship it off too");
             }
         }
     }

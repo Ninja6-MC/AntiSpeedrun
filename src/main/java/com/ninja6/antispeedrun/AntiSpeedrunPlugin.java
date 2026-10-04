@@ -804,7 +804,15 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                         + " to version " + outcome.to() + ". The previous file is saved as "
                         + result.backup().getFileName() + " in backups/. Added "
                         + (outcome.added().isEmpty() ? "no keys" : String.join(", ", outcome.added()))
-                        + "; no existing value was changed.");
+                        + ".");
+                for (String key : outcome.changed()) {
+                    // The one value a migration rewrites: shipped true by v0.1.x, enforced by
+                    // nothing, so true now would switch on a rule this server never ran.
+                    getLogger().warning("Migrating config.yml changed " + key + " from true to false. "
+                            + "Versions before config-version 1 shipped it true but never enforced it, "
+                            + "so false keeps this server doing what it did. Set it back to true and "
+                            + "run /asr reload to turn the rule on.");
+                }
                 if (!outcome.skipped().isEmpty()) {
                     getLogger().warning("Could not place " + String.join(", ", outcome.skipped())
                             + " in config.yml; it uses the shipped default until you add it.");

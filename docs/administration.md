@@ -49,8 +49,12 @@ Then:
 To upgrade, replace the jar and restart. If your `config.yml` is from an older shape
 (or has no `config-version`, as in v0.1.x), the plugin saves a copy to
 `plugins/AntiSpeedrun/backups/`, adds the keys you are missing with their shipped
-defaults and logs what it added. It does not change any value you set or remove your
-comments. A `config.yml` written by a newer version stops the plugin from starting,
+defaults and logs what it added. It does not remove your comments or change values you
+set, with one exception on the first upgrade from v0.1.x:
+`anti-cheese.block-bed-anchor-boss-damage`, `block-exit-portal-crystal-place` and
+`block-gateway-pre-dragon` are set from `true` to `false`, each logged at `WARNING`.
+v0.1.x shipped them `true` but never enforced them, so `false` keeps the server doing
+what it did. Set any of them back to `true` and run `/asr reload` to turn the rule on. A `config.yml` written by a newer version stops the plugin from starting,
 with the file untouched. See [configuration.md](configuration.md#32-upgrading-an-older-configyml).
 The state files are not versioned yet, so keep a backup of `plugins/AntiSpeedrun/` and
 `playerdata` before a jump between builds.

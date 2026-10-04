@@ -135,12 +135,23 @@ startup and on `/asr reload`, the plugin reads that number before it parses anyt
   install that version, or restore an older file from `backups/`. It does not fall back
   to the defaults, because the file may describe gating this build cannot enforce.
 
-A migration adds the keys the file is missing, each with its shipped default, and does
-nothing else. It never changes a value you have set, and a key you already have is left
-alone even when its value differs from the default. Every key added so far ships
-switched off, so a migrated server enforces what it enforced before. A section you
-deleted is not recreated: an absent section already behaves as the defaults. Your
-comments, key order and line endings are kept.
+A migration adds the keys the file is missing, each with its shipped default. A key you
+already have is left alone even when its value differs from the default, with the one
+exception below. Every key added so far ships switched off, so a migrated server
+enforces what it enforced before. A section you deleted is not recreated: an absent
+section already behaves as the defaults. Your comments, key order and line endings are
+kept.
+
+**The one exception: three rules are switched off once.** v0.1.x shipped
+`anti-cheese.block-bed-anchor-boss-damage`, `block-exit-portal-crystal-place` and
+`block-gateway-pre-dragon` as `true`, in `config.yml` and in the `HARDCORE` and
+`SMP_STANDARD` presets (`CASUAL` had the first two), but no code enforced them, so a
+v0.1.x server never applied them. Carrying `true` forward would switch on three rules
+your server has never run. The migration from the unversioned shape therefore sets each
+of the three to `false` where it reads `true`, editing the value in place and keeping
+any comment on the line, and logs a `WARNING` naming each key it changed. The backup
+holds the old values. To turn a rule on, set it back to `true` and run `/asr reload`; a
+file that already has `config-version` is never changed this way again.
 
 Before it writes, the plugin copies the old file to
 `plugins/AntiSpeedrun/backups/config-<yyyyMMdd-HHmmss>.yml` and logs the name, the version
@@ -148,7 +159,9 @@ change and the keys added. The new file is staged and moved into place, so a fai
 leaves the original as it was and the server reads it as it is.
 
 Version 1 is the first numbered version. Going from v0.1.x to it adds
-`config-version` and `anti-cheese.cap-single-hit-boss-damage: false`.
+`config-version` and `anti-cheese.cap-single-hit-boss-damage: false`, and switches the
+three rules above off. The version header is written after any `%YAML` directive or
+`---` document-start line, so the file stays one YAML document.
 
 Only `config.yml` is versioned. The state files (`state.yml`, `dragon-fights.yml`,
 `portal-locks.yml`, `explored-structures.yml`) and player persistent data carry no
