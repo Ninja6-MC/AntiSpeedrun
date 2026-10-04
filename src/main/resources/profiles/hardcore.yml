@@ -1,3 +1,8 @@
+# Schema version of this file, kept current by the plugin. Do not edit or remove it:
+# on start an older file is migrated forward (the old one is saved to backups/ first)
+# and a file from a newer version is refused.
+config-version: 1
+
 # AntiSpeedrun - HARDCORE preset
 #
 # Applied by: /asr profile apply HARDCORE

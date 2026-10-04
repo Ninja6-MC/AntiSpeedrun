@@ -140,6 +140,39 @@ public record PluginConfig(
      */
     public static final char RESERVED_TIER_ID_CHAR = ':';
 
+    /** The top-level key that carries the schema version of {@code config.yml}. */
+    public static final String VERSION_KEY = "config-version";
+
+    /**
+     * The schema version this build reads and writes. A file with no {@link #VERSION_KEY} is the
+     * pre-versioning shape and is migrated forward to this by {@code ConfigMigrator} before it is
+     * parsed; a file with a higher one was written by a newer build and is refused.
+     */
+    public static final int CONFIG_VERSION = 1;
+
+    /**
+     * Refuses a {@code config-version} this build cannot read. An absent key is accepted: it is the
+     * pre-versioning shape, which the migrator upgrades, and the empty document the defaults are
+     * parsed from.
+     */
+    private static void checkVersion(ConfigSection root) throws ConfigVersionException {
+        Object declared = root.get(VERSION_KEY);
+        if (declared == null && !root.contains(VERSION_KEY)) {
+            return;
+        }
+        if (!(declared instanceof Integer || declared instanceof Long) || ((Number) declared).longValue() < 1) {
+            throw new ConfigVersionException(VERSION_KEY + " must be a whole number of at least 1, but "
+                    + "found " + declared + ". Restore the value the plugin wrote, or remove the key "
+                    + "to have the file treated as the oldest supported shape.");
+        }
+        if (((Number) declared).longValue() > CONFIG_VERSION) {
+            throw new ConfigVersionException("config.yml has " + VERSION_KEY + ": " + declared
+                    + ", but this build of AntiSpeedrun only reads versions up to " + CONFIG_VERSION
+                    + ". It was written by a newer version. Install that version, or restore a config.yml "
+                    + "from backups/ that this build can read.");
+        }
+    }
+
     /**
      * Parses a complete snapshot from {@code root}.
      *
@@ -150,9 +183,10 @@ public record PluginConfig(
         if (root == null) {
             throw new ConfigLoadException("config.yml has no root mapping");
         }
+        checkVersion(root);
         List<String> warnings = new ArrayList<>();
         ConfigReader r = new ConfigReader(root, "", warnings);
-        r.expect("profile", "dimension-gates", "item-progression", "trim-progression",
+        r.expect(VERSION_KEY, "profile", "dimension-gates", "item-progression", "trim-progression",
                 "idle-reminder", "progress-card", "journey-book", "boss-scaling", "anti-cheese",
                 "villager-progression");
 

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `config.yml` carries a `config-version` (1). On start and on `/asr reload` an older file, including the unversioned v0.1.x shape, is migrated forward: missing keys are added with their shipped off defaults, no value or comment you wrote is changed, and the old file is saved to `backups/` first. A newer or unreadable version stops startup with the file untouched. State files are not versioned yet.
 - `anti-cheese.block-bed-anchor-boss-damage`, off by default, cancels bed and Respawn Anchor explosion damage to the Ender Dragon (including its parts) and the Wither, detected by `DamageType.BAD_RESPAWN_POINT`. TNT, arrows and melee are not affected. Its shipped default changes from `true` to `false`; it was parsed only until now.
 - `anti-cheese.block-exit-portal-crystal-place`, off by default, refuses an End Crystal placed on the exit portal's centre column. The four resummon ritual positions are not affected. Its shipped default changes from `true` to `false`; it was parsed only until now.
 - `anti-cheese.cap-single-hit-boss-damage`, off by default, enforces
