@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Outer-End boundary (`anti-cheese.block-gateway-pre-dragon`, `outer-end-radius`, `outer-end-poll-seconds`) holds players within the radius until the world's first dragon is killed. It is off by default, including in every bundled profile.
+
 ## [0.1.1] - 2026-10-02
 
 ### Fixed
