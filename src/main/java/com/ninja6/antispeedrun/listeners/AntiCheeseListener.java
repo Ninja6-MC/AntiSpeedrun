@@ -26,6 +26,12 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  * <p>Off unless {@code anti-cheese.cap-single-hit-boss-damage} is set. The arithmetic is in
  * {@link DamageCapRules}.
  *
+ * <p>Also cancels bed and Respawn Anchor explosion damage to the same two bosses (#39, Task 7.1.1),
+ * off unless {@code anti-cheese.block-bed-anchor-boss-damage}. Such a hit has no causing entity and
+ * block explosion damage carries no block, so it is recognised by its damage type,
+ * {@code BAD_RESPAWN_POINT}; see {@link BedAnchorDamageRules}. TNT, arrows and melee are not that type.
+ * With no causing entity there is no player to check, so this rule cannot be bypassed.
+ *
  * <p>Also refuses an End Crystal placed on the exit portal's centre column (#25, Task 7.1.3), off
  * unless {@code anti-cheese.block-exit-portal-crystal-place}. The four ritual positions beside it
  * are never refused; see {@link ExitPortalCrystalRules}.
@@ -70,6 +76,11 @@ public final class AntiCheeseListener implements Listener {
             return;
         }
         PluginConfig config = plugin.configuration();
+        if (BedAnchorDamageRules.armed(config)
+                && event.getDamageSource().getDamageType() == DamageType.BAD_RESPAWN_POINT) {
+            event.setCancelled(true);
+            return;
+        }
         if (!DamageCapRules.armed(config)
                 || event.getDamageSource().getDamageType() == DamageType.GENERIC_KILL) {
             return;

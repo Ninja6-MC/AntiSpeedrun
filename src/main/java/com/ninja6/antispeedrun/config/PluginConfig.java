@@ -401,7 +401,7 @@ public record PluginConfig(
                 "outer-end-poll-seconds");
         return new AntiCheese(
                 r.bool("enabled", true),
-                r.bool("block-bed-anchor-boss-damage", true),
+                r.bool("block-bed-anchor-boss-damage", false),
                 r.bool("cap-single-hit-boss-damage", false),
                 r.decimal("max-single-hit-boss-damage", 12.0D),
                 r.bool("block-early-eye-throwing", true),
@@ -744,7 +744,7 @@ public record PluginConfig(
      * Section 7.
      *
      * @param enabled                     default {@code true}
-     * @param blockBedAnchorBossDamage    cancels {@code BAD_RESPAWN_POINT} against bosses; default {@code true}
+     * @param blockBedAnchorBossDamage    cancels {@code BAD_RESPAWN_POINT} (bed and respawn anchor) damage against bosses (#39); default {@code false}
      * @param capSingleHitBossDamage      whether {@code maxSingleHitBossDamage} is enforced (#24);
      *                                    default {@code false}, so the cap ships off
      * @param maxSingleHitBossDamage      time-to-kill budget, not just an anti-one-shot guard;

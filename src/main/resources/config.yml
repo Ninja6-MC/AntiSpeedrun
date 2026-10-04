@@ -288,7 +288,9 @@ boss-scaling:
 # 7. Anti-Cheese Engine
 anti-cheese:
   enabled: true
-  block-bed-anchor-boss-damage: true   # Cancels DamageType.BAD_RESPAWN_POINT against bosses
+  # Cancels DamageType.BAD_RESPAWN_POINT (bed and respawn anchor explosions) against the Ender
+  # Dragon and the Wither. TNT, arrows and melee are untouched. Off until the v0.2.0/v0.3.0 playtest.
+  block-bed-anchor-boss-damage: false
   # Caps what one hit can do to the Ender Dragon or the Wither, measured after armour and
   # resistance. Off by default: set it to true to enforce max-single-hit-boss-damage.
   cap-single-hit-boss-damage: false
