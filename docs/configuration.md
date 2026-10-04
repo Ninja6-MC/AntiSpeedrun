@@ -428,9 +428,11 @@ file. The differences in the live sections:
 | `idle-reminder` | 20 s stand, 15 min cooldown | 15 s, 10 min | 15 s, 5 min |
 | `anti-cheese.block-early-eye-throwing` | `false` | `true` | `true` |
 | `villager-progression.gate-mending-trade` | `false` | `false` | `true` |
+| `trim-progression.enabled` and the three locks (`block-unearned-template-duplication`, `block-unearned-smithing`, `block-wearing-unearned-trims`) | `false` | `true` | `true` |
+| `trim-progression.gate-natural-trim-chests` (inert: nothing acts on it yet) | `false` | `false` | `true` |
+| `boss-scaling.multi-dragon.enabled` | `false` | `true` | `true` |
 
-Because a preset overwrites `config.yml`, apply one before you customize,
-not after.
+Because a preset overwrites `config.yml`, apply one before you customize, not after.
 
 ## 6. Example: enable the Mending gate and add a time requirement to the End
 
