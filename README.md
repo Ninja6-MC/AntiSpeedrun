@@ -85,10 +85,11 @@ read and validated at load but nothing acts on them, with the exception of
 - **Remaining anti-cheese rules** (`anti-cheese`) -- Bed and Respawn Anchor damage
   against bosses (`block-bed-anchor-boss-damage`), the single-hit boss damage cap
   (`max-single-hit-boss-damage`), exit portal crystal placement
-  (`block-exit-portal-crystal-place`) and the Outer End boundary
-  (`block-gateway-pre-dragon`, `outer-end-radius`, `outer-end-poll-seconds`); tracked
-  in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47). Only `enabled`,
-  `block-early-eye-throwing` and `early-eye-rejection-message` are live.
+  (`block-exit-portal-crystal-place`); tracked
+  in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47). `enabled`,
+  `block-early-eye-throwing`, `early-eye-rejection-message` and the Outer End boundary
+  (`block-gateway-pre-dragon`, off by default, `outer-end-radius`,
+  `outer-end-poll-seconds`) are live.
 - **Armor trim and smithing template gating** (`trim-progression`) -- tracked in
   [#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45).
 

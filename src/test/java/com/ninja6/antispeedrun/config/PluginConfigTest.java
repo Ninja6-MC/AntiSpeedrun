@@ -164,7 +164,7 @@ class PluginConfigTest {
             assertEquals(12.0D, c.antiCheese().maxSingleHitBossDamage(), "was 50.0 before #50");
             assertEquals(500, c.antiCheese().outerEndRadius());
             assertEquals(2, c.antiCheese().outerEndPollSeconds());
-            assertTrue(c.antiCheese().blockGatewayPreDragon());
+            assertFalse(c.antiCheese().blockGatewayPreDragon());
 
             assertFalse(c.bossScaling().enabled());
             assertTrue(c.bossScaling().scaleResummonedDragons());

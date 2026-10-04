@@ -203,7 +203,7 @@ anti-cheese:
   # MiniMessage. A legacy § code is refused at load; the default is used.
   early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
   block-exit-portal-crystal-place: true
-  block-gateway-pre-dragon: true       # Block bridging, pearling & chorus fruit to the Outer End
+  block-gateway-pre-dragon: false      # Off until the v0.2.0/v0.3.0 playtest. Block bridging, pearling & chorus fruit to the Outer End
   outer-end-radius: 500                # Boundary enforced until the world's first dragon dies
   outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
 
