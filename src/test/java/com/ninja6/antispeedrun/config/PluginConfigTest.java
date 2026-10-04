@@ -165,7 +165,7 @@ class PluginConfigTest {
             assertFalse(c.antiCheese().capSingleHitBossDamage(), "the cap ships off (#24)");
             assertEquals(500, c.antiCheese().outerEndRadius());
             assertEquals(2, c.antiCheese().outerEndPollSeconds());
-            assertTrue(c.antiCheese().blockGatewayPreDragon());
+            assertFalse(c.antiCheese().blockGatewayPreDragon());
 
             assertFalse(c.bossScaling().enabled());
             assertTrue(c.bossScaling().scaleResummonedDragons());

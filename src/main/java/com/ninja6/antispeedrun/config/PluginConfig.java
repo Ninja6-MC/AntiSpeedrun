@@ -409,7 +409,7 @@ public record PluginConfig(
                 // EyeThrowListener deserialises it on a region thread on every refused throw.
                 r.miniMessage("early-eye-rejection-message", DEFAULT_EARLY_EYE_REJECTION),
                 r.bool("block-exit-portal-crystal-place", true),
-                r.bool("block-gateway-pre-dragon", true),
+                r.bool("block-gateway-pre-dragon", false),
                 r.atLeast("outer-end-radius", 500, 1),
                 r.atLeast("outer-end-poll-seconds", 2, 1));
     }

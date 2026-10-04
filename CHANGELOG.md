@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `max-single-hit-boss-damage` against the Ender Dragon and the Wither. The cap applies to final
   damage after armour and resistance, including hits on the dragon's parts, so stacked TNT
   minecarts and Mace smashes cannot skip the fight.
+- Outer-End boundary (`anti-cheese.block-gateway-pre-dragon`, `outer-end-radius`, `outer-end-poll-seconds`) holds players within the radius until the world's first dragon is killed. It is off by default, including in every bundled profile.
 
 ## [0.1.1] - 2026-10-02
 

@@ -30,6 +30,7 @@ import com.ninja6.antispeedrun.listeners.BossCombatListener;
 import com.ninja6.antispeedrun.listeners.EyeThrowListener;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
+import com.ninja6.antispeedrun.listeners.OuterEndBoundaryListener;
 import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
 import com.ninja6.antispeedrun.listeners.TemplateDuplicationListener;
@@ -228,8 +229,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // The early Eye of Ender rule (#7). After the stores for the same reason as the two gates
         // above: it reads bypasses() and dimensionUnlocks() on every refused throw.
         getServer().getPluginManager().registerEvents(new EyeThrowListener(this), this);
-        // The single-hit boss damage cap (#24); off unless anti-cheese.cap-single-hit-boss-damage.
-        getServer().getPluginManager().registerEvents(new AntiCheeseListener(this), this);
+        // The single-hit boss damage cap (#24); off unless anti-cheese.cap-single-hit-boss-damage.
+        getServer().getPluginManager().registerEvents(new AntiCheeseListener(this), this);
+        getServer().getPluginManager().registerEvents(new OuterEndBoundaryListener(this), this);
 
         // The dragon reinforcement window (#37) and single-battle reconciliation (#56). The record of
         // reinforced fights is read synchronously before the listener exists, for the reason the

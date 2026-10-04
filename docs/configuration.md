@@ -19,7 +19,7 @@ the same as the value in the shipped `SMP_STANDARD` file unless noted.
 | `progress-card` | Live | How `/progress` renders. |
 | `journey-book` | Live | The Journey Guide Book. |
 | `boss-scaling` | Partly live | Only `enabled`, `battle-prep-seconds` and `multi-dragon.enabled`, `multiplier`, `rounding-mode` and `max-dragons` do anything. |
-| `anti-cheese` | Partly live | Only `enabled`, `block-early-eye-throwing` and `early-eye-rejection-message` do anything. |
+| `anti-cheese` | Partly live | Only `enabled`, `block-early-eye-throwing`, `early-eye-rejection-message`, `block-gateway-pre-dragon`, `outer-end-radius` and `outer-end-poll-seconds` do anything. |
 | `villager-progression` | Live | Optional Mending trade gate. |
 
 "Planned" means the keys are parsed and validated at load, and warnings about them are
@@ -338,9 +338,11 @@ minimum `1`, and `rounding-mode` and `placement-mode` must be one of their optio
 | `enabled` | `true` | Live. Master switch for the Eye of Ender block. |
 | `block-early-eye-throwing` | `true` | Live. Refuse an Eye of Ender throw until the player has earned `minecraft:nether/find_fortress`. Setting an eye in an End portal frame is not a throw and is not affected. |
 | `early-eye-rejection-message` | A built-in message | Live. MiniMessage. |
+| `block-gateway-pre-dragon` | `false` | Live. Hold players inside `outer-end-radius` of the origin in an End until that world's first dragon has been killed. Refuses ender pearls and chorus fruit that would land beyond it, and a poll every `outer-end-poll-seconds` sends anyone found beyond it (bridging, Elytra, Wind Charges) back to the last position they held inside. Creative and spectator players and holders of `antispeedrun.bypass.anticheese` or a bypass grant are exempt. Off by default for now; once the first dragon is killed the outer End stays open. Also needs `enabled`. |
+| `outer-end-radius`, `outer-end-poll-seconds` | `500`, `2` | Live with `block-gateway-pre-dragon`. Both have minimum `1`. |
 | `cap-single-hit-boss-damage` | `false` | Live. Enforces `max-single-hit-boss-damage` against the Ender Dragon and the Wither. Off by default. |
 | `max-single-hit-boss-damage` | `12.0` | Live when `cap-single-hit-boss-damage` is `true`. The most a single hit may do after armour and resistance. A time-to-kill budget: against the dragon's 200 HP, `12.0` is roughly a 17-hit fight. Hits on the dragon's parts count, and `/kill` is not capped. |
-| `block-bed-anchor-boss-damage`, `block-exit-portal-crystal-place`, `block-gateway-pre-dragon`, `outer-end-radius`, `outer-end-poll-seconds` | `true`, `true`, `true`, `500`, `2` | Planned; parsed only (tracked in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47)). `outer-end-radius` and `outer-end-poll-seconds` have minimum `1`. |
+| `block-bed-anchor-boss-damage`, `block-exit-portal-crystal-place` | `true`, `true` | Planned; parsed only (tracked in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47)). |
 
 The early Eye block is waived by `antispeedrun.bypass.anticheese`, an `/asr bypass`
 grant, or `/asr unlock end`. The damage cap is waived for a hit caused by a player with
