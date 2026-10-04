@@ -85,15 +85,17 @@ public final class OuterEndBoundaryListener implements Listener {
         // applies without re-registering the task.
         AtomicInteger elapsed = new AtomicInteger();
         plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(plugin, task -> {
+            // Refreshed every second whether or not the rule is armed, so a kill that happens
+            // while it is off is already cached when an operator turns it on.
+            for (World world : plugin.getServer().getWorlds()) {
+                refresh(world);
+            }
             PluginConfig config = plugin.configuration();
             if (!OuterEndBoundaryRules.armed(config)
                     || elapsed.incrementAndGet() < config.antiCheese().outerEndPollSeconds()) {
                 return;
             }
             elapsed.set(0);
-            for (World world : plugin.getServer().getWorlds()) {
-                refresh(world);
-            }
             for (Player player : List.copyOf(plugin.getServer().getOnlinePlayers())) {
                 player.getScheduler().run(plugin, scheduled -> poll(player), null);
             }
@@ -200,7 +202,8 @@ public final class OuterEndBoundaryListener implements Listener {
             return false;
         }
         Flag flag = flags.get(world.getUID());
-        return flag == null || !flag.killed;
+        return flag == null ? OuterEndBoundaryRules.locked(false, false)
+                : OuterEndBoundaryRules.locked(flag.known, flag.killed);
     }
 
     private void track(World world) {
@@ -224,12 +227,20 @@ public final class OuterEndBoundaryListener implements Listener {
             boolean killed = battle != null && battle.hasBeenPreviouslyKilled();
             flag.killed = killed || battle == null;
             flag.latched = killed;
+            flag.known = true;
         });
     }
 
     /** One world's cached answer. Written only by the {@code (0, 0)} region task. */
     private static final class Flag {
         volatile boolean killed;
+
+        /**
+         * Whether the battle has been read at least once. The read is a task on the region owning
+         * chunk (0, 0), which Folia holds back while that chunk is unloaded, so until it runs the
+         * answer is unknown and nobody is held or sent back.
+         */
+        volatile boolean known;
 
         /** Set once a kill has been seen; never cleared, so the outer End stays open. */
         volatile boolean latched;
