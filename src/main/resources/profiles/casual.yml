@@ -189,7 +189,7 @@ anti-cheese:
   max-single-hit-boss-damage: 50.0
   block-early-eye-throwing: false
   early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
-  block-exit-portal-crystal-place: true
+  block-exit-portal-crystal-place: false
   block-gateway-pre-dragon: false
   outer-end-radius: 250
   outer-end-poll-seconds: 3

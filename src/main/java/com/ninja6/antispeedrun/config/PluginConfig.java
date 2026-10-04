@@ -408,7 +408,7 @@ public record PluginConfig(
                 // Not r.string, for the same reason as a dimension gate's rejection-message:
                 // EyeThrowListener deserialises it on a region thread on every refused throw.
                 r.miniMessage("early-eye-rejection-message", DEFAULT_EARLY_EYE_REJECTION),
-                r.bool("block-exit-portal-crystal-place", true),
+                r.bool("block-exit-portal-crystal-place", false),
                 r.bool("block-gateway-pre-dragon", false),
                 r.atLeast("outer-end-radius", 500, 1),
                 r.atLeast("outer-end-poll-seconds", 2, 1));
@@ -753,7 +753,7 @@ public record PluginConfig(
      *                                    Nether Fortress (#7); default {@code true}
      * @param earlyEyeRejectionMessage    MiniMessage sent to the action bar when a throw is refused;
      *                                    validated at load like every rejection message
-     * @param blockExitPortalCrystalPlace default {@code true}
+     * @param blockExitPortalCrystalPlace refuses an End Crystal placed on the exit portal's centre column (#25); default {@code false}
      * @param blockGatewayPreDragon       default {@code true}
      * @param outerEndRadius              enforced until the world's first dragon dies; default {@code 500}
      * @param outerEndPollSeconds         bounds poll interval; default {@code 2}

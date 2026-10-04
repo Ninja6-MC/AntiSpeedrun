@@ -84,11 +84,11 @@ read and validated at load but nothing acts on them, with the exception of
   turning it off retains the earlier 500 XP cap.
 - **Remaining anti-cheese rules** (`anti-cheese`) -- Bed and Respawn Anchor damage
   against bosses (`block-bed-anchor-boss-damage`), the single-hit boss damage cap
-  (`max-single-hit-boss-damage`), exit portal crystal placement
-  (`block-exit-portal-crystal-place`); tracked
+  (`max-single-hit-boss-damage`); tracked
   in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47). Live: `enabled`,
   `block-early-eye-throwing`, `early-eye-rejection-message`, the single-hit cap
-  (`cap-single-hit-boss-damage`, off by default, with `max-single-hit-boss-damage`) and the
+  (`cap-single-hit-boss-damage`, off by default, with `max-single-hit-boss-damage`), the
+  exit portal centre crystal block (`block-exit-portal-crystal-place`, off by default) and the
   Outer End boundary (`block-gateway-pre-dragon`, off by default, `outer-end-radius`,
   `outer-end-poll-seconds`).
 - **Armor trim and smithing template gating** (`trim-progression`) -- tracked in
