@@ -23,6 +23,14 @@ public final class OuterEndBoundaryRules {
     }
 
     /**
+     * Whether the boundary is up in a world. An unread flag locks nothing: sending a player back on
+     * a guess could strand one in a world whose dragon died before this run.
+     */
+    public static boolean locked(boolean known, boolean killed) {
+        return known && !killed;
+    }
+
+    /**
      * Whether a point is beyond the boundary. The radius is measured horizontally from the world
      * origin, so height is not part of it, and a point exactly on the radius is still inside.
      */

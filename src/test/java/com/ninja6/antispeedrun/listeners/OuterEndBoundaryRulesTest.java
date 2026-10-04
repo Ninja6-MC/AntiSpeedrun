@@ -52,6 +52,15 @@ class OuterEndBoundaryRulesTest {
         }
     }
 
+    @Test
+    @DisplayName("the boundary is up only once the flag has been read and shows no kill")
+    void lockedNeedsAKnownFlag() {
+        assertFalse(OuterEndBoundaryRules.locked(false, false));
+        assertFalse(OuterEndBoundaryRules.locked(false, true));
+        assertFalse(OuterEndBoundaryRules.locked(true, true));
+        assertTrue(OuterEndBoundaryRules.locked(true, false));
+    }
+
     @Nested
     @DisplayName("the radius")
     class Radius {
