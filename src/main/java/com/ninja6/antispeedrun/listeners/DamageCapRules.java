@@ -1,5 +1,7 @@
 package com.ninja6.antispeedrun.listeners;
 
+import java.util.function.DoubleUnaryOperator;
+
 import com.ninja6.antispeedrun.config.PluginConfig;
 
 /**
@@ -32,8 +34,44 @@ public final class DamageCapRules {
     }
 
     /**
+     * Leaves the final damage at or under {@code cap}, whatever shape the reductions have.
+     *
+     * <p>Tries the linear rescale first, then bisects the base: final damage never falls as the base
+     * rises, and is zero at a base of zero, so a base that holds the cap always exists. If even
+     * bisection cannot find one the base is set to zero.
+     *
+     * @param base    the event's current base damage
+     * @param applier sets a base damage on the event and returns the resulting final damage
+     * @param cap     the configured maximum final damage
+     * @return the final damage after the last base set
+     */
+    public static double clampBase(double base, DoubleUnaryOperator applier, double cap) {
+        double result = applier.applyAsDouble(base);
+        if (!exceeds(result, cap)) {
+            return result;
+        }
+        double scaled = scaledBase(base, result, cap);
+        result = applier.applyAsDouble(scaled);
+        if (!exceeds(result, cap)) {
+            return result;
+        }
+        double low = 0.0D;
+        double high = Math.min(base, scaled);
+        for (int i = 0; i < 60; i++) {
+            double mid = (low + high) / 2.0D;
+            if (exceeds(applier.applyAsDouble(mid), cap)) {
+                high = mid;
+            } else {
+                low = mid;
+            }
+        }
+        result = applier.applyAsDouble(low);
+        return exceeds(result, cap) ? applier.applyAsDouble(0.0D) : result;
+    }
+
+    /**
      * The base damage that brings a hit down to {@code cap} after reductions, assuming they scale
-     * it linearly, as armour and resistance do.
+     * it linearly. Resistance does; armour and absorption do not, which {@link #clampBase} covers.
      *
      * @param base        the event's current base damage
      * @param finalDamage the event's current final damage, above {@code cap}

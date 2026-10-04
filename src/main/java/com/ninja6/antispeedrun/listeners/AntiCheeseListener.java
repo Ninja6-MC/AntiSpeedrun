@@ -69,12 +69,12 @@ public final class AntiCheeseListener implements Listener {
         if (!DamageCapRules.exceeds(event.getFinalDamage(), cap) || waived(event)) {
             return;
         }
-        // Up to three passes: absorption and resistance are linear in the base, but a second pass is cheap
-        // insurance against a modifier that is not, and the loop stops as soon as the cap holds.
-        for (int pass = 0; pass < 3 && DamageCapRules.exceeds(event.getFinalDamage(), cap); pass++) {
-            event.setDamage(DamageCapRules.scaledBase(
-                    event.getDamage(), event.getFinalDamage(), cap));
-        }
+        // Final damage is not linear in the base (Wither armour is not, absorption is a min()), so
+        // the rescale is verified against the event and backed by a clamp that cannot miss.
+        DamageCapRules.clampBase(event.getDamage(), base -> {
+            event.setDamage(base);
+            return event.getFinalDamage();
+        }, cap);
     }
 
     private boolean waived(EntityDamageEvent event) {

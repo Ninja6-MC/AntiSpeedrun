@@ -87,8 +87,9 @@ read and validated at load but nothing acts on them, with the exception of
   (`max-single-hit-boss-damage`), exit portal crystal placement
   (`block-exit-portal-crystal-place`) and the Outer End boundary
   (`block-gateway-pre-dragon`, `outer-end-radius`, `outer-end-poll-seconds`); tracked
-  in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47). Only `enabled`,
-  `block-early-eye-throwing` and `early-eye-rejection-message` are live.
+  in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47). Live: `enabled`,
+  `block-early-eye-throwing`, `early-eye-rejection-message`, and the single-hit cap
+  (`cap-single-hit-boss-damage`, off by default, with `max-single-hit-boss-damage`).
 - **Armor trim and smithing template gating** (`trim-progression`) -- tracked in
   [#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45).
 
