@@ -26,8 +26,8 @@ with the plugin jar and its checksum, on the
 [Releases page](https://github.com/Ninja6-MC/AntiSpeedrun/releases), which lists the
 current build. There is no stable release yet. Everything listed under "Implemented"
 below runs on a server. Some of it ships off and must be enabled by the server
-operator: every anti-cheese rule except the Eye of Ender block, natural trim-chest
-gating, and boss scaling as a whole.
+operator: every anti-cheese rule except the Eye of Ender block, and boss scaling as a
+whole.
 
 ---
 
@@ -82,8 +82,8 @@ step, adds optional anti-cheese rules, and can scale the Ender Dragon fight to t
   (`block-unearned-template-duplication`), applying a trim at a smithing table
   (`block-unearned-smithing`) and wearing a trimmed piece (`block-wearing-unearned-trims`)
   are refused until the player has discovered the matching structure; all three are on by
-  default. Gating templates in natural trim chests (`gate-natural-trim-chests`) is off by
-  default.
+  default. The key for gating templates in natural trim chests
+  (`gate-natural-trim-chests`, default `false`) is parsed but does nothing yet.
 - **Anti-cheese rules** (`anti-cheese`) -- `enabled`,
   `block-early-eye-throwing`, `early-eye-rejection-message`, the single-hit cap
   (`cap-single-hit-boss-damage`, off by default, with `max-single-hit-boss-damage`), the

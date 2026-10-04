@@ -15,16 +15,17 @@ the same as the value in the shipped `SMP_STANDARD` file unless noted.
 | `profile` | Live (label only) | Names the preset the file was written from. |
 | `dimension-gates` | Live | Requirements to enter the Nether and the End. |
 | `item-progression` | Live | Tier-gated items. |
-| `trim-progression` | **Planned** | Armor trim and smithing template gating. |
+| `trim-progression` | Partly live | Armor trim and smithing template gating. Only `gate-natural-trim-chests` does nothing yet. |
 | `idle-reminder` | Live | Standing-still reminder of the next goal. |
 | `progress-card` | Live | How `/progress` renders. |
 | `journey-book` | Live | The Journey Guide Book. |
-| `boss-scaling` | Partly live | Only `enabled`, `battle-prep-seconds` and `multi-dragon.enabled`, `multiplier`, `rounding-mode` and `max-dragons` do anything. |
-| `anti-cheese` | Partly live | Only `enabled`, `block-early-eye-throwing`, `early-eye-rejection-message`, `block-gateway-pre-dragon`, `outer-end-radius` and `outer-end-poll-seconds` do anything. |
+| `boss-scaling` | Live (ships off) | The multi-dragon fight, the resummoned-fight exit portal lock and the dragon trophies. `enabled` is `false` by default. |
+| `anti-cheese` | Live (new rules ship off) | The Eye of Ender block is on by default. The single-hit cap, the exit portal crystal block, the bed and anchor damage block and the Outer End boundary are off by default. |
 | `villager-progression` | Live | Optional Mending trade gate. |
 
-"Planned" means the keys are parsed and validated at load, and warnings about them are
-logged, but no code acts on them. Setting them has no effect on the server.
+"Partly live" means some keys in the section are parsed and validated at load but no
+code acts on them yet; setting those keys has no effect on the server. The section
+names the ones that do nothing.
 
 ## 2. Precedence
 
@@ -253,8 +254,11 @@ copy a gated template in a crafting table until they have earned its structure
 advancement. Crafters use the advancement record of the player who placed them; they
 continue to work while that player is offline. A Crafter without a recorded owner
 refuses gated template recipes. Smithing and wearing locks also apply to unearned trims.
-The natural trim chest lock remains tracked in
-[#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45).
+`gate-natural-trim-chests` (default `false`) is parsed but nothing acts on it yet; the
+natural trim chest lock remains tracked in
+[#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45). The three locks
+`block-unearned-template-duplication`, `block-unearned-smithing` and
+`block-wearing-unearned-trims` default to `true`.
 
 The structure each lock will require is fixed, not configured:
 
@@ -298,10 +302,8 @@ copy or has no room for one.
 
 ### 4.8 `boss-scaling`
 
-The default config and every bundled profile set `enabled: false` for `v0.1.0`, while
-the multi-dragon feature group is still in progress. Set it to `true` to try the current
-behaviour on a test server. A profile application keeps it off until a later build ships
-the complete fight.
+The default config and every bundled profile set `enabled: false`. Set it to `true` to
+turn the multi-dragon fight on.
 
 The reinforcement window is live. The first player to enter an End whose dragon has
 never been killed starts a countdown of `battle-prep-seconds`; the dragon is not held
@@ -427,9 +429,7 @@ file. The differences in the live sections:
 | `anti-cheese.block-early-eye-throwing` | `false` | `true` | `true` |
 | `villager-progression.gate-mending-trade` | `false` | `false` | `true` |
 
-Rows for `trim-progression` differ between presets but have no effect yet. Of the
-`boss-scaling` rows, only the keys listed as live in [4.8](#48-boss-scaling) take
-effect. Because a preset overwrites `config.yml`, apply one before you customize,
+Because a preset overwrites `config.yml`, apply one before you customize,
 not after.
 
 ## 6. Example: enable the Mending gate and add a time requirement to the End
