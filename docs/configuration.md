@@ -338,10 +338,13 @@ minimum `1`, and `rounding-mode` and `placement-mode` must be one of their optio
 | `enabled` | `true` | Live. Master switch for the Eye of Ender block. |
 | `block-early-eye-throwing` | `true` | Live. Refuse an Eye of Ender throw until the player has earned `minecraft:nether/find_fortress`. Setting an eye in an End portal frame is not a throw and is not affected. |
 | `early-eye-rejection-message` | A built-in message | Live. MiniMessage. |
-| `block-bed-anchor-boss-damage`, `max-single-hit-boss-damage`, `block-exit-portal-crystal-place`, `block-gateway-pre-dragon`, `outer-end-radius`, `outer-end-poll-seconds` | `true`, `12.0`, `true`, `true`, `500`, `2` | Planned; parsed only (tracked in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47)). `outer-end-radius` and `outer-end-poll-seconds` have minimum `1`. |
+| `cap-single-hit-boss-damage` | `false` | Live. Enforces `max-single-hit-boss-damage` against the Ender Dragon and the Wither. Off by default. |
+| `max-single-hit-boss-damage` | `12.0` | Live when `cap-single-hit-boss-damage` is `true`. The most a single hit may do after armour and resistance. A time-to-kill budget: against the dragon's 200 HP, `12.0` is roughly a 17-hit fight. Hits on the dragon's parts count, and `/kill` is not capped. |
+| `block-bed-anchor-boss-damage`, `block-exit-portal-crystal-place`, `block-gateway-pre-dragon`, `outer-end-radius`, `outer-end-poll-seconds` | `true`, `true`, `true`, `500`, `2` | Planned; parsed only (tracked in [#47](https://github.com/Ninja6-MC/AntiSpeedrun/issues/47)). `outer-end-radius` and `outer-end-poll-seconds` have minimum `1`. |
 
 The early Eye block is waived by `antispeedrun.bypass.anticheese`, an `/asr bypass`
-grant, or `/asr unlock end`.
+grant, or `/asr unlock end`. The damage cap is waived for a hit caused by a player with
+`antispeedrun.bypass.anticheese` or an `/asr bypass` grant.
 
 ### 4.10 `villager-progression`
 

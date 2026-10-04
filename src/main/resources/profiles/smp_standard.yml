@@ -195,6 +195,8 @@ boss-scaling:
 anti-cheese:
   enabled: true
   block-bed-anchor-boss-damage: true   # Cancels DamageType.BAD_RESPAWN_POINT against bosses
+  # Off by default; set true to enforce max-single-hit-boss-damage.
+  cap-single-hit-boss-damage: false
   # Time-to-kill budget, not just an anti-1-shot guard. The Ender Dragon has 200 HP and
   # the Wither 300, so 50.0 still permits a 4-hit dragon kill. 12.0 gives roughly a
   # 17-hit fight. Raise it for a faster fight; lower it to force sustained combat.

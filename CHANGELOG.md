@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `anti-cheese.cap-single-hit-boss-damage`, off by default, enforces
+  `max-single-hit-boss-damage` against the Ender Dragon and the Wither. The cap applies to final
+  damage after armour and resistance, including hits on the dragon's parts, so stacked TNT
+  minecarts and Mace smashes cannot skip the fight.
+
 ## [0.1.1] - 2026-10-02
 
 ### Fixed
