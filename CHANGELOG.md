@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `anti-cheese.block-exit-portal-crystal-place`, off by default, refuses an End Crystal placed on the exit portal's centre column. The four resummon ritual positions are not affected. Its shipped default changes from `true` to `false`; it was parsed only until now.
 - `anti-cheese.cap-single-hit-boss-damage`, off by default, enforces
   `max-single-hit-boss-damage` against the Ender Dragon and the Wither. The cap applies to final
   damage after armour and resistance, including hits on the dragon's parts, so stacked TNT
