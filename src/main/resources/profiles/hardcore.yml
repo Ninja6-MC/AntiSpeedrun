@@ -190,6 +190,8 @@ boss-scaling:
 anti-cheese:
   enabled: true
   block-bed-anchor-boss-damage: true
+  # Off by default; set true to enforce max-single-hit-boss-damage.
+  cap-single-hit-boss-damage: false
   # 8.0 against a 200 HP dragon is roughly a 25-hit fight: a sustained engagement rather
   # than a burst. Raise it if your players find it a slog.
   max-single-hit-boss-damage: 8.0

@@ -26,7 +26,7 @@ class OuterEndBoundaryRulesTest {
                 base.trimProgression(), base.idleReminder(), base.progressCard(),
                 base.journeyBook(), base.bossScaling(),
                 new PluginConfig.AntiCheese(enabled, a.blockBedAnchorBossDamage(),
-                        a.maxSingleHitBossDamage(), a.blockEarlyEyeThrowing(),
+                        a.capSingleHitBossDamage(), a.maxSingleHitBossDamage(), a.blockEarlyEyeThrowing(),
                         a.earlyEyeRejectionMessage(), a.blockExitPortalCrystalPlace(), gateway,
                         a.outerEndRadius(), a.outerEndPollSeconds()),
                 base.villagerProgression(), List.of());

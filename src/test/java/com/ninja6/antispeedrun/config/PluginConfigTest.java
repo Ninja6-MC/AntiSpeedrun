@@ -162,6 +162,7 @@ class PluginConfigTest {
                     "minecraft:nether/find_fortress"), end.requireAdvancements());
 
             assertEquals(12.0D, c.antiCheese().maxSingleHitBossDamage(), "was 50.0 before #50");
+            assertFalse(c.antiCheese().capSingleHitBossDamage(), "the cap ships off (#24)");
             assertEquals(500, c.antiCheese().outerEndRadius());
             assertEquals(2, c.antiCheese().outerEndPollSeconds());
             assertFalse(c.antiCheese().blockGatewayPreDragon());

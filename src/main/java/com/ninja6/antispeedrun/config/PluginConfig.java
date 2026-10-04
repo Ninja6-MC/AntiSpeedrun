@@ -394,13 +394,15 @@ public record PluginConfig(
     }
 
     private static AntiCheese parseAntiCheese(ConfigReader r) {
-        r.expect("enabled", "block-bed-anchor-boss-damage", "max-single-hit-boss-damage",
+        r.expect("enabled", "block-bed-anchor-boss-damage", "cap-single-hit-boss-damage",
+                "max-single-hit-boss-damage",
                 "block-early-eye-throwing", "early-eye-rejection-message",
                 "block-exit-portal-crystal-place", "block-gateway-pre-dragon", "outer-end-radius",
                 "outer-end-poll-seconds");
         return new AntiCheese(
                 r.bool("enabled", true),
                 r.bool("block-bed-anchor-boss-damage", true),
+                r.bool("cap-single-hit-boss-damage", false),
                 r.decimal("max-single-hit-boss-damage", 12.0D),
                 r.bool("block-early-eye-throwing", true),
                 // Not r.string, for the same reason as a dimension gate's rejection-message:
@@ -743,6 +745,8 @@ public record PluginConfig(
      *
      * @param enabled                     default {@code true}
      * @param blockBedAnchorBossDamage    cancels {@code BAD_RESPAWN_POINT} against bosses; default {@code true}
+     * @param capSingleHitBossDamage      whether {@code maxSingleHitBossDamage} is enforced (#24);
+     *                                    default {@code false}, so the cap ships off
      * @param maxSingleHitBossDamage      time-to-kill budget, not just an anti-one-shot guard;
      *                                    default {@code 12.0}
      * @param blockEarlyEyeThrowing       refuses an Eye of Ender throw until the player has found a
@@ -757,6 +761,7 @@ public record PluginConfig(
     public record AntiCheese(
             boolean enabled,
             boolean blockBedAnchorBossDamage,
+            boolean capSingleHitBossDamage,
             double maxSingleHitBossDamage,
             boolean blockEarlyEyeThrowing,
             String earlyEyeRejectionMessage,

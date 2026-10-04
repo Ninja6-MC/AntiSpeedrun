@@ -34,7 +34,7 @@ class EyeThrowRulesTest {
                 base.trimProgression(), base.idleReminder(), base.progressCard(),
                 base.journeyBook(), base.bossScaling(),
                 new PluginConfig.AntiCheese(enabled, a.blockBedAnchorBossDamage(),
-                        a.maxSingleHitBossDamage(), blockEyes, a.earlyEyeRejectionMessage(),
+                        a.capSingleHitBossDamage(), a.maxSingleHitBossDamage(), blockEyes, a.earlyEyeRejectionMessage(),
                         a.blockExitPortalCrystalPlace(), a.blockGatewayPreDragon(),
                         a.outerEndRadius(), a.outerEndPollSeconds()),
                 base.villagerProgression(), List.of());
