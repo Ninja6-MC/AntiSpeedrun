@@ -1,11 +1,16 @@
 package com.ninja6.antispeedrun;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
 
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -20,6 +25,7 @@ import com.ninja6.antispeedrun.config.BukkitConfigSection;
 import com.ninja6.antispeedrun.config.ConfigLoadException;
 import com.ninja6.antispeedrun.config.ConfigSnapshotHolder;
 import com.ninja6.antispeedrun.config.ConfigSource;
+import com.ninja6.antispeedrun.config.ConfigVersionException;
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.UnenforceableGateException;
 import com.ninja6.antispeedrun.gating.GateCollisionException;
@@ -42,12 +48,14 @@ import com.ninja6.antispeedrun.progression.ProgressionListener;
 import com.ninja6.antispeedrun.progression.ProgressionManager;
 import com.ninja6.antispeedrun.progression.UnlockWatch;
 import com.ninja6.antispeedrun.storage.BypassStore;
+import com.ninja6.antispeedrun.storage.ConfigMigrator;
 import com.ninja6.antispeedrun.storage.DimensionUnlockStore;
 import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
 import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
 import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
 import com.ninja6.antispeedrun.storage.PortalLockStore;
+import com.ninja6.antispeedrun.storage.ProfileApplier;
 import com.ninja6.antispeedrun.storage.YamlStateFile;
 
 /**
@@ -527,7 +535,17 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 + "could not be built from it. The failure is logged above. The file describes "
                 + "gating, so starting on the shipped defaults instead would turn item gating off "
                 + "across the whole server while every gate still reported itself armed. Fix "
-                + "config.yml and restart.");
+                + "config.yml and restart."),
+        /**
+         * {@code config.yml} declares a {@code config-version} this build cannot read, usually
+         * because a newer version wrote it. Fatal at startup: the file may describe gating this
+         * build cannot enforce, so the defaults are not a safe place to land. The file is not
+         * touched.
+         */
+        CONFIG_VERSION_UNSUPPORTED("AntiSpeedrun will not start: config.yml has a config-version this "
+                + "build cannot read, so it was probably written by a newer version. The file has not "
+                + "been changed. Install the version that wrote it, or restore an older config.yml "
+                + "from plugins/AntiSpeedrun/backups/, and restart.");
 
         private final String startupRefusal;
 
@@ -586,6 +604,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         if (rejection == null) {
             return ReloadOutcome.GATES_UNBUILDABLE;
         }
+        if (rejection instanceof ConfigVersionException) {
+            return ReloadOutcome.CONFIG_VERSION_UNSUPPORTED;
+        }
         return rejection instanceof UnenforceableGateException
                 ? ReloadOutcome.GATE_UNENFORCEABLE
                 : ReloadOutcome.CONFIG_REJECTED;
@@ -627,6 +648,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     private ReloadOutcome applyConfiguration() {
         synchronized (configLock) {
+            if (!migrateConfigFile()) {
+                return ReloadOutcome.CONFIG_VERSION_UNSUPPORTED;
+            }
             List<String> gateWarnings = new ArrayList<>();
             AtomicBoolean collided = new AtomicBoolean();
             AtomicReference<ConfigLoadException> rejection = new AtomicReference<>();
@@ -750,5 +774,59 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     private ConfigSource fileSource() {
         final File file = new File(getDataFolder(), "config.yml");
         return () -> BukkitConfigSection.load(file);
+    }
+
+    /**
+     * Upgrades an older {@code config.yml} to the current schema before it is parsed: missing keys
+     * are added with their shipped (off) defaults, everything else is left as written, and the
+     * original is saved under {@code backups/} first. See {@link ConfigMigrator}.
+     *
+     * <p>Runs on every load, so a stale file pasted in before {@code /asr reload} is upgraded the
+     * same way as one found at startup. Caller holds {@link #configLock}; file I/O, so never a
+     * region thread.
+     *
+     * @return {@code false} when the file declares a version this build cannot read, which the
+     *         caller treats as a rejection; {@code true} otherwise, including when the migration
+     *         itself failed on I/O, because the original is then intact and still loads as it did
+     *         before this build
+     */
+    private boolean migrateConfigFile() {
+        Path dataFolder = getDataFolder().toPath();
+        try {
+            Optional<ConfigMigrator.Result> migrated = ConfigMigrator.migrateFile(
+                    dataFolder.resolve("config.yml"),
+                    dataFolder.resolve(ProfileApplier.BACKUP_DIRECTORY),
+                    Instant.now(), ZoneId.systemDefault());
+            migrated.ifPresent(result -> {
+                ConfigMigrator.Outcome outcome = result.outcome();
+                getLogger().info("Migrated config.yml from "
+                        + (outcome.from() == 0 ? "the unversioned shape" : "version " + outcome.from())
+                        + " to version " + outcome.to() + ". The previous file is saved as "
+                        + result.backup().getFileName() + " in backups/. Added "
+                        + (outcome.added().isEmpty() ? "no keys" : String.join(", ", outcome.added()))
+                        + ".");
+                for (String key : outcome.changed()) {
+                    // The one value a migration rewrites: shipped true by v0.1.x, enforced by
+                    // nothing, so true now would switch on a rule this server never ran.
+                    getLogger().warning("Migrating config.yml changed " + key + " from true to false. "
+                            + "Versions before config-version 1 shipped it true but never enforced it, "
+                            + "so false keeps this server doing what it did. Set it back to true and "
+                            + "run /asr reload to turn the rule on.");
+                }
+                if (!outcome.skipped().isEmpty()) {
+                    getLogger().warning("Could not place " + String.join(", ", outcome.skipped())
+                            + " in config.yml; it uses the shipped default until you add it.");
+                }
+            });
+            return true;
+        } catch (ConfigVersionException unsupported) {
+            getLogger().severe(unsupported.getMessage());
+            return false;
+        } catch (IOException failure) {
+            getLogger().log(Level.SEVERE, "Could not migrate config.yml to the current schema; "
+                    + "reading it as it is. Keys added by newer versions use their shipped defaults.",
+                    failure);
+            return true;
+        }
     }
 }

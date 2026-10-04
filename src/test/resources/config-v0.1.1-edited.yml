@@ -1,13 +1,8 @@
-# Schema version of this file, kept current by the plugin. Do not edit or remove it:
-# on start an older file is migrated forward (the old one is saved to backups/ first)
-# and a file from a newer version is refused.
-config-version: 1
-
 # AntiSpeedrun - Unified Anti-Speedrun, Progression Gates, Anti-Boosting & Boss Combat
 # Configuration Profiles: CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM
 # Preset resources live at src/main/resources/profiles/<name>.yml
 # You can apply presets via command: /asr profile apply <PROFILE>
-profile: SMP_STANDARD
+profile: CUSTOM   # hand-tuned for our SMP
 
 # Advancement keys, wherever they appear below, are read as "namespace:path" and the
 # "minecraft:" namespace is supplied when you leave it off, so "story/smelt_iron" and
@@ -293,28 +288,21 @@ boss-scaling:
 # 7. Anti-Cheese Engine
 anti-cheese:
   enabled: true
-  # Cancels DamageType.BAD_RESPAWN_POINT (bed and respawn anchor explosions) against the Ender
-  # Dragon and the Wither. TNT, arrows and melee are untouched. Off until the v0.2.0/v0.3.0 playtest.
-  block-bed-anchor-boss-damage: false
-  # Caps what one hit can do to the Ender Dragon or the Wither, measured after armour and
-  # resistance. Off by default: set it to true to enforce max-single-hit-boss-damage.
-  cap-single-hit-boss-damage: false
+  block-bed-anchor-boss-damage: false   # beds are fine on our server
   # Time-to-kill budget, not just an anti-1-shot guard. The Ender Dragon has 200 HP and
   # the Wither 300, so 50.0 still permits a 4-hit dragon kill. 12.0 gives roughly a
   # 17-hit fight. Raise it for a faster fight; lower it to force sustained combat.
-  max-single-hit-boss-damage: 12.0
+  max-single-hit-boss-damage: 20.0   # we like it quicker
+  # OPERATOR NOTE: leave the two lines below alone, ask Sam.
   # Refuses an Eye of Ender throw until the player has earned minecraft:nether/find_fortress.
   # The eye stays in the hand and no Eye of Ender entity is spawned. Placing an eye into an
   # empty End Portal frame is not a throw and is left alone.
   block-early-eye-throwing: true
   # MiniMessage. A legacy § code is refused at load; the default is used.
   early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
-  # Refuses an End Crystal placed on the exit portal's centre column (0, 0), the duplication
-  # exploit. The four ritual positions beside it are untouched, so resummoning still works.
-  # Off until the v0.2.0/v0.3.0 playtest.
-  block-exit-portal-crystal-place: false
-  block-gateway-pre-dragon: false      # Off until the v0.2.0/v0.3.0 playtest. Block bridging, pearling & chorus fruit to the Outer End
-  outer-end-radius: 500                # Boundary enforced until the world's first dragon dies
+  block-exit-portal-crystal-place: true
+  block-gateway-pre-dragon: true       # Block bridging, pearling & chorus fruit to the Outer End
+  outer-end-radius: 750                # Boundary enforced until the world's first dragon dies
   outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
 
 # 8. Villager Progression
@@ -335,3 +323,5 @@ villager-progression:
   # something this gate does not ask for. Plain text; tags show as written. A legacy § code
   # is refused at load and the default is used.
   hint: "Cure a Zombie Villager (Zombie Doctor)"
+
+# Our own notes at the end of the file.

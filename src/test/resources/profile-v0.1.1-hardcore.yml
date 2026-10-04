@@ -1,8 +1,3 @@
-# Schema version of this file, kept current by the plugin. Do not edit or remove it:
-# on start an older file is migrated forward (the old one is saved to backups/ first)
-# and a file from a newer version is refused.
-config-version: 1
-
 # AntiSpeedrun - HARDCORE preset
 #
 # Applied by: /asr profile apply HARDCORE
@@ -194,16 +189,14 @@ boss-scaling:
 # 7. Anti-Cheese Engine
 anti-cheese:
   enabled: true
-  block-bed-anchor-boss-damage: false
-  # Off by default; set true to enforce max-single-hit-boss-damage.
-  cap-single-hit-boss-damage: false
+  block-bed-anchor-boss-damage: true
   # 8.0 against a 200 HP dragon is roughly a 25-hit fight: a sustained engagement rather
   # than a burst. Raise it if your players find it a slog.
   max-single-hit-boss-damage: 8.0
   block-early-eye-throwing: true
   early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
-  block-exit-portal-crystal-place: false
-  block-gateway-pre-dragon: false      # Off until the v0.2.0/v0.3.0 playtest.
+  block-exit-portal-crystal-place: true
+  block-gateway-pre-dragon: true
   outer-end-radius: 1000
   outer-end-poll-seconds: 1
 

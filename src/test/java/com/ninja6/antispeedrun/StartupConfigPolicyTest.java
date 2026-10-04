@@ -9,6 +9,7 @@ import org.yaml.snakeyaml.Yaml;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin.ReloadOutcome;
 import com.ninja6.antispeedrun.config.ConfigLoadException;
+import com.ninja6.antispeedrun.config.ConfigVersionException;
 import com.ninja6.antispeedrun.config.MapConfigSection;
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.UnenforceableGateException;
@@ -208,5 +209,14 @@ class StartupConfigPolicyTest {
         // And the fallback it would otherwise have run on is exactly the one that gates nothing.
         assertTrue(PluginConfig.defaults().itemProgression().gatedItems().isEmpty(),
                 "if the defaults ever gain tiers, the reasoning above needs rereading");
+    }
+
+    @Test
+    @DisplayName("a config-version this build cannot read stops startup rather than landing on the defaults")
+    void unsupportedVersionStopsStartup() {
+        ReloadOutcome outcome = AntiSpeedrunPlugin.rejectionOutcome(false,
+                new ConfigVersionException("config-version: 9"));
+        assertEquals(ReloadOutcome.CONFIG_VERSION_UNSUPPORTED, outcome);
+        assertTrue(outcome.stopsStartup());
     }
 }

@@ -58,11 +58,13 @@ public final class ProfileApplier {
     private static final int MAX_COLLISION_ATTEMPTS = 100;
 
     /**
-     * Serialises {@link #apply}. Static because the thing being guarded is {@code config.yml}
-     * itself, of which the server has exactly one; a per-instance lock would guard nothing, as this
-     * class is never instantiated. Taken only on the {@code AsyncScheduler}.
+     * Serialises every write to {@code config.yml}: {@link #apply} and
+     * {@link ConfigMigrator#migrateFile}, so a reload's migration cannot overwrite a preset being
+     * applied at the same moment, or the reverse. Static because the thing being guarded is
+     * {@code config.yml} itself, of which the server has exactly one; a per-instance lock would
+     * guard nothing, as this class is never instantiated. Never taken on a region thread.
      */
-    private static final Object APPLY_LOCK = new Object();
+    static final Object APPLY_LOCK = new Object();
 
     private ProfileApplier() {
     }
