@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-05
+
 ### Added
 - `config.yml` carries a `config-version` (1). On start and on `/asr reload` an older file, including the unversioned v0.1.x shape, is migrated forward: missing keys are added with their shipped off defaults, comments are kept, and the old file is saved to `backups/` first. The upgrade from the unversioned shape also sets `anti-cheese.block-bed-anchor-boss-damage`, `block-exit-portal-crystal-place` and `block-gateway-pre-dragon` from `true` to `false`, once, with a WARNING per key: v0.1.x shipped them `true` without enforcing them, so `false` keeps what the server did. Set one back to `true` to turn it on. No other value is changed. A newer or unreadable version stops startup with the file untouched. State files are not versioned yet.
 - `anti-cheese.block-bed-anchor-boss-damage`, off by default, cancels bed and Respawn Anchor explosion damage to the Ender Dragon (including its parts) and the Wither, detected by `DamageType.BAD_RESPAWN_POINT`. TNT, arrows and melee are not affected. Its shipped default changes from `true` to `false`; it was parsed only until now.
@@ -16,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   damage after armour and resistance, including hits on the dragon's parts, so stacked TNT
   minecarts and Mace smashes cannot skip the fight.
 - Outer-End boundary (`anti-cheese.block-gateway-pre-dragon`, `outer-end-radius`, `outer-end-poll-seconds`) holds players within the radius until the world's first dragon is killed. It is off by default, including in every bundled profile.
+
+### Upgrading from 0.1.x
+- Every new anti-cheese rule ships off. Enable the ones you want in `config.yml` under
+  `anti-cheese`, then run `/asr reload`.
+- On first start the config migration adds `config-version: 1`, saves the old file to
+  `plugins/AntiSpeedrun/backups/`, and switches `block-gateway-pre-dragon`,
+  `block-exit-portal-crystal-place` and `block-bed-anchor-boss-damage` from `true` to
+  `false`, once, because in 0.1.x they did nothing. Set one back to `true` to enforce it.
+- A clean install also works: back up `plugins/AntiSpeedrun/` and `playerdata`, delete
+  `config.yml`, install the jar and restart. Deleting `config.yml` loses every local edit
+  and any preset applied with `/asr profile apply`; the regenerated file is the default
+  `SMP_STANDARD`. State files carry over.
 
 ## [0.1.1] - 2026-10-02
 

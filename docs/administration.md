@@ -6,7 +6,7 @@ and where, and how to diagnose the failures it reports. The configuration keys
 themselves are in [configuration.md](configuration.md).
 
 Everything here describes what the plugin does today. There is no public release yet;
-the README lists the implemented and planned modules.
+the README lists what each build implements.
 
 ## 1. Requirements
 
@@ -59,6 +59,13 @@ what it did. Set any of them back to `true` and run `/asr reload` to turn the ru
 untouched. See [configuration.md](configuration.md#32-upgrading-an-older-configyml). The
 state files are not versioned yet, so keep a backup of `plugins/AntiSpeedrun/` and
 `playerdata` before a jump between builds.
+
+A clean install is also fine: back up `plugins/AntiSpeedrun/` and `playerdata`, delete
+`config.yml`, install the jar and restart. Deleting `config.yml` loses every local edit
+and any preset applied with `/asr profile apply`; the plugin writes a fresh default
+`config.yml` (the `SMP_STANDARD` profile), and the state files carry over. Every
+anti-cheese rule added since v0.1.x ships off, so enable the ones you want in
+`config.yml`.
 
 ## 3. Verifying a successful start
 
@@ -398,8 +405,8 @@ backed up in `plugins/AntiSpeedrun/backups/`. `CUSTOM` cannot be applied.
   `/asr unlock <dimension> lock` followed by `/asr unlock <dimension>` to force a new
   write; unlocking an already unlocked dimension does not rewrite the file.
 
-## 8. Planned modules
+## 8. Keys with no behavior yet
 
-The remaining `boss-scaling` and `anti-cheese` rules and `trim-progression` have no
-runtime behavior yet (see the README). Their keys are validated and otherwise ignored,
-so there is nothing to administer or troubleshoot for them.
+`trim-progression.gate-natural-trim-chests` is validated at load and otherwise ignored,
+so there is nothing to administer or troubleshoot for it. Further feature groups ship
+in later development builds (see the README).
