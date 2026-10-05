@@ -164,9 +164,9 @@ Version 1 is the first numbered version. Going from v0.1.x to it adds
 three rules above off. The version header is written after any `%YAML` directive or
 `---` document-start line, so the file stays one YAML document.
 
-Only `config.yml` is versioned. The state files (`state.yml`, `dragon-fights.yml`,
-`portal-locks.yml`, `explored-structures.yml`) and player persistent data carry no
-format marker yet; they are tracked separately.
+The state files the plugin writes carry their own `state-version`; see
+[administration.md](administration.md#63-state-file-versions). Player persistent data
+is not versioned.
 
 ## 4. Keys
 
