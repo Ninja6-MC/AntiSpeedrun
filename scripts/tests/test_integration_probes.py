@@ -142,6 +142,16 @@ class GateConfigTest(unittest.TestCase):
         self.assertIn("    iron-tier:\n      enabled: true\n", text)
         self.assertIn("  nether:\n    enabled: true\n", text)
 
+    def test_never_reaches_past_its_section(self):
+        config = ("item-progression:\n  drop-recall-enabled: true\n  enabled: true\n"
+                  "boss:\n  enabled: true\n")
+        text = gates.set_key(config, "item-progression", "enabled", "false")
+        self.assertIn("item-progression:\n  drop-recall-enabled: true\n  enabled: false\n", text)
+        self.assertIn("boss:\n  enabled: true\n", text)
+        with self.assertRaises(harness.ProbeError):
+            gates.set_key("item-progression:\n  drop-recall-enabled: true\nboss:\n  enabled: true\n",
+                          "item-progression", "enabled", "false")
+
     def test_a_missing_key_is_a_harness_failure(self):
         with self.assertRaises(harness.ProbeError):
             gates.set_key(GATES_CONFIG, "item-progression", "gate-dispensers", "false")

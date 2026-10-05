@@ -3,6 +3,8 @@ version: '1'
 main: com.ninja6.antispeedrun.probe.ProbePlugin
 api-version: '1.21'
 folia-supported: true
+# Loaded after AntiSpeedrun, whose expectTeleport the teleport query calls.
+softdepend: [AntiSpeedrun]
 description: Test-only observer for the real-server integration harness. Never install it on a live server.
 commands:
   asrprobe:

@@ -21,7 +21,7 @@ so no cached evaluation survives), and each refusal has a control that must succ
 | `vehicles` | The same, riding a boat steered into the portal. |
 | `operator` | An operator holds no bypass node, is refused at the portal and cannot pick up a diamond. |
 | `bypass` | `/asr bypass` lets an ineligible player through the portal and pick up a diamond; revoked, and once a 5-second grant expires, both are refused again. |
-| `teleports` | The deliberate-teleport contract (#135): the console's cross-dimension `/tp` and an operator's own `/execute in ... run tp @s` are honoured on both platforms. Another plugin's `teleportAsync` is honoured on Paper; on Folia it fires no event and is judged on arrival, so the player is returned to the Overworld spawn and told why (`docs/administration.md` section 7.4). |
+| `teleports` | The deliberate-teleport contract (#135): the console's cross-dimension `/tp` and an operator's own `/execute in ... run tp @s` are honoured on both platforms. Another plugin's `teleportAsync` is honoured on Paper; on Folia it fires no event and is judged on arrival, so the player is returned to the Overworld spawn and told why (`docs/administration.md` section 7.4). The same teleport announced first with `AntiSpeedrunPlugin#expectTeleport` (#137) is honoured on both. |
 | `pickups` | An ineligible player walks over a diamond, silk-touched deepslate diamond ore (C-11) and a diamond sword carrying the retired natural-origin tag (C-01): each is refused and stays on the ground. Control: an eligible player picks up the diamond. |
 | `containers` | An ineligible player cannot shift-click or pick diamonds out of a chest; an eligible one can. |
 | `container_break` | An ineligible player breaks a chest and a Decorated Pot holding diamonds rather than opening them (C-02): the spilled diamonds are refused. |
@@ -59,7 +59,7 @@ of the way. It always has Resistance V, so explosions beside it do not end the r
 | `gates.py` | The dimension and item gate probes. |
 | `anti_cheese.py` | The section 7 probes. |
 | `client/` | The scripted player: a [mineflayer](https://github.com/PrismarineJS/mineflayer) client that takes one JSON request per line from `run.py`. |
-| `src/probe/` (repository root) | `AntiSpeedrunProbe`, a test-only plugin that logs one `ASRPROBE` line per boss damage event, crystal click, pickup attempt, container click, trade selection, portal event and world change, and answers the harness's console queries (`/asrprobe`). Apart from the one plugin teleport `teleports` asks of it, it changes nothing. Never install it on a real server. |
+| `src/probe/` (repository root) | `AntiSpeedrunProbe`, a test-only plugin that logs one `ASRPROBE` line per boss damage event, crystal click, pickup attempt, container click, trade selection, portal event and world change, and answers the harness's console queries (`/asrprobe`). Apart from the plugin teleports `teleports` asks of it, announced through `expectTeleport` for one of them, it changes nothing. Never install it on a real server. |
 
 ## Running it
 

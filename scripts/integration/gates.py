@@ -51,8 +51,12 @@ NATURAL_TAG = ('components:{"minecraft:custom_data":{PublicBukkitValues:{'
 
 
 def set_key(config_text, section, key, value):
-    """config.yml with section.key (a direct child, two-space indent) set to value."""
-    pattern = rf"(?ms)^({re.escape(section)}:\n(?:[ \t].*\n|\n)*?  {re.escape(key)}:[ \t]*)(\S+)"
+    """config.yml with section.key (a direct child, two-space indent) set to value.
+
+    The match never leaves the section: only indented and blank lines may come between the
+    section header and the key, so a key of the same name in a later section is not touched.
+    """
+    pattern = rf"(?m)^({re.escape(section)}:\n(?:[ \t].*\n|\n)*?  {re.escape(key)}:[ \t]*)(\S+)"
     config_text, count = re.subn(pattern, lambda match: match.group(1) + value, config_text, count=1)
     if count != 1:
         raise ProbeError(f"{section}.{key} is not in config.yml")
@@ -259,8 +263,11 @@ class GateProbes(Probes):
         time.sleep(1)
         self.portal_case(rule, "the same player once the bypass is revoked", False)
         self.pickup_case(rule, "the same player, revoked, walking over a diamond", "diamond", False)
-        # A grant runs out on its own, too.
-        self.server.query(f"asr bypass {self.player} 5s", r"\[AntiSpeedrun\][^\r\n]*")
+        # A grant runs out on its own, too. It must have been granted, or the refusal below
+        # proves nothing.
+        reply = self.server.query(f"asr bypass {self.player} 5s", r"\[AntiSpeedrun\][^\r\n]*")
+        if "Granted" not in reply.group(0):
+            raise ProbeError(f"the 5s bypass was not granted: {reply.group(0)}")
         time.sleep(8)
         self.pickup_case(rule, "the same player once a 5s bypass has expired, walking over a diamond",
                          "diamond", False)
@@ -317,6 +324,12 @@ class GateProbes(Probes):
         case("another plugin's teleportAsync into the Nether" + (" on Folia" if folia else ""),
              lambda: self.run(f"asrprobe teleport {self.player} {nether_world} {lx + 0.5} {ly} {lz + 0.5}"),
              not folia)
+        # The same teleport announced first with AntiSpeedrunPlugin#expectTeleport (#137), the API
+        # a plugin calls so its deliberate teleport is honoured on Folia too. Paper needs no call.
+        case("another plugin's teleportAsync announced with expectTeleport",
+             lambda: self.run(f"asrprobe teleport {self.player} {nether_world} {lx + 0.5} {ly} {lz + 0.5} "
+                              "expect"),
+             True)
 
     # ------------------------------------------------------------------ item gates
 
@@ -447,13 +460,14 @@ class GateProbes(Probes):
         time.sleep(1)
         given = self.count("diamond")
         mark = self.server.mark()
-        self.client.request("toss", item="diamond", count=1)
+        tossed = self.client.request("toss", item="diamond", count=1)["left"]
         time.sleep(4)
         held = self.count("diamond")
         attempts = [m.group("cancelled") for m in map(PICKUP.search, self.server.lines_since(mark)) if m]
         self.results.check(rule, "an ineligible player re-collects the diamond they dropped",
-                           given == 1 and held == 1,
-                           f"given {given}, back in the inventory {held}, pickup attempts cancelled={attempts}")
+                           given == 1 and tossed == 0 and held == 1 and "false" in attempts,
+                           f"given {given}, left after the toss {tossed}, back in the inventory {held}, "
+                           f"pickup attempts cancelled={attempts}")
 
         # Their own death pile comes back to them as well.
         self.run(f"execute in {OVERWORLD} run kill @e[type=minecraft:item]")

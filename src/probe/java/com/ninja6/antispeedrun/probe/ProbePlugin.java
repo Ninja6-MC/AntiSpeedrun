@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import com.destroystokyo.paper.event.entity.EntityRemoveFromWorldEvent;
+import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -87,13 +88,14 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             health(args[1].toUpperCase(Locale.ROOT), args[2]);
         } else if (args.length == 3 && args[0].equals("where")) {
             where(args[1], args[2]);
-        } else if (args.length == 6 && args[0].equals("teleport")) {
+        } else if ((args.length == 6 || args.length == 7 && args[6].equals("expect"))
+                && args[0].equals("teleport")) {
             teleport(args);
         } else if (args.length == 9 && (args[0].equals("near") || args[0].equals("remove"))) {
             near(args);
         } else {
             log("usage health <entity-type> <query> | where <player> <query> "
-                    + "| teleport <player> <world> <x> <y> <z> "
+                    + "| teleport <player> <world> <x> <y> <z> [expect] "
                     + "| near|remove <dimension> <x> <y> <z> <radius> <entity-type> <item-or-any> <query>");
         }
         return true;
@@ -138,11 +140,15 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         });
     }
 
-    /** Logs the health of each tagged entity of {@code type}, or that there is none. */
+    /**
+     * Logs the health of each live tagged entity of {@code type}, or that there is none. An entity
+     * in its death animation is still in the world (a dragon for 200 ticks) but is skipped, as the
+     * {@code @e} selector this replaces skipped it, so it can never answer for a newer one.
+     */
     private void health(String type, String query) {
         int found = 0;
         for (Entity entity : tracked.values()) {
-            if (!entity.getType().name().equals(type)) {
+            if (!entity.getType().name().equals(type) || entity.isDead()) {
                 continue;
             }
             found++;
@@ -185,7 +191,11 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         }
     }
 
-    /** A plugin teleport, the kind another plugin's {@code /spawn} or {@code /home} performs. */
+    /**
+     * A plugin teleport, the kind another plugin's {@code /spawn} or {@code /home} performs. With
+     * {@code expect}, it is first announced through {@link AntiSpeedrunPlugin#expectTeleport}, as a
+     * plugin that moves players between dimensions on Folia is meant to (#135, #137).
+     */
     private void teleport(String[] args) {
         Player player = Bukkit.getPlayerExact(args[1]);
         World world = Bukkit.getWorld(args[2]);
@@ -195,6 +205,13 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         }
         Location to = new Location(world, Double.parseDouble(args[3]), Double.parseDouble(args[4]),
                 Double.parseDouble(args[5]));
+        if (args.length == 7) {
+            if (!(Bukkit.getPluginManager().getPlugin("AntiSpeedrun") instanceof AntiSpeedrunPlugin target)) {
+                log("teleport player=" + player.getName() + " world=" + world.getName() + " result=no-antispeedrun");
+                return;
+            }
+            target.expectTeleport(player, world);
+        }
         player.teleportAsync(to, PlayerTeleportEvent.TeleportCause.PLUGIN).thenAccept(
                 moved -> log("teleport player=" + player.getName() + " world=" + world.getName()
                         + " result=" + moved));
