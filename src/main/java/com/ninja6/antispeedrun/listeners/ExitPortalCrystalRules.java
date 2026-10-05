@@ -8,7 +8,7 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  * <p>The Bukkit-free half of {@link AntiCheeseListener}. An End Crystal always lands on the block
  * above the one clicked, whichever face is clicked, so the rule is on the clicked block's column.
  * The exit portal is centred on (0, 0) of an End world. The crystals of the resummon ritual (#20)
- * stand on the four blocks beside it, at (+-1, 0) and (0, +-1), which this rule never matches.
+ * stand on the portal's rim, at (+-3, 0) and (0, +-3), which this rule never matches.
  */
 public final class ExitPortalCrystalRules {
 
