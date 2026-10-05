@@ -151,6 +151,38 @@ class VersionedStateFileTest {
     }
 
     @Test
+    @DisplayName("migrating the set stamps nothing when any file is from a newer version, even ones listed before it")
+    void migrateAllIsAllOrNothing() {
+        InMemoryStateFile first = new InMemoryStateFile(unlocks());
+        Map<String, Object> newer = new LinkedHashMap<>();
+        newer.put(VersionedStateFile.VERSION_KEY, VersionedStateFile.STATE_VERSION + 1);
+        InMemoryStateFile second = new InMemoryStateFile(newer);
+        InMemoryStateFile third = new InMemoryStateFile(unlocks());
+
+        assertThrows(StateVersionException.class, () -> VersionedStateFile.migrateAll(List.of(
+                new VersionedStateFile("state.yml", first),
+                new VersionedStateFile("dragon-fights.yml", second),
+                new VersionedStateFile("portal-locks.yml", third))));
+
+        assertEquals(0, first.saves);
+        assertEquals(0, second.saves);
+        assertEquals(0, third.saves);
+        assertEquals(unlocks(), first.document);
+    }
+
+    @Test
+    @DisplayName("migrating the set stamps every unversioned file and reports which, skipping current ones")
+    void migrateAllStampsUnversioned() throws IOException {
+        Map<String, Object> current = new LinkedHashMap<>();
+        current.put(VersionedStateFile.VERSION_KEY, 1);
+        VersionedStateFile unversioned = new VersionedStateFile("state.yml", new InMemoryStateFile(unlocks()));
+        VersionedStateFile versioned = new VersionedStateFile("portal-locks.yml", new InMemoryStateFile(current));
+        VersionedStateFile empty = new VersionedStateFile("dragon-fights.yml", new InMemoryStateFile(Map.of()));
+
+        assertEquals(List.of(unversioned), VersionedStateFile.migrateAll(List.of(unversioned, versioned, empty)));
+    }
+
+    @Test
     @DisplayName("a store over a refused file keeps the file intact instead of moving it aside")
     void storeCannotQuarantineRefusedFile() {
         Map<String, Object> newer = new LinkedHashMap<>();

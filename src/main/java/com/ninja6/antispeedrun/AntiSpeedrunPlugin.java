@@ -184,8 +184,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         }
 
         // The plugin-written state files (#194), stamped with state-version before any store reads
-        // them. One from a newer build stops startup with every file untouched, as a newer
-        // config.yml does above, and before anything is registered.
+        // them. Every file is checked before any is stamped, so one from a newer build stops
+        // startup with all four untouched, as a newer config.yml does above, and before anything
+        // is registered.
         VersionedStateFile unlockFile = stateFile("state.yml");
         VersionedStateFile fightFile = stateFile("dragon-fights.yml");
         VersionedStateFile portalLockFile = stateFile("portal-locks.yml");
@@ -863,20 +864,15 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      *         since its store then reports it and handles it as damage
      */
     private boolean migrateStateFiles(List<VersionedStateFile> files) {
-        for (VersionedStateFile file : files) {
-            try {
-                if (file.migrate()) {
-                    getLogger().info("Marked " + file.name() + " as " + VersionedStateFile.VERSION_KEY
-                            + " " + VersionedStateFile.STATE_VERSION + ". Its contents are unchanged.");
-                }
-            } catch (StateVersionException unsupported) {
-                getLogger().severe("AntiSpeedrun will not start: " + unsupported.getMessage());
-                return false;
-            } catch (IOException unreadable) {
-                // Left to the store that owns the file, which logs it, starts empty and moves the
-                // damaged file aside before its next write.
+        try {
+            for (VersionedStateFile file : VersionedStateFile.migrateAll(files)) {
+                getLogger().info("Marked " + file.name() + " as " + VersionedStateFile.VERSION_KEY
+                        + " " + VersionedStateFile.STATE_VERSION + ". Its contents are unchanged.");
             }
+            return true;
+        } catch (StateVersionException unsupported) {
+            getLogger().severe("AntiSpeedrun will not start: " + unsupported.getMessage());
+            return false;
         }
-        return true;
     }
 }

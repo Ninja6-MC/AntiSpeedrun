@@ -1,7 +1,9 @@
 package com.ninja6.antispeedrun.storage;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -107,6 +109,45 @@ public final class VersionedStateFile implements StateFile {
         // Unversioned is the v0.2.0 format, which is version 1: the data stays as it is.
         delegate.save(stamped(withoutVersion(raw)));
         return true;
+    }
+
+    /**
+     * Migrates {@code files} as one set: every file's version is checked before any is stamped, so
+     * a single file this build cannot read leaves all of them exactly as they were. Call once at
+     * startup, before the stores load.
+     *
+     * <p>A file that cannot be read at all, or whose stamp cannot be written, is skipped: its store
+     * reports it on load and handles it as damage, and the next save stamps it.
+     *
+     * @return the files that were stamped, in the order given
+     * @throws StateVersionException if any file declares a version this build cannot read; nothing
+     *                               was written to any of them
+     */
+    public static List<VersionedStateFile> migrateAll(List<VersionedStateFile> files)
+            throws StateVersionException {
+        for (VersionedStateFile file : files) {
+            try {
+                file.checkVersion(file.delegate.load());
+            } catch (StateVersionException unsupported) {
+                throw unsupported;
+            } catch (IOException unreadable) {
+                // Left to the store that owns the file.
+            }
+        }
+        List<VersionedStateFile> stamped = new ArrayList<>();
+        for (VersionedStateFile file : files) {
+            try {
+                if (file.migrate()) {
+                    stamped.add(file);
+                }
+            } catch (StateVersionException unsupported) {
+                // Only if the file changed since the check above; still nothing written to it.
+                throw unsupported;
+            } catch (IOException unreadable) {
+                // Left to the store that owns the file.
+            }
+        }
+        return List.copyOf(stamped);
     }
 
     /**
