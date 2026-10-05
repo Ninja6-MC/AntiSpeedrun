@@ -49,9 +49,9 @@ class ExitPortalCrystalRulesTest {
     @Test
     @DisplayName("the four resummon ritual positions never match")
     void ritualPositionsAllowed() {
-        assertFalse(ExitPortalCrystalRules.isCentreColumn(1, 0));
-        assertFalse(ExitPortalCrystalRules.isCentreColumn(-1, 0));
-        assertFalse(ExitPortalCrystalRules.isCentreColumn(0, 1));
-        assertFalse(ExitPortalCrystalRules.isCentreColumn(0, -1));
+        assertFalse(ExitPortalCrystalRules.isCentreColumn(3, 0));
+        assertFalse(ExitPortalCrystalRules.isCentreColumn(-3, 0));
+        assertFalse(ExitPortalCrystalRules.isCentreColumn(0, 3));
+        assertFalse(ExitPortalCrystalRules.isCentreColumn(0, -3));
     }
 }

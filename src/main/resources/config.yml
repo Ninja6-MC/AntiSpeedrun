@@ -310,7 +310,8 @@ anti-cheese:
   # MiniMessage. A legacy § code is refused at load; the default is used.
   early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
   # Refuses an End Crystal placed on the exit portal's centre column (0, 0), the duplication
-  # exploit. The four ritual positions beside it are untouched, so resummoning still works.
+  # exploit. The four ritual positions on the portal rim, (+-3, 0) and (0, +-3), are untouched,
+  # so resummoning still works.
   # Off until the v0.2.0/v0.3.0 playtest.
   block-exit-portal-crystal-place: false
   block-gateway-pre-dragon: false      # Off until the v0.2.0/v0.3.0 playtest. Block bridging, pearling & chorus fruit to the Outer End

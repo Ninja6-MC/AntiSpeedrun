@@ -73,8 +73,8 @@ it passes, the server and client are killed. Both are also killed on any excepti
 A check that fails today because of an open bug passes `known_issue=<n>` and lists the issue in
 `KNOWN_ISSUES` in `anti_cheese.py`. It is still run and recorded, with status `known-failure`,
 but does not fail the run. Once the bug is fixed the check passes, is recorded as
-`unexpected-pass` and fails the run until its `KNOWN_ISSUES` entry is removed. Today that is
-#203: the whole TNT minecart stack with the cap on.
+`unexpected-pass` and fails the run until its `KNOWN_ISSUES` entry is removed. No check is
+marked so today.
 
 ## Writing a probe
 

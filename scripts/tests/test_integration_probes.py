@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "integration"))
 
@@ -68,7 +69,10 @@ class ParseDamageTest(unittest.TestCase):
 class KnownIssueTest(unittest.TestCase):
     def setUp(self):
         self.results = anti_cheese.Results()
-        self.issue = next(iter(anti_cheese.KNOWN_ISSUES))
+        self.issue = 1
+        patcher = mock.patch.dict(anti_cheese.KNOWN_ISSUES, {self.issue: "a stand-in open bug"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_a_known_failure_is_recorded_but_does_not_fail_the_run(self):
         self.results.check("rule", "check", False, "detail", known_issue=self.issue)
