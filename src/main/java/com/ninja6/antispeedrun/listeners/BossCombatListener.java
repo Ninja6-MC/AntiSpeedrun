@@ -29,7 +29,6 @@ import org.bukkit.event.entity.EnderDragonChangePhaseEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.entity.EntityRemoveEvent;
-import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -41,6 +40,7 @@ import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.inventory.ItemStack;
 
+import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
@@ -131,6 +131,7 @@ public final class BossCombatListener implements Listener {
     private final NamespacedKey secondaryDragon;
     private final ReinforcedFightStore reinforcedFights;
     private final PortalLockStore portalLocks;
+    private final RefusedArrivals refusedArrivals;
 
     /** One window per End world, keyed by world UID. Removed when the world unloads. */
     private final Map<UUID, ReinforcementWindow> windows = new ConcurrentHashMap<>();
@@ -159,11 +160,12 @@ public final class BossCombatListener implements Listener {
     private final Map<UUID, ViewerBars<BossBar>> viewerBars = new ConcurrentHashMap<>();
 
     public BossCombatListener(AntiSpeedrunPlugin plugin, ReinforcedFightStore reinforcedFights,
-            PortalLockStore portalLocks) {
+            PortalLockStore portalLocks, RefusedArrivals refusedArrivals) {
         this.plugin = plugin;
         this.secondaryDragon = new NamespacedKey(plugin, SECONDARY_DRAGON_KEY);
         this.reinforcedFights = reinforcedFights;
         this.portalLocks = portalLocks;
+        this.refusedArrivals = refusedArrivals;
         for (World world : plugin.getServer().getWorlds()) {
             recoverExit(world);
         }
@@ -179,12 +181,37 @@ public final class BossCombatListener implements Listener {
         return secondaryDragon;
     }
 
-    /** Entry by portal, command or any other transit. */
+    /**
+     * Entry by portal, command, respawn or any other transit (#205).
+     *
+     * <p>Not {@code PlayerChangedWorldEvent}: Folia never fires it, so on Folia a first fight opened
+     * its window only for a player who logged in while already in the End. Being added to the
+     * destination world is reported on both platforms, as #127 established for the dimension
+     * gate's backstop ({@code ProgressionGateListener#onPlayerAddedToWorld}). The event fires for
+     * every entity added to every world, so anything but a player costs one {@code instanceof}.
+     *
+     * <p>Folia: fired on the thread adding the player, which owns their new position, and on Paper
+     * on the main thread. Nothing here reads another region: the window's open is an atomic on
+     * cached state, the exit recovery and the countdown are handed to the {@code (0, 0)} region,
+     * and the bars cleared are this player's own. A login or a move within the same world can fire
+     * it too; the window opens once per fight, so a repeat changes nothing.
+     *
+     * <p>An arrival the dimension gate is returning does not open the window (#209): on Folia a
+     * player who has not earned the End reaches it through the portal before the gate sends them
+     * back, and would otherwise spend the fight's one window. The gate marks it in
+     * {@link RefusedArrivals} at {@code HIGHEST} for this same event.
+     */
     @EventHandler(priority = EventPriority.MONITOR)
-    public void onChangedWorld(PlayerChangedWorldEvent event) {
-        clearBars(event.getPlayer());
-        recoverExit(event.getPlayer().getWorld());
-        entered(event.getPlayer().getWorld());
+    public void onAddedToWorld(EntityAddToWorldEvent event) {
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        World world = event.getWorld();
+        clearBars(player);
+        recoverExit(world);
+        if (!refusedArrivals.consume(player.getUniqueId(), world.getUID())) {
+            entered(world);
+        }
     }
 
     /** A player who logs out in the End and back in never changes world, but still arrives. */

@@ -1,5 +1,6 @@
 package com.ninja6.antispeedrun.listeners;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -9,14 +10,20 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import com.ninja6.antispeedrun.config.PluginConfig;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -424,6 +431,77 @@ class DragonReinforcementTest {
             assertTrue(done.await(10, TimeUnit.SECONDS));
         } finally {
             pool.shutdownNow();
+        }
+    }
+
+    @Nested
+    @DisplayName("what opens the first fight's window")
+    class Arrival {
+
+        /**
+         * #205: Folia never fires {@code PlayerChangedWorldEvent}, so a window opened only from it
+         * never opened there for a player entering by portal or {@code /tp}. The arrival is read
+         * from {@link EntityAddToWorldEvent}, which both platforms fire; that it arrives on a live
+         * Folia server is not something a unit test can show.
+         */
+        @Test
+        @DisplayName("being added to a world opens it, observing at MONITOR")
+        void addedToWorld() throws NoSuchMethodException {
+            Method handler = BossCombatListener.class.getMethod("onAddedToWorld", EntityAddToWorldEvent.class);
+            EventHandler annotation = handler.getAnnotation(EventHandler.class);
+            assertNotNull(annotation, "the handler must carry @EventHandler");
+            assertEquals(EventPriority.MONITOR, annotation.priority());
+        }
+
+        @Test
+        @DisplayName("nothing listens for PlayerChangedWorldEvent, which Folia never fires")
+        void notChangedWorld() {
+            for (Method method : BossCombatListener.class.getMethods()) {
+                if (method.isAnnotationPresent(EventHandler.class)) {
+                    assertFalse(List.of(method.getParameterTypes()).contains(PlayerChangedWorldEvent.class),
+                            method.getName() + " listens for PlayerChangedWorldEvent");
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("a login inside the End still opens it")
+        void join() throws NoSuchMethodException {
+            Method handler = BossCombatListener.class.getMethod("onJoin", PlayerJoinEvent.class);
+            assertNotNull(handler.getAnnotation(EventHandler.class), "the handler must carry @EventHandler");
+        }
+
+        @Test
+        @DisplayName("an arrival the dimension gate is returning is seen as refused, once")
+        void refusedByGate() {
+            RefusedArrivals refused = new RefusedArrivals();
+            UUID player = UUID.randomUUID();
+            UUID end = UUID.randomUUID();
+            refused.mark(player, end);
+            assertTrue(refused.consume(player, end));
+            assertFalse(refused.consume(player, end), "the same player's next arrival opens it");
+        }
+
+        @Test
+        @DisplayName("an arrival nothing refused, or a mark for another world or player, is not refused")
+        void notRefused() {
+            RefusedArrivals refused = new RefusedArrivals();
+            UUID player = UUID.randomUUID();
+            UUID end = UUID.randomUUID();
+            assertFalse(refused.consume(player, end));
+            refused.mark(player, UUID.randomUUID());
+            assertFalse(refused.consume(player, end));
+            refused.mark(UUID.randomUUID(), end);
+            assertFalse(refused.consume(player, end));
+        }
+
+        @Test
+        @DisplayName("repeated arrivals, as a login and an add both report, open one window")
+        void repeatedArrivals() {
+            ReinforcementWindow window = new ReinforcementWindow();
+            assertTrue(window.tryOpen());
+            assertFalse(window.tryOpen());
+            assertFalse(window.tryOpen());
         }
     }
 }

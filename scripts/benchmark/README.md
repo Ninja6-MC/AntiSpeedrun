@@ -53,9 +53,6 @@ prints a Markdown table at the end.
 
 ## Folia notes
 
-- Folia never fires `PlayerChangedWorldEvent`, so a player entering the End does not open
-  the reinforcement window there (#205). The script works around it: the party logs out
-  and back in once it stands in the End, and the login opens the window.
 - Folia has no `/tag` command, and a console selector with a position (`x=`, `distance=`)
   fails its thread check. The script tells dragons apart by the plugin's persistent-data
   tag through `nbt=` selectors instead, and reads blocks through the first bot, because

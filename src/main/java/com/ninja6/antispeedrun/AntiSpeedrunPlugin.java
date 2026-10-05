@@ -40,6 +40,7 @@ import com.ninja6.antispeedrun.listeners.NaturalTrimLootListener;
 import com.ninja6.antispeedrun.listeners.OuterEndBoundaryListener;
 import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
+import com.ninja6.antispeedrun.listeners.RefusedArrivals;
 import com.ninja6.antispeedrun.listeners.TemplateDuplicationListener;
 import com.ninja6.antispeedrun.listeners.TrimSmithingListener;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
@@ -239,7 +240,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // both stores have to exist before the first event can reach it. Registering it earlier
         // would open a window in which a player walking into a portal during startup NPEs the
         // handler -- narrow, but the kind of window that only ever fires in production.
-        this.dimensionGate = new ProgressionGateListener(this);
+        // An End arrival the gate returns must not open the reinforcement window (#209).
+        RefusedArrivals refusedArrivals = new RefusedArrivals();
+        this.dimensionGate = new ProgressionGateListener(this, refusedArrivals);
         getServer().getPluginManager().registerEvents(dimensionGate, this);
 
         // The item gate, registered here for the same reason and with one of its own: it reads
@@ -274,7 +277,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
         portalLocks.loadNow();
         getServer().getPluginManager().registerEvents(
-                new BossCombatListener(this, reinforcedFights, portalLocks), this);
+                new BossCombatListener(this, reinforcedFights, portalLocks, refusedArrivals), this);
 
         // The template duplication lock (#18). Its record of explored structures is read before the
         // listener exists, so a Crafter whose owner is offline works from the first tick.
