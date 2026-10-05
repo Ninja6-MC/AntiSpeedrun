@@ -56,17 +56,25 @@ older client can join. For Paper 26.2 that is `--client-version 26.1 --via`.
 
 ## Results
 
-Everything lands in `--workdir`, which is wiped and rebuilt on each run:
+Everything lands in `--workdir`. Each run rebuilds `server/` from scratch and deletes any
+earlier `results.json` before it starts; `cache/` (the pinned Via jars) is kept:
 
 * `results.json`: the server build, the embedded AntiSpeedrun version, the client version,
   every check with its evidence, and notes;
 * `server/server.log`: the full console log, `ASRPROBE` lines included;
 * `client.log`: the scripted player's own output.
 
-The exit status is 0 only when every check passed. A probe that cannot reach the state it
-asserts on (a boss that never spawns, a hit that never lands) is a failure, never a pass.
-The whole run is bounded by `--deadline` (25 minutes by default); when it passes, the server
-and client are killed. Both are also killed on any exception.
+The exit status is 0 only when every check passed. Any exception, not only a probe failure,
+is recorded as a failed `harness` check, so `results.json` is always written. A probe that
+cannot reach the state it asserts on (a boss that never spawns, a hit that never lands) is a
+failure, never a pass. The whole run is bounded by `--deadline` (25 minutes by default); when
+it passes, the server and client are killed. Both are also killed on any exception.
+
+A check that fails today because of an open bug passes `known_issue=<n>` and lists the issue in
+`KNOWN_ISSUES` in `anti_cheese.py`. It is still run and recorded, with status `known-failure`,
+but does not fail the run. Once the bug is fixed the check passes, is recorded as
+`unexpected-pass` and fails the run until its `KNOWN_ISSUES` entry is removed. Today that is
+#203: the whole TNT minecart stack with the cap on.
 
 ## Writing a probe
 

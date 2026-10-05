@@ -78,14 +78,36 @@ def configured_cap(config_text):
     return float(match.group(1))
 
 
+# Checks that fail today because of an open bug, keyed by issue number. Such a check is still
+# run and recorded, as "known-failure", but does not fail the run. Once it passes, the issue is
+# fixed and the entry is stale: the check then fails as "unexpected-pass" until it is removed here.
+KNOWN_ISSUES = {
+    203: "the single-hit cap does not limit a same-tick TNT minecart stack",
+}
+
+
 class Results:
     def __init__(self):
         self.checks = []
         self.notes = []
 
-    def check(self, rule, name, passed, detail):
-        self.checks.append({"rule": rule, "check": name, "passed": bool(passed), "detail": detail})
-        print(f"[{'PASS' if passed else 'FAIL'}] {rule}: {name} -- {detail}", flush=True)
+    def check(self, rule, name, passed, detail, known_issue=None):
+        entry = {"rule": rule, "check": name, "passed": bool(passed), "detail": detail}
+        label = "PASS" if passed else "FAIL"
+        if known_issue is not None:
+            if known_issue not in KNOWN_ISSUES:
+                raise ProbeError(f"#{known_issue} is not in KNOWN_ISSUES")
+            entry["known_issue"] = known_issue
+            if passed:
+                entry.update(passed=False, status="unexpected-pass")
+                entry["detail"] = (f"{detail}; passes now, so #{known_issue} looks fixed: "
+                                   f"remove it from KNOWN_ISSUES")
+                label = "FAIL"
+            else:
+                entry.update(passed=True, status="known-failure")
+                label = f"KNOWN #{known_issue}"
+        self.checks.append(entry)
+        print(f"[{label}] {rule}: {name} -- {entry['detail']}", flush=True)
 
     def note(self, text):
         self.notes.append(text)
@@ -376,9 +398,14 @@ class AntiCheeseProbes:
                 ok, detail = verdict(events, before, after, "TNT minecart stack", single=False)
                 label = f"each hit of an 8-TNT-minecart stack on the {'Wither' if boss == 'wither' else 'dragon'}"
                 self.results.check(rule, expectation(label), ok, detail)
-                if armed and after is not None and before - after > cap + EPSILON:
-                    self.results.note(f"cap on: the TNT minecart stack took {before - after:.2f} in total from "
-                                      f"the {boss} across {len(landed(events))} capped hits")
+                if armed:
+                    # #197 asks that the whole stack remove at most the cap, not only each hit.
+                    total = None if after is None else before - after
+                    self.results.check(
+                        rule, f"cap on: the whole 8-TNT-minecart stack removes at most {cap} from the "
+                        f"{'Wither' if boss == 'wither' else 'dragon'}",
+                        total is not None and total <= cap + EPSILON,
+                        f"total delta={total} across {len(landed(events))} hits", known_issue=203)
                 self.clear_arena(OVERWORLD, cx, cy, cz)
 
             # A Mace smash from a fall of about 25 blocks.

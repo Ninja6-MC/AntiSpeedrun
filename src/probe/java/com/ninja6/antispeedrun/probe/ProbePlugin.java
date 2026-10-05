@@ -4,8 +4,6 @@ import java.util.Locale;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandSender;
 import org.bukkit.block.Block;
 import org.bukkit.damage.DamageSource;
 import org.bukkit.damage.DamageType;
@@ -98,38 +96,6 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                 + " clicked=" + block.getType().name()
                 + " use-item=" + event.useItemInHand().name()
                 + " cancelled=" + (event.useItemInHand() == Event.Result.DENY));
-    }
-
-    /**
-     * {@code asrprobe parts}: where each part of every dragon tagged {@code asrp} is, so a probe
-     * can aim a hit at one. Read on the dragon's own scheduler, as Folia requires.
-     */
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (args.length != 1 || !args[0].equals("parts")) {
-            return false;
-        }
-        for (org.bukkit.World world : Bukkit.getWorlds()) {
-            for (EnderDragon dragon : world.getEntitiesByClass(EnderDragon.class)) {
-                if (!dragon.getScoreboardTags().contains("asrp")) {
-                    continue;
-                }
-                dragon.getScheduler().run(this, task -> {
-                    StringBuilder line = new StringBuilder("parts dragon=" + dragon.getUniqueId()
-                            + " at=" + point(dragon.getLocation().toVector()));
-                    for (org.bukkit.entity.ComplexEntityPart part : dragon.getParts()) {
-                        line.append(" +").append(part.getEntityId() - dragon.getEntityId()).append('=')
-                                .append(point(part.getBoundingBox().getCenter()));
-                    }
-                    log(line.toString());
-                }, null);
-            }
-        }
-        return true;
-    }
-
-    private static String point(org.bukkit.util.Vector v) {
-        return String.format(Locale.ROOT, "%.2f,%.2f,%.2f", v.getX(), v.getY(), v.getZ());
     }
 
     private void log(String line) {

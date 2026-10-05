@@ -67,7 +67,7 @@ def fetch_pinned(cache, name, url, sha256):
         actual = hashlib.sha256(handle.read()).hexdigest()
     if actual != sha256:
         os.remove(path)
-        raise SystemExit(f"::error::{name}: expected SHA-256 {sha256}, got {actual}")
+        raise ProbeError(f"{name}: expected SHA-256 {sha256}, got {actual}")
     return path
 
 
@@ -100,12 +100,14 @@ def main(argv=None):
 
     workdir = os.path.abspath(args.workdir)
     os.makedirs(workdir, exist_ok=True)
-    plugins = [args.plugin_jar, args.probe_jar]
-    if args.via:
-        plugins += [fetch_pinned(os.path.join(workdir, "cache"), *via) for via in VIA]
+    results_path = os.path.join(workdir, "results.json")
+    # A previous run's verdict must never be mistaken for this one's.
+    if os.path.exists(results_path):
+        os.remove(results_path)
 
     results = anti_cheese.Results()
     summary = {"label": args.label, "client_version": args.client_version, "via": args.via}
+    plugins = [args.plugin_jar, args.probe_jar]
     server = Server(os.path.join(workdir, "server"), args.server_jar, plugins, java=args.java,
                     memory=args.memory, port=args.port)
     client = Client("127.0.0.1", args.port, PLAYER, args.client_version,
@@ -122,6 +124,9 @@ def main(argv=None):
     watchdog.daemon = True
     watchdog.start()
     try:
+        if args.via:
+            plugins += [fetch_pinned(os.path.join(workdir, "cache"), *via) for via in VIA]
+            server.plugins = plugins
         with server:
             server.wait_started(args.boot_timeout)
             with client:
@@ -129,8 +134,13 @@ def main(argv=None):
                 server.wait_for(rf"ASRPROBE join name={PLAYER}", 30)
                 anti_cheese.run_all(server, client, PLAYER, results, args.probe or anti_cheese.PROBES)
                 client.request("quit", timeout=10)
-    except ProbeError as error:
-        reason = "the run passed its deadline" if expired.is_set() else str(error)
+    except Exception as error:  # noqa: BLE001 - any failure still writes results.json
+        if expired.is_set():
+            reason = "the run passed its deadline"
+        elif isinstance(error, ProbeError):
+            reason = str(error)
+        else:
+            reason = f"{type(error).__name__}: {error}"
         results.check("harness", "run completed", False, reason)
     finally:
         watchdog.cancel()
@@ -149,13 +159,15 @@ def main(argv=None):
     summary["checks"] = results.checks
     summary["notes"] = results.notes
     summary["passed"] = results.passed
-    with open(os.path.join(workdir, "results.json"), "w", encoding="utf-8") as handle:
+    with open(results_path, "w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
 
     print(f"{args.label}: {summary['server_build']}; AntiSpeedrun {summary['plugin_version']}; "
           f"client {args.client_version}{' via ViaVersion' if args.via else ''}")
     failed = [check for check in results.checks if not check["passed"]]
-    print(f"{len(results.checks) - len(failed)} of {len(results.checks)} checks passed.")
+    known = [check for check in results.checks if check.get("status") == "known-failure"]
+    print(f"{len(results.checks) - len(failed)} of {len(results.checks)} checks passed"
+          f"{f', {len(known)} of them known failures' if known else ''}.")
     for check in failed:
         print(f"::error::{args.label}: {check['rule']}: {check['check']} -- {check['detail']}")
     return 0 if results.passed else 1

@@ -71,6 +71,12 @@ tasks.named<JavaCompile>(probe.compileJavaTaskName) {
     options.release.set(21)
 }
 
+// Compiled by every `./gradlew check` (and so `build`), so an API change that breaks the probe
+// plugin fails CI rather than the next manual harness run.
+tasks.named("check") {
+    dependsOn(probe.classesTaskName)
+}
+
 tasks.register<Jar>("probeJar") {
     description = "Builds the integration harness's probe plugin."
     group = "verification"

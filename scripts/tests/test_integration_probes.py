@@ -65,6 +65,29 @@ class ParseDamageTest(unittest.TestCase):
         self.assertEqual([event["final"] for event in anti_cheese.landed(events)], [12.0])
 
 
+class KnownIssueTest(unittest.TestCase):
+    def setUp(self):
+        self.results = anti_cheese.Results()
+        self.issue = next(iter(anti_cheese.KNOWN_ISSUES))
+
+    def test_a_known_failure_is_recorded_but_does_not_fail_the_run(self):
+        self.results.check("rule", "check", False, "detail", known_issue=self.issue)
+        (entry,) = self.results.checks
+        self.assertEqual(entry["status"], "known-failure")
+        self.assertEqual(entry["known_issue"], self.issue)
+        self.assertTrue(self.results.passed)
+
+    def test_a_known_issue_that_passes_fails_the_run(self):
+        self.results.check("rule", "check", True, "detail", known_issue=self.issue)
+        (entry,) = self.results.checks
+        self.assertEqual(entry["status"], "unexpected-pass")
+        self.assertFalse(self.results.passed)
+
+    def test_an_unlisted_issue_is_a_harness_error(self):
+        with self.assertRaises(harness.ProbeError):
+            self.results.check("rule", "check", False, "detail", known_issue=999999)
+
+
 class ConsoleColourTest(unittest.TestCase):
     def test_strips_ansi_colours_from_command_feedback(self):
         line = "Wither has the following entity data: \x1b[38;5;3m300.0\x1b[38;5;9mf\x1b[0m"
