@@ -521,8 +521,15 @@ def adoption(args):
                        **after, bar=vanilla_bar(bots))
                 result["victory_early"] = after["end_portal_cells"] > 0 or after["egg"]
             else:
-                # Handled: B is the primary now. Bring the old primary back; it must load as a secondary
-                # and hold B alive until it dies.
+                # Handled: B is the primary now. While the old primary is still unloaded it must already
+                # count as a secondary, so a lethal hit on B is refused.
+                server.command(f"{IN_END} run damage {first(UNTAGGED)} 1000 minecraft:player_attack by {bots.names[0]}")
+                time.sleep(13)
+                keep_on_island(server, bots)
+                unloaded = portal_state(bots)
+                record("lethal hit on B while the old primary is unloaded", untagged_left=server.count(UNTAGGED),
+                       tagged_left=server.count(TAGGED), **unloaded, bar=vanilla_bar(bots))
+                # Bring the old primary back; it must load as a secondary and still hold B alive.
                 runner = bots.names[1]
                 server.command(f"gamemode spectator {runner}")
                 server.command(f"{IN_END} run tp {runner} {PARKING}")
@@ -543,7 +550,8 @@ def adoption(args):
                 after = portal_state(bots)
                 record("lethal hit on B while the old primary lives", untagged_left=server.count(UNTAGGED),
                        tagged_left=server.count(TAGGED), **after, bar=vanilla_bar(bots))
-                result["victory_early"] = after["end_portal_cells"] > 0 or after["egg"]
+                result["victory_early"] = any(state["end_portal_cells"] > 0 or state["egg"]
+                                              for state in (unloaded, after))
                 kill(server, bots.names[0], expect_left=0)
                 server.command(f"{IN_END} run damage {first(UNTAGGED)} 1000 minecraft:player_attack by {bots.names[0]}")
                 time.sleep(25)

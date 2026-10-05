@@ -23,15 +23,19 @@ import java.util.concurrent.ConcurrentHashMap;
  * There is no API to point the fight back at the primary, so the plugin accepts the fight's choice
  * and moves the labels instead. Once a second, on the battle's region, {@link #observe} is shown the
  * dragon the fight tracks. While that is the untagged primary it is remembered. When it turns out to
- * be a tagged secondary, the fight has adopted it: the listener removes its tag, so it is held like a
- * primary until every secondary has died, and the primary it replaced is marked for demotion. That
- * dragon is still saved in the world, and when its chunk loads again {@link #takeDemoted} tells the
- * listener to tag it as a secondary. Every rule that keeps the victory sequence for the last dragon
- * then holds again, for the dragon vanilla actually tracks.
+ * be a tagged secondary, the fight has adopted it. The adopted dragon leaves the roster, and the
+ * listener removes its tag, so it is held like a primary until every secondary has died. The primary
+ * it replaced joins the roster at once, while it is still unloaded: it is alive, saved in its chunk,
+ * and until it dies the adopted dragon must not, or its death would end the fight with a dragon
+ * still out there. When that chunk loads again {@link #takeDemoted} tells the listener to tag it as a
+ * secondary; tracking it a second time then changes nothing. If it is removed before that, untagged,
+ * {@link #release} takes it off the roster. Every rule that keeps the victory sequence for the last
+ * dragon then holds again, for the dragon vanilla actually tracks.
  *
- * <p>The demotion list is memory only, like {@link SecondaryRoster}. After a restart the old primary
- * loads untagged and untracked: vanilla ignores its death, and the plugin holds it like any other
- * untagged dragon, so it can neither end the fight nor be ended early.
+ * <p>The demotion list and the roster are memory only. After a restart the old primary is not
+ * counted until its chunk loads, as for any secondary (see {@link SecondaryRoster}), and it loads
+ * untagged and untracked: vanilla ignores its death, and the plugin holds it like any other untagged
+ * dragon, so it can neither end the fight nor be ended early.
  */
 public final class FightAdoption {
 
@@ -48,13 +52,16 @@ public final class FightAdoption {
     private final Set<UUID> demoted = ConcurrentHashMap.newKeySet();
 
     /**
-     * On the battle's region: the dragon the fight tracks right now.
+     * On the battle's region: the dragon the fight tracks right now. On an adoption the roster loses
+     * the adopted dragon and gains the primary it replaced, loaded or not.
      *
      * @param tracked   that dragon's UUID, or {@code null} when it is not loaded where it can be read
      * @param secondary whether it carries the secondary tag
+     * @param roster    the world's living secondaries
      * @return whether the fight has adopted a secondary, and which primary, if any, it replaced
      */
-    public Outcome observe(UUID tracked, boolean secondary) {
+    public Outcome observe(UUID tracked, boolean secondary, SecondaryRoster roster) {
+        Objects.requireNonNull(roster, "roster");
         if (tracked == null) {
             return Outcome.NONE;
         }
@@ -63,11 +70,28 @@ public final class FightAdoption {
             return Outcome.NONE;
         }
         UUID replaced = primary != null && !primary.equals(tracked) ? primary : null;
+        roster.forget(tracked);
         if (replaced != null) {
             demoted.add(replaced);
+            roster.track(replaced);
         }
         primary = tracked;
         return new Outcome(true, replaced);
+    }
+
+    /**
+     * On the region removing {@code dragon}, untagged, for good: if it was a replaced primary still
+     * waiting for its chunk, it leaves the roster.
+     *
+     * @return {@code true} if it was one
+     */
+    public boolean release(UUID dragon, SecondaryRoster roster) {
+        Objects.requireNonNull(roster, "roster");
+        if (!takeDemoted(dragon)) {
+            return false;
+        }
+        roster.forget(dragon);
+        return true;
     }
 
     /**

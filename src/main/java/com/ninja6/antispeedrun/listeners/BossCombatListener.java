@@ -611,7 +611,7 @@ public final class BossCombatListener implements Listener {
 
     /**
      * On the battle's region: if vanilla's fight has adopted a secondary, that dragon becomes the
-     * primary and the one it replaced is demoted when it loads. See {@link FightAdoption}.
+     * primary and the one it replaced counts as a secondary, loaded or not. See {@link FightAdoption}.
      */
     private void checkAdoption(World world) {
         DragonBattle battle = world.getEnderDragonBattle();
@@ -621,19 +621,19 @@ public final class BossCombatListener implements Listener {
             tracked = null;
         }
         FightAdoption.Outcome outcome = adoption(world).observe(
-                tracked == null ? null : tracked.getUniqueId(), tracked != null && isSecondary(tracked));
+                tracked == null ? null : tracked.getUniqueId(), tracked != null && isSecondary(tracked),
+                roster(world));
         if (!outcome.adopted()) {
             return;
         }
         UUID id = tracked.getUniqueId();
         tracked.getPersistentDataContainer().remove(secondaryDragon);
-        roster(world).forget(id);
         secondaryBars.withdraw(world.getUID(), id);
         publishingDragons.remove(id);
         plugin.getLogger().warning(() -> "The dragon fight in " + world.getName() + " took secondary dragon "
                 + id + " as its own after losing track of "
                 + (outcome.demoted() == null ? "its dragon" : "dragon " + outcome.demoted())
-                + ". It is the primary now; the replaced dragon becomes a secondary when it loads.");
+                + ". It is the primary now; the replaced dragon counts as a secondary.");
     }
 
     /** Starts vanilla's active phase and publishes health on the dragon's own region. */
@@ -709,6 +709,7 @@ public final class BossCombatListener implements Listener {
             publishingDragons.remove(dragon.getUniqueId());
             return null;
         }
+        adoption(world).release(dragon.getUniqueId(), roster(world));
         ResummonFight fight = resummons.get(world.getUID());
         if (fight != null && fight.end(dragon.getUniqueId())) {
             resummons.remove(world.getUID(), fight);

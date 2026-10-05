@@ -25,9 +25,10 @@ budget of a 20 TPS tick).
 primary is tracked (the control), damages the other, then parks the primary in an unloaded
 chunk for 95 seconds, past vanilla's 1,200-tick search. The vanilla boss bar shows which
 dragon the fight is tracking. It then kills that secondary and looks for the exit portal
-and the egg a victory places. With the guard in place it instead brings the old primary
-back, checks that it loads as a secondary and holds the promoted dragon alive, and only then
-lets the fight end.
+and the egg a victory places. With the guard in place it instead lands a lethal hit on the
+promoted dragon while the old primary is still unloaded, which must be refused, then brings
+the old primary back, checks that it loads as a secondary and still holds the promoted dragon
+alive, and only then lets the fight end.
 
 ## Running it
 
