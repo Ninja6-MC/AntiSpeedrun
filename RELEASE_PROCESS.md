@@ -180,12 +180,15 @@ there without writing anything; set the environment up and re-run the failed job
    (`release-distributors.py plan`). For a development build or release candidate the
    remaining distributor steps are skipped.
 2. For a distributor tag, **preflights Modrinth and Hangar** before anything public is
-   written: the token and project are set, the project is public, the token may upload to
-   it, the Hangar project carries the Supports Folia tag, and the version is either absent
-   or already exactly the candidate. Any failure stops the run with all three destinations
-   untouched.
+   written. It checks that the token and project are set, that the token can see the
+   project and upload to it, that the Hangar project carries the Supports Folia tag and has
+   the target channel, and that the version is either absent or already exactly the
+   candidate. Any failure stops the run with all three destinations untouched. Neither
+   project needs to be public yet; see *First distributor release*.
 3. Publishes to **GitHub** (below).
 4. Publishes to **Modrinth**, then to **Hangar** (see *Distributor publication*).
+5. Fails unless both distributor versions are visible to a signed-out consumer and were
+   downloaded and matched (see *First distributor release*).
 
 **GitHub publication.** `scripts/release-github.py` runs in order:
 
@@ -230,11 +233,26 @@ there without writing anything; set the environment up and re-run the failed job
 4. If it is **present**, or after the upload, compare it with the candidate: version, name,
    channel, visibility, changelog, platforms, Minecraft versions, file name and the digest
    the registry reports. Then fetch the version signed out, download the file a consumer
-   would get, and compare its SHA-256 with the manifest.
+   would get, and compare its SHA-256 with the manifest. While the registry still hides a
+   version that matches, the step reports `awaiting-review` instead and the job's last
+   step fails.
 
 Both registries also refuse duplicates on their own: Modrinth rejects a file it already
 hosts and Hangar rejects a second version with the same name. A lost upload response
 therefore cannot produce a second copy; the next attempt finds the version and verifies it.
+
+**First distributor release.** Neither registry makes a project public before it has a
+version. Modrinth reviews a project only once it has one, so `v1.0.0-alpha.1` goes to a
+project that is still a draft. A Hangar project stays `new` until its first version is
+published, which makes it public. Preflight therefore checks each project with the token,
+which sees it in that state. It accepts a Hangar project that is `new` only while it has no
+versions. On that first run the Modrinth version is uploaded and verified with the token
+(metadata and SHA-512), but consumers cannot see it yet. The job then ends with
+**Require Signed-out Distributor Downloads** failed and Modrinth `awaiting-review`. GitHub
+and Hangar are complete by then. Submit the Modrinth project for review. Once it is
+approved, use **Re-run failed jobs**. That run finds every version present, verifies each
+one, and completes the signed-out download check. The same applies when Hangar holds a
+version for review (visibility `needsApproval`).
 
 **Retrying.** Use **Re-run failed jobs** on the same run. It re-runs the publish job, which
 needs approval again, against the candidate and evidence of the original attempt. The
@@ -263,9 +281,9 @@ deleted. Inspect the release in the browser:
   is wrong, delete that version in the registry's web UI and re-run the failed job, which
   uploads the candidate. If the registry refuses the upload after a deletion, cut a new
   version instead.
-* **Hangar holds the new version for review.** It then shows a visibility other than
-  `public` and the job fails without changing anything. Re-run the failed job once the
-  version is approved; it finds the version and verifies it.
+* **A distributor reports `awaiting-review`.** The version matches the candidate but is not
+  public yet. See *First distributor release*: re-run the failed job once the registry
+  has approved the project or version.
 
 ### Maintainer setup
 
@@ -287,12 +305,14 @@ Configured once, in the repository settings in the browser:
 
   A distributor tag with any of the four missing fails in preflight, before anything is
   published. A development build needs none of them.
-* **Modrinth project**: approved and public, since an unapproved project hides its
-  versions from consumers. License, icon and description are set in its settings; versions
-  carry only what the workflow sends.
-* **Hangar project**: public, with **Supports Folia** enabled in its settings, and the
-  channels `Alpha`, `Beta` and `Release` created. Each version is published for the Paper
-  platform.
+* **Modrinth project**: created, with the token's owner as a member who may upload
+  versions. It need not be approved yet. Submit it for review after the first distributor
+  release uploads its first version. License, icon and description are set in its
+  settings; versions carry only what the workflow sends.
+* **Hangar project**: created, with **Supports Folia** enabled in its settings, and the
+  channels `Alpha`, `Beta` and `Release` present. It may stay `new` until the first
+  distributor release publishes its first version. Each version is published for the
+  Paper platform.
 * **Rules → tag ruleset** (recommended): restrict creating, updating and deleting `v*` tags
   to the maintainer, so nothing else can start or move a release.
 

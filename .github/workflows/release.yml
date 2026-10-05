@@ -378,6 +378,7 @@ jobs:
       # is absent, and checks the signed-out download against the manifest. A version already
       # there is verified, never replaced. Safe to re-run: see RELEASE_PROCESS.md section 3.
       - name: Publish to Modrinth If Absent
+        id: modrinth
         if: steps.plan.outputs.distribute == 'true'
         env:
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
@@ -388,6 +389,7 @@ jobs:
           --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
 
       - name: Publish to Hangar If Absent
+        id: hangar
         if: steps.plan.outputs.distribute == 'true'
         env:
           HANGAR_API_TOKEN: ${{ secrets.HANGAR_API_TOKEN }}
@@ -396,3 +398,22 @@ jobs:
           python3 scripts/release-distributors.py publish hangar --directory candidate
           --evidence evidence/evidence.json --tag "$TAG" --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
           --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
+
+      # The first release goes to projects the registries have not approved yet, so a version
+      # can match the candidate while consumers cannot see it. The job fails until they can;
+      # re-run it after approval and the signed-out download check completes.
+      - name: Require Signed-out Distributor Downloads
+        if: steps.plan.outputs.distribute == 'true'
+        env:
+          MODRINTH_STATE: ${{ steps.modrinth.outputs.state }}
+          HANGAR_STATE: ${{ steps.hangar.outputs.state }}
+        run: |
+          set -euo pipefail
+          status=0
+          for pair in "Modrinth=$MODRINTH_STATE" "Hangar=$HANGAR_STATE"; do
+            if [ "${pair#*=}" != complete ]; then
+              echo "::error::${pair%%=*} is ${pair#*=}: the version matches the candidate but is not public yet. Re-run this failed job once the registry has approved it."
+              status=1
+            fi
+          done
+          exit "$status"

@@ -34,7 +34,7 @@ class FakeModrinth:
     """An in-memory Modrinth API that records every write."""
 
     def __init__(self):
-        self.project = {"id": "AbCd1234", "slug": "antispeedrun"}
+        self.details = {"id": "AbCd1234", "slug": "antispeedrun"}
         self.public = True
         self.user_id = "user1"
         self.members_list = [{"user": {"id": "user1"}, "accepted": True, "permissions": 0b1111}]
@@ -45,8 +45,10 @@ class FakeModrinth:
         self.hide_from_listing = False
         self.serve = None
 
-    def public_project(self, project):
-        return copy.deepcopy(self.project) if self.public and project in self.project.values() else None
+    def project(self, project, auth=True):
+        if project not in self.details.values() or not (auth or self.public):
+            return None
+        return copy.deepcopy(self.details)
 
     def user(self):
         return {"id": self.user_id}
@@ -67,7 +69,7 @@ class FakeModrinth:
 
     def public_version(self, version_id):
         version = self.versions_by_id.get(version_id)
-        return copy.deepcopy(version) if version and version["status"] == "listed" else None
+        return copy.deepcopy(version) if self.public and version and version["status"] == "listed" else None
 
     def add(self, data, jar_bytes, filename):
         url = f"https://cdn.modrinth.invalid/{len(self.versions_by_id)}/{filename}"
@@ -95,16 +97,26 @@ class FakeHangar:
     """An in-memory Hangar API that records every write."""
 
     def __init__(self):
-        self.project = {"id": 42, "namespace": {"owner": "Ninja6-MC", "slug": "AntiSpeedrun"},
+        self.details = {"id": 42, "namespace": {"owner": "Ninja6-MC", "slug": "AntiSpeedrun"},
                         "visibility": "public", "settings": {"tags": ["SUPPORTS_FOLIA"]}}
+        self.channel_names = ["Release", "Alpha", "Beta"]
+        self.review_versions = False
         self.allowed = True
         self.versions_by_name = {}
         self.blobs = {}
         self.uploads = []
         self.serve = None
 
-    def public_project(self, slug):
-        return copy.deepcopy(self.project) if slug == self.project["namespace"]["slug"] else None
+    def project(self, slug, auth=True):
+        if slug != self.details["namespace"]["slug"] or not (auth or self.details["visibility"] == "public"):
+            return None
+        return copy.deepcopy(self.details)
+
+    def version_count(self, slug):
+        return len(self.versions_by_name)
+
+    def channels(self, project_id):
+        return [{"name": name, "projectId": project_id} for name in self.channel_names]
 
     def version(self, slug, name, auth=True):
         version = self.versions_by_name.get(name)
@@ -120,7 +132,10 @@ class FakeHangar:
         self.blobs[url] = jar_bytes
         file_info = {"name": filename, "sizeBytes": len(jar_bytes),
                      "sha256Hash": hashlib.sha256(jar_bytes).hexdigest()}
-        version = {"name": data["version"], "visibility": "public", "description": data["description"],
+        if self.details["visibility"] == "new":
+            self.details["visibility"] = "public"
+        visibility = "needsApproval" if self.review_versions else "public"
+        version = {"name": data["version"], "visibility": visibility, "description": data["description"],
                    "channel": {"name": data["channel"]},
                    "platformDependencies": copy.deepcopy(data["platformDependencies"]),
                    "downloads": {platform: {"fileInfo": dict(file_info), "downloadUrl": url}
@@ -324,12 +339,31 @@ class ModrinthTest(Candidate):
         with self.assertRaisesRegex(rd.DistributorError, "SHA-256"):
             self.publish(api)
 
-    def test_preflight_requires_a_public_project_and_upload_permission(self):
+    def test_first_release_to_a_draft_project_waits_for_review_then_completes(self):
         self.candidate()
         api = FakeModrinth()
         api.public = False
-        with self.assertRaisesRegex(rd.DistributorError, "not visible signed out"):
-            quiet(rd.modrinth_preflight, api, self.manifest, "antispeedrun", self.directory)
+        self.assertEqual(quiet(rd.modrinth_preflight, api, self.manifest, "antispeedrun", self.directory), "absent")
+        self.assertEqual(self.publish(api), "awaiting-review")
+        self.assertEqual(self.publish(api), "awaiting-review")
+        api.public = True
+        self.assertEqual(self.publish(api), "complete")
+        self.assertEqual(len(api.uploads), 1)
+
+    def test_a_draft_project_still_never_takes_a_different_version(self):
+        self.candidate()
+        api = FakeModrinth()
+        api.public = False
+        self.publish(api)
+        next(iter(api.versions_by_id.values()))["changelog"] = "Other"
+        with self.assertRaisesRegex(rd.DistributorError, "changelog"):
+            self.publish(api)
+        self.assertEqual(len(api.uploads), 1)
+
+    def test_preflight_requires_a_visible_project_and_upload_permission(self):
+        self.candidate()
+        with self.assertRaisesRegex(rd.DistributorError, "cannot see Modrinth project"):
+            quiet(rd.modrinth_preflight, FakeModrinth(), self.manifest, "someone-else", self.directory)
         for members in ([], [{"user": {"id": "user1"}, "accepted": False, "permissions": 1}],
                         [{"user": {"id": "user1"}, "accepted": True, "permissions": 0b10}],
                         [{"user": {"id": "someone"}, "accepted": True, "permissions": 1}]):
@@ -374,7 +408,7 @@ class HangarTest(Candidate):
             "description": lambda v: v.update(description="Other"),
             "platform versions": lambda v: v.update(platformDependencies={"PAPER": ["1.21.4"]}),
             "PAPER file": lambda v: v["downloads"]["PAPER"]["fileInfo"].update(sha256Hash="0" * 64),
-            "visibility": lambda v: v.update(visibility="needsApproval"),
+            "visibility": lambda v: v.update(visibility="softDelete"),
         }
         for label, change in cases.items():
             with self.subTest(label):
@@ -394,11 +428,35 @@ class HangarTest(Candidate):
         with self.assertRaisesRegex(rd.DistributorError, "SHA-256"):
             self.publish(api)
 
-    def test_preflight_requires_public_folia_project_and_permission(self):
+    def test_first_release_to_a_new_project_publishes_it(self):
         self.candidate()
+        api = FakeHangar()
+        api.details["visibility"] = "new"
+        self.assertEqual(quiet(rd.hangar_preflight, api, self.manifest, "AntiSpeedrun", self.directory), "absent")
+        self.assertEqual(self.publish(api), "complete")
+        self.assertEqual(api.details["visibility"], "public")
+        self.assertEqual(len(api.uploads), 1)
+
+    def test_a_version_held_for_review_waits_then_completes(self):
+        self.candidate()
+        api = FakeHangar()
+        api.review_versions = True
+        self.assertEqual(self.publish(api), "awaiting-review")
+        api.versions_by_name["1.0.0-alpha.1"]["visibility"] = "public"
+        self.assertEqual(self.publish(api), "complete")
+        self.assertEqual(len(api.uploads), 1)
+
+    def test_preflight_requires_visible_folia_project_channel_and_permission(self):
+        self.candidate()
+        older = FakeHangar()
+        older.add({"version": "0.9.0", "description": "x", "channel": "Release",
+                   "platformDependencies": {"PAPER": VERSIONS}, "files": [{"platforms": ["PAPER"]}]}, b"x", "a.jar")
         cases = {
-            "not public": lambda api: api.project.update(visibility="new"),
-            "Supports Folia": lambda api: api.project["settings"].update(tags=[]),
+            "has visibility needsChanges": lambda api: api.details.update(visibility="needsChanges"),
+            "still new but already has versions": lambda api: (api.versions_by_name.update(older.versions_by_name),
+                                                               api.details.update(visibility="new")),
+            "Supports Folia": lambda api: api.details["settings"].update(tags=[]),
+            "no Alpha channel": lambda api: setattr(api, "channel_names", ["Release", "Beta"]),
             "cannot create versions": lambda api: setattr(api, "allowed", False),
         }
         for message, change in cases.items():
@@ -408,7 +466,7 @@ class HangarTest(Candidate):
                 with self.assertRaisesRegex(rd.DistributorError, message):
                     quiet(rd.hangar_preflight, api, self.manifest, "AntiSpeedrun", self.directory)
                 self.assertEqual(api.uploads, [])
-        with self.assertRaisesRegex(rd.DistributorError, "missing or not public"):
+        with self.assertRaisesRegex(rd.DistributorError, "cannot see Hangar project"):
             quiet(rd.hangar_preflight, FakeHangar(), self.manifest, "Other", self.directory)
 
 
