@@ -10,8 +10,7 @@
 
 bench boots one fresh server per dragon count. Five scripted players (client/bots.js) enter the
 End, the reinforcement window counts them with multiplier 1.0 and max-dragons set to the count,
-and the plugin spawns the secondaries itself. The party logs out and back in once it stands in the
-End, because on Folia that login is what opens the window (#205). The players stay on the main island shooting and
+and the plugin spawns the secondaries itself. The players stay on the main island shooting and
 hitting the nearest dragon while Folia's /tps is sampled every 15 seconds for --window seconds.
 Each sample is Folia's 15-second report for every region; the End region holding the fight is
 recorded.
@@ -60,7 +59,7 @@ TAGGED = f"@e[type=ender_dragon,nbt={SECONDARY_NBT}]"
 UNTAGGED = f"@e[type=ender_dragon,nbt=!{SECONDARY_NBT}]"
 IN_END = "execute in minecraft:the_end"
 REPORT_SECONDS = 15
-# Long enough for the whole party to log back in before the census counts it.
+# Long enough for the whole party to be teleported onto the island before the census counts it.
 PREP_SECONDS = 20
 # Where the primary is parked to unload it: beyond the party's view distance (8 chunks), but close
 # enough that its chunk rejoins the island's Folia region when it loads again. A dragon ticking in a
@@ -356,16 +355,11 @@ def bench_one(args, dragons):
                     args.java, args.memory, args.port)
     with server:
         result["server_build"] = boot(server, args)
-        with Bots(args.port, args.party, args.client_version, os.path.join(workdir, "bots-setup.log"),
-                  args.node, passive=True) as bots:
-            bots.wait_spawned(120)
-            equip(server, bots, passive=False)
-            time.sleep(10)
-        # On Folia the window opens only when a player logs in inside the End (#205).
-        mark = server.mark()
         with Bots(args.port, args.party, args.client_version, os.path.join(workdir, "bots.log"),
                   args.node) as bots:
             bots.wait_spawned(120)
+            mark = server.mark()
+            equip(server, bots, passive=False)
             closed = server.wait_for(WINDOW_CLOSED, 120, since=mark)
             result["party_counted"] = int(closed.group("party"))
             result["dragons_earned"] = int(closed.group("dragons"))
@@ -467,16 +461,11 @@ def adoption(args):
                     args.java, args.memory, args.port)
     with server:
         result["server_build"] = boot(server, args)
-        with Bots(args.port, 2, args.client_version, os.path.join(workdir, "bots-setup.log"), args.node,
-                  passive=True) as bots:
-            bots.wait_spawned(120)
-            equip(server, bots, passive=True)
-            time.sleep(10)
-        # On Folia the window opens only when a player logs in inside the End (#205).
-        mark = server.mark()
         with Bots(args.port, 2, args.client_version, os.path.join(workdir, "bots.log"), args.node,
                   passive=True) as bots:
             bots.wait_spawned(120)
+            mark = server.mark()
+            equip(server, bots, passive=True)
             closed = server.wait_for(WINDOW_CLOSED, 120, since=mark)
             record("window closed", party=int(closed.group("party")), dragons=int(closed.group("dragons")))
             time.sleep(10)
