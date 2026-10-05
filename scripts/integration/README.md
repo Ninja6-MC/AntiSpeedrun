@@ -134,5 +134,8 @@ Server behaviours that already cost a cycle:
   position;
 * Folia raises no `PlayerChangedWorldEvent`, so its `world` lines are missing there; assert on
   `Probes.where` instead;
+* vanilla refuses an End Crystal, with no event and nothing consumed, while any entity is in
+  the two blocks above the target; endermen wander onto the exit portal, so the crystal probe
+  removes endermen, items and XP orbs beside each target first;
 * `/advancement revoke` fires no event, so the plugin's progression cache only forgets on a
   reload; `GateProbes.progression` reloads after every change.
