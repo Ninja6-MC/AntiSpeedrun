@@ -92,6 +92,30 @@ class ReleaseTagTest(unittest.TestCase):
                     rc.release(tag)
 
 
+class DistributionTest(unittest.TestCase):
+    def test_channel_mapping(self):
+        for tag, (version_type, channel) in {"v1.0.0-alpha.1": ("alpha", "Alpha"), "v1.0.0-beta.3": ("beta", "Beta"),
+                                             "v1.0.0": ("release", "Release"), "v2.4.1": ("release", "Release"),
+                                             "v2.0.0-alpha.2": ("alpha", "Alpha")}.items():
+            with self.subTest(tag=tag):
+                modrinth, hangar = rc.distribution(tag)
+                self.assertEqual((modrinth["name"], modrinth["version_type"]), ("modrinth", version_type))
+                self.assertEqual((hangar["name"], hangar["channel"]), ("hangar", channel))
+
+    def test_development_builds_and_release_candidates_never_reach_a_distributor(self):
+        for tag in ("v0.1.0", "v0.2.0", "v0.2.0-alpha.1", "v0.4.0-beta.2", "v0.9.0-rc.1", "v1.0.0-rc.1"):
+            with self.subTest(tag=tag):
+                self.assertEqual(rc.distribution(tag), [])
+                self.assertEqual([d["name"] for d in rc.destinations("Ninja6-MC/AntiSpeedrun", tag)], ["github"])
+
+    def test_declared_platforms_and_versions_come_from_the_tested_servers(self):
+        modrinth, hangar = rc.distribution("v1.0.0")
+        self.assertEqual(modrinth["loaders"], ["folia", "paper"])
+        self.assertEqual(modrinth["game_versions"], ["1.21.4", "1.21.11", "26.2"])
+        self.assertEqual(hangar["platforms"], {"PAPER": ["1.21.4", "1.21.11", "26.2"]})
+        self.assertTrue(hangar["supports_folia"])
+
+
 class ReleaseNotesTest(unittest.TestCase):
     def test_stable_uses_its_own_section_and_stops_at_the_next(self):
         notes = rc.release_notes(CHANGELOG, rc.release("v1.0.0"))
@@ -134,7 +158,9 @@ class CandidateTest(unittest.TestCase):
         self.assertEqual(manifest["candidate_id"], f"42-1-{SHA[:12]}")
         self.assertEqual(manifest["channel"], "stable")
         self.assertEqual(manifest["destinations"],
-                         [{"name": "github", "repository": "Ninja6-MC/AntiSpeedrun", "release": "v1.0.0"}])
+                         [{"name": "github", "repository": "Ninja6-MC/AntiSpeedrun", "release": "v1.0.0"}]
+                         + rc.distribution("v1.0.0"))
+        self.assertEqual([d["name"] for d in manifest["destinations"]], ["github", "modrinth", "hangar"])
         self.assertEqual(sorted(manifest["files"]),
                          ["AntiSpeedrun-1.0.0.jar", "AntiSpeedrun-1.0.0.jar.sha256", "release-notes.md"])
         self.assertEqual(rc.verify(args(self.directory)), manifest)
@@ -250,6 +276,18 @@ class ServerMatrixTest(unittest.TestCase):
         self.assertEqual(release, ci)
         self.assertEqual(sorted(f"{platform}-{minecraft}" for platform, minecraft, *_ in release),
                          sorted(rc.SERVER_LEGS))
+
+    def test_distributor_listings_declare_exactly_the_booted_servers(self):
+        ci = matrix("ci.yml", "\n  server-smoke:\n")
+        platforms = sorted({platform for platform, *_ in ci})
+        versions = sorted({minecraft for _, minecraft, *_ in ci})
+        modrinth, hangar = rc.distribution("v1.0.0")
+        self.assertEqual(sorted(modrinth["loaders"]), [rc.MODRINTH_LOADERS[p] for p in platforms])
+        self.assertEqual(sorted(modrinth["game_versions"]), versions)
+        for platform in platforms:
+            if platform in rc.HANGAR_PLATFORMS:
+                self.assertEqual(sorted(hangar["platforms"][rc.HANGAR_PLATFORMS[platform]]), versions)
+        self.assertEqual(hangar["supports_folia"], "folia" in platforms)
 
 
 if __name__ == "__main__":
