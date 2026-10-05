@@ -140,6 +140,14 @@ class ModrinthApi:
     def user(self):
         return self._get("/user", "Modrinth token owner")
 
+    def known_game_versions(self):
+        result = self._get("/tag/game_version", "Modrinth game versions", auth=False)
+        return {item.get("version") for item in result or [] if isinstance(item, dict)}
+
+    def known_loaders(self):
+        result = self._get("/tag/loader", "Modrinth loaders", auth=False)
+        return {item.get("name") for item in result or [] if isinstance(item, dict)}
+
     def members(self, project_id):
         return self._get(f"/project/{quote(project_id)}/members", "Modrinth project members")
 
@@ -196,6 +204,16 @@ class HangarApi:
         """With the session, members also see a project that is still `new` (no version yet)."""
         return self._get(f"{HANGAR}/projects/{quote(slug)}",
                          f"Hangar project {slug}{'' if auth else ' (signed out)'}", auth=auth, allow_missing=True)
+
+    def known_platform_versions(self, platform):
+        """Every version Hangar accepts for a platform: each group and its sub-versions."""
+        result = self._get(f"{HANGAR}/platforms/{quote(platform)}/versions", f"Hangar {platform} versions", auth=False)
+        known = set()
+        for item in result or []:
+            if isinstance(item, dict):
+                known.add(item.get("version"))
+                known.update(item.get("subVersions") or [])
+        return known
 
     def version_count(self, slug):
         result = self._get(f"{HANGAR}/projects/{quote(slug)}/versions?limit=1&offset=0", "Hangar project versions")
@@ -362,8 +380,18 @@ def modrinth_state(api, manifest, dest, project_id, public, directory):
     return "complete"
 
 
+def unknown(kind, wanted, known):
+    missing = sorted(set(wanted) - set(known))
+    if missing:
+        raise DistributorError(f"{kind} does not know {missing} yet, so the upload would be rejected. Wait until "
+                               "it does, or move the server pin, before releasing.")
+
+
 def modrinth_preflight(api, manifest, project, directory):
     dest = destination(manifest, "modrinth")
+    # Modrinth rejects a version naming a game version or loader it does not list.
+    unknown("Modrinth", dest["game_versions"], api.known_game_versions())
+    unknown("Modrinth", dest["loaders"], api.known_loaders())
     project_id, public = modrinth_project(api, project)
     modrinth_upload_access(api, project_id)
     return modrinth_state(api, manifest, dest, project_id, public, directory)
@@ -470,6 +498,9 @@ def hangar_state(api, manifest, dest, slug, directory):
 
 def hangar_preflight(api, manifest, slug, directory):
     dest = destination(manifest, "hangar")
+    # Hangar rejects an upload naming a platform version it does not list.
+    for platform, versions in sorted(dest["platforms"].items()):
+        unknown(f"Hangar {platform}", versions, api.known_platform_versions(platform))
     project_id = hangar_project(api, slug, dest)
     # Through the API, Hangar creates a missing channel only when a colour is sent and fails the
     # upload otherwise; the channel must exist before anything is published anywhere.

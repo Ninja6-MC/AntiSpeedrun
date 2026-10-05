@@ -182,8 +182,9 @@ there without writing anything; set the environment up and re-run the failed job
 2. For a distributor tag, **preflights Modrinth and Hangar** before anything public is
    written. It checks that the token and project are set, that the token can see the
    project and upload to it, that the Hangar project carries the Supports Folia tag and has
-   the target channel, and that the version is either absent or already exactly the
-   candidate. Any failure stops the run with all three destinations untouched. Neither
+   the target channel, that both registries already know every loader, platform and
+   Minecraft version the listing declares, and that the version is either absent or
+   already exactly the candidate. Any failure stops the run with all three destinations untouched. Neither
    project needs to be public yet; see *First distributor release*.
 3. Publishes to **GitHub** (below).
 4. Publishes to **Modrinth**, then to **Hangar** (see *Distributor publication*).
@@ -252,7 +253,10 @@ versions. On that first run the Modrinth version is uploaded and verified with t
 and Hangar are complete by then. Submit the Modrinth project for review. Once it is
 approved, use **Re-run failed jobs**. That run finds every version present, verifies each
 one, and completes the signed-out download check. The same applies when Hangar holds a
-version for review (visibility `needsApproval`).
+version for review (visibility `needsApproval`). A re-run works only while the run's
+candidate is retained, 30 days. If approval takes longer, leave the run failed: nothing
+wrong has been published, since each version was verified against the candidate with the
+token. The next distributor tag repeats the full signed-out check for its own version.
 
 **Retrying.** Use **Re-run failed jobs** on the same run. It re-runs the publish job, which
 needs approval again, against the candidate and evidence of the original attempt. The

@@ -35,6 +35,8 @@ class FakeModrinth:
 
     def __init__(self):
         self.details = {"id": "AbCd1234", "slug": "antispeedrun"}
+        self.game_versions = {"1.21.3", *VERSIONS, "26.3"}
+        self.loaders = {"paper", "folia", "spigot"}
         self.public = True
         self.user_id = "user1"
         self.members_list = [{"user": {"id": "user1"}, "accepted": True, "permissions": 0b1111}]
@@ -52,6 +54,12 @@ class FakeModrinth:
 
     def user(self):
         return {"id": self.user_id}
+
+    def known_game_versions(self):
+        return set(self.game_versions)
+
+    def known_loaders(self):
+        return set(self.loaders)
 
     def members(self, project_id):
         return copy.deepcopy(self.members_list)
@@ -100,6 +108,7 @@ class FakeHangar:
         self.details = {"id": 42, "namespace": {"owner": "Ninja6-MC", "slug": "AntiSpeedrun"},
                         "visibility": "public", "settings": {"tags": ["SUPPORTS_FOLIA"]}}
         self.channel_names = ["Release", "Alpha", "Beta"]
+        self.platform_versions = {"PAPER": {"1.21", *VERSIONS, "26.3"}}
         self.review_versions = False
         self.allowed = True
         self.versions_by_name = {}
@@ -114,6 +123,9 @@ class FakeHangar:
 
     def version_count(self, slug):
         return len(self.versions_by_name)
+
+    def known_platform_versions(self, platform):
+        return set(self.platform_versions.get(platform, ()))
 
     def channels(self, project_id):
         return [{"name": name, "projectId": project_id} for name in self.channel_names]
@@ -360,6 +372,14 @@ class ModrinthTest(Candidate):
             self.publish(api)
         self.assertEqual(len(api.uploads), 1)
 
+    def test_preflight_rejects_versions_or_loaders_modrinth_does_not_know(self):
+        self.candidate()
+        for change in (lambda api: api.game_versions.discard("26.2"), lambda api: api.loaders.discard("folia")):
+            api = FakeModrinth()
+            change(api)
+            with self.assertRaisesRegex(rd.DistributorError, "does not know"):
+                quiet(rd.modrinth_preflight, api, self.manifest, "antispeedrun", self.directory)
+
     def test_preflight_requires_a_visible_project_and_upload_permission(self):
         self.candidate()
         with self.assertRaisesRegex(rd.DistributorError, "cannot see Modrinth project"):
@@ -457,6 +477,7 @@ class HangarTest(Candidate):
                                                                api.details.update(visibility="new")),
             "Supports Folia": lambda api: api.details["settings"].update(tags=[]),
             "no Alpha channel": lambda api: setattr(api, "channel_names", ["Release", "Beta"]),
+            "does not know": lambda api: api.platform_versions["PAPER"].discard("1.21.11"),
             "cannot create versions": lambda api: setattr(api, "allowed", False),
         }
         for message, change in cases.items():
@@ -510,6 +531,14 @@ class WireTest(Candidate):
         with self.assertRaisesRegex(rd.DistributorError, "HTTP 500"):
             api.version_by_file("0" * 128)
         self.assertEqual(json.loads(json.dumps(http.requests[0][2])), {"Authorization": "m-token"})
+
+    def test_hangar_platform_versions_include_sub_versions(self):
+        body = json.dumps([{"version": "26.2", "subVersions": []},
+                           {"version": "1.21", "subVersions": ["1.21.11", "1.21.4"]}]).encode()
+        http = FakeHttp([(200, body)])
+        self.assertEqual(rd.HangarApi("h-token", http).known_platform_versions("PAPER"),
+                         {"26.2", "1.21", "1.21.11", "1.21.4"})
+        self.assertEqual(http.requests[0][1], rd.HANGAR + "/platforms/PAPER/versions")
 
     def test_failed_hangar_authentication_stops(self):
         with self.assertRaisesRegex(rd.DistributorError, "rejected HANGAR_API_TOKEN"):
