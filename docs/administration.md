@@ -57,8 +57,9 @@ v0.1.x shipped them `true` but never enforced them, so `false` keeps the server 
 what it did. Set any of them back to `true` and run `/asr reload` to turn the rule on. A
 `config.yml` written by a newer version stops the plugin from starting, with the file
 untouched. See [configuration.md](configuration.md#32-upgrading-an-older-configyml). The
-state files are not versioned yet, so keep a backup of `plugins/AntiSpeedrun/` and
-`playerdata` before a jump between builds.
+state files are versioned the same way ([section 6.3](#63-state-file-versions)); player
+data is not, so keep a backup of `plugins/AntiSpeedrun/` and `playerdata` before a jump
+between builds.
 
 A clean install is also fine: back up `plugins/AntiSpeedrun/` and `playerdata`, delete
 `config.yml`, install the jar and restart. Deleting `config.yml` loses every local edit
