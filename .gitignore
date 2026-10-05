@@ -1,6 +1,9 @@
 # Python bytecode from the CI helper scripts under scripts/
 __pycache__/
 
+# The integration harness's scripted player (scripts/integration/client)
+node_modules/
+
 # Gradle
 .gradle/
 build/

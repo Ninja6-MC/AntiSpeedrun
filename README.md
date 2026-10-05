@@ -146,6 +146,8 @@ from one category each.
   backup boundaries and troubleshooting.
 - [Configuration reference](docs/configuration.md) -- every `config.yml` section, its
   defaults, validation and reload behavior, and the three profiles.
+- [Real-server integration harness](scripts/integration/README.md) -- gameplay probes
+  that run the built jar on a real Paper server with a scripted player, and how to run them.
 
 ---
 
