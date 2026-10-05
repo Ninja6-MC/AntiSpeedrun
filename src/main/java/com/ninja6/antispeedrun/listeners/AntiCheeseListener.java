@@ -35,8 +35,8 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  * With no causing entity there is no player to check, so this rule cannot be bypassed.
  *
  * <p>Also refuses an End Crystal placed on the exit portal's centre column (#25, Task 7.1.3), off
- * unless {@code anti-cheese.block-exit-portal-crystal-place}. The four ritual positions beside it
- * are never refused; see {@link ExitPortalCrystalRules}.
+ * unless {@code anti-cheese.block-exit-portal-crystal-place}. The four ritual positions on the
+ * portal's rim are never refused; see {@link ExitPortalCrystalRules}.
  *
  * <h2>The dragon's parts</h2>
  *
