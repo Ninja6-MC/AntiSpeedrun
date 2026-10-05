@@ -274,8 +274,12 @@ public final class ProgressionGateListener implements Listener {
      */
     private final PlayerStateMap<UUID> lastWorld;
 
-    public ProgressionGateListener(AntiSpeedrunPlugin plugin) {
+    /** Arrivals this listener is returning, for the reinforcement window to skip (#209). */
+    private final RefusedArrivals refusedArrivals;
+
+    public ProgressionGateListener(AntiSpeedrunPlugin plugin, RefusedArrivals refusedArrivals) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.refusedArrivals = Objects.requireNonNull(refusedArrivals, "refusedArrivals");
         this.lastFeedback = plugin.playerState().register("dimension-gate-feedback");
         this.decisions = plugin.playerState().register("dimension-gate-decisions");
         this.lastWorld = plugin.playerState().register("dimension-gate-last-world");
@@ -958,6 +962,7 @@ public final class ProgressionGateListener implements Listener {
             return;
         }
 
+        refusedArrivals.mark(id, arrivedIn.getUID());
         World returnTo = cameFrom != null ? cameFrom : plugin.getServer().getWorlds().get(0);
         // The return is scheduled before the player is told why, so a message that fails cannot
         // leave them standing in a dimension they were refused.

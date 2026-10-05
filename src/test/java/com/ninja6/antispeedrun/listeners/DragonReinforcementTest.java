@@ -472,6 +472,30 @@ class DragonReinforcementTest {
         }
 
         @Test
+        @DisplayName("an arrival the dimension gate is returning is seen as refused, once")
+        void refusedByGate() {
+            RefusedArrivals refused = new RefusedArrivals();
+            UUID player = UUID.randomUUID();
+            UUID end = UUID.randomUUID();
+            refused.mark(player, end);
+            assertTrue(refused.consume(player, end));
+            assertFalse(refused.consume(player, end), "the same player's next arrival opens it");
+        }
+
+        @Test
+        @DisplayName("an arrival nothing refused, or a mark for another world or player, is not refused")
+        void notRefused() {
+            RefusedArrivals refused = new RefusedArrivals();
+            UUID player = UUID.randomUUID();
+            UUID end = UUID.randomUUID();
+            assertFalse(refused.consume(player, end));
+            refused.mark(player, UUID.randomUUID());
+            assertFalse(refused.consume(player, end));
+            refused.mark(UUID.randomUUID(), end);
+            assertFalse(refused.consume(player, end));
+        }
+
+        @Test
         @DisplayName("repeated arrivals, as a login and an add both report, open one window")
         void repeatedArrivals() {
             ReinforcementWindow window = new ReinforcementWindow();
