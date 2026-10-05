@@ -153,7 +153,7 @@ item-progression:
 # 3. Armor Trim & Smithing Template Progression
 trim-progression:
   enabled: true
-  gate-natural-trim-chests: true       # TRUE here: natural loot drops a gated template for a player who has not explored its structure.
+  gate-natural-trim-chests: true       # TRUE here: removes a gated template from natural loot for a player who has not explored its structure.
   block-unearned-template-duplication: true
   block-unearned-smithing: true
   block-wearing-unearned-trims: true
