@@ -88,6 +88,11 @@ import net.kyori.adventure.title.Title;
  * a {@link SecondaryRoster} per world, which every handler reads and writes on the thread that owns
  * the entity the event is about.
  *
+ * <p>Vanilla's fight adopts another dragon when its own has not ticked for 1,200 ticks, and an
+ * adopted secondary's death would run the victory sequence. While secondaries live, the battle's
+ * region checks once a second which dragon the fight tracks and, if it is a secondary, swaps the
+ * labels so the tracked dragon is the primary again. See {@link FightAdoption}.
+ *
  * <h2>Folia</h2>
  *
  * Every step runs on the thread that owns what it touches (audit finding C-06):
@@ -132,6 +137,12 @@ public final class BossCombatListener implements Listener {
 
     /** Living secondaries per End world, keyed by world UID. Removed when the world unloads. */
     private final Map<UUID, SecondaryRoster> rosters = new ConcurrentHashMap<>();
+
+    /** Which dragon each End world's fight tracks, keyed by world UID. Removed when the world unloads. */
+    private final Map<UUID, FightAdoption> adoptions = new ConcurrentHashMap<>();
+
+    /** End worlds whose battle region is watching for an adopted secondary. */
+    private final Set<UUID> guardedWorlds = ConcurrentHashMap.newKeySet();
 
     /** The current resummoned fight per End world, keyed by world UID. Removed when it ends. */
     private final Map<UUID, ResummonFight> resummons = new ConcurrentHashMap<>();
@@ -198,6 +209,8 @@ public final class BossCombatListener implements Listener {
         UUID world = event.getWorld().getUID();
         windows.remove(world);
         rosters.remove(world);
+        adoptions.remove(world);
+        guardedWorlds.remove(world);
         restoringExits.remove(world);
         secondaryBars.forgetWorld(world);
         lastRefusalNotice.remove(world);
@@ -218,9 +231,17 @@ public final class BossCombatListener implements Listener {
             return;
         }
         for (Entity entity : event.getEntities()) {
+            if (entity instanceof EnderDragon dragon && !isSecondary(dragon)
+                    && adoption(world).takeDemoted(dragon.getUniqueId())) {
+                // A primary the fight replaced while it was unloaded comes back as a secondary.
+                dragon.getPersistentDataContainer().set(secondaryDragon, PersistentDataType.BYTE, (byte) 1);
+                plugin.getLogger().info(() -> "Ender Dragon " + dragon.getUniqueId() + " in " + world.getName()
+                        + " is a secondary now: the dragon fight replaced it while it was unloaded.");
+            }
             if (entity instanceof EnderDragon dragon && isSecondary(dragon)) {
                 roster(world).track(dragon.getUniqueId());
                 activateSecondary(dragon);
+                guard(world);
                 if (window(world).markResolved()) {
                     reinforcedFights.markReinforced(world.getUID(), System.currentTimeMillis());
                 }
@@ -556,7 +577,63 @@ public final class BossCombatListener implements Listener {
                     + " was cancelled; it is not counted.");
         } else {
             activateSecondary(dragon);
+            guard(world);
         }
+    }
+
+    /**
+     * Starts the once-a-second adoption check on the battle's region for {@code world}, unless it is
+     * already running. It stops itself when no secondary is left.
+     */
+    private void guard(World world) {
+        UUID id = world.getUID();
+        if (!guardedWorlds.add(id)) {
+            return;
+        }
+        plugin.getServer().getRegionScheduler().runAtFixedRate(plugin, world, 0, 0, task -> {
+            if (plugin.getServer().getWorld(id) == null || !guardedWorlds.contains(id)) {
+                guardedWorlds.remove(id);
+                task.cancel();
+                return;
+            }
+            if (roster(world).living() == 0) {
+                guardedWorlds.remove(id);
+                task.cancel();
+                // A secondary tracked between the count and the removal starts a new check.
+                if (roster(world).living() > 0) {
+                    guard(world);
+                }
+                return;
+            }
+            checkAdoption(world);
+        }, 1L, TICKS_PER_SECOND);
+    }
+
+    /**
+     * On the battle's region: if vanilla's fight has adopted a secondary, that dragon becomes the
+     * primary and the one it replaced is demoted when it loads. See {@link FightAdoption}.
+     */
+    private void checkAdoption(World world) {
+        DragonBattle battle = world.getEnderDragonBattle();
+        EnderDragon tracked = battle == null ? null : battle.getEnderDragon();
+        if (tracked != null && !plugin.getServer().isOwnedByCurrentRegion(tracked)) {
+            // Flying over a region of its own; asked again next second.
+            tracked = null;
+        }
+        FightAdoption.Outcome outcome = adoption(world).observe(
+                tracked == null ? null : tracked.getUniqueId(), tracked != null && isSecondary(tracked));
+        if (!outcome.adopted()) {
+            return;
+        }
+        UUID id = tracked.getUniqueId();
+        tracked.getPersistentDataContainer().remove(secondaryDragon);
+        roster(world).forget(id);
+        secondaryBars.withdraw(world.getUID(), id);
+        publishingDragons.remove(id);
+        plugin.getLogger().warning(() -> "The dragon fight in " + world.getName() + " took secondary dragon "
+                + id + " as its own after losing track of "
+                + (outcome.demoted() == null ? "its dragon" : "dragon " + outcome.demoted())
+                + ". It is the primary now; the replaced dragon becomes a secondary when it loads.");
     }
 
     /** Starts vanilla's active phase and publishes health on the dragon's own region. */
@@ -569,7 +646,7 @@ public final class BossCombatListener implements Listener {
             return;
         }
         dragon.getScheduler().runAtFixedRate(plugin, task -> {
-            if (!dragon.isValid() || dragon.isDead()) {
+            if (!dragon.isValid() || dragon.isDead() || !isSecondary(dragon)) {
                 secondaryBars.withdraw(dragon.getWorld().getUID(), id);
                 publishingDragons.remove(id);
                 task.cancel();
@@ -828,6 +905,10 @@ public final class BossCombatListener implements Listener {
 
     private SecondaryRoster roster(World world) {
         return rosters.computeIfAbsent(world.getUID(), id -> new SecondaryRoster());
+    }
+
+    private FightAdoption adoption(World world) {
+        return adoptions.computeIfAbsent(world.getUID(), id -> new FightAdoption());
     }
 
     /** Whether {@code dragon} carries the secondary tag. Called on the dragon's own region. */

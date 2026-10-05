@@ -361,6 +361,15 @@ With it off, each extra dragon drops at most 500 XP, vanilla's repeat-kill amoun
 An extra dragon drops no XP when `doMobLoot` disables the vanilla reward. This applies
 to extra dragons already alive even after `enabled` is set to `false`.
 
+Vanilla's fight follows its dragon by identity. If that dragon goes unloaded for 1,200
+ticks, for example after flying out of every loaded chunk, the fight adopts another loaded
+dragon, which would be an extra one. The plugin notices within a second and swaps the
+roles: the adopted dragon becomes the original, held until the extra dragons are dead, and
+the dragon it replaced becomes an extra one when its chunk loads again. A WARNING is
+logged when this happens. The swap is not saved, so after a restart the replaced dragon
+comes back as a dragon the fight ignores: it is held like the original while extra
+dragons live, and its death ends nothing.
+
 **Crystal healing.** Extra dragons do not heal from End crystals; the original dragon
 still does. The pillar crystals are sized for one dragon. If every dragon could heal
 from them, each crystal destroyed would cut off healing for several dragons at once,
