@@ -7,7 +7,10 @@ the ground, boss health before and after a hit, and the damage type and final da
 carried. A server that merely boots proves none of that; the `Server Boot` CI legs
 (`scripts/boot-smoke.py`) cover startup only.
 
-It is not wired into CI yet. Run it by hand before claiming a rule works on a server version.
+CI runs every probe on every pull request (`Gameplay Probes` in `.github/workflows/ci.yml`)
+against the plugin jar that run built, on Paper 26.2, Paper 1.21.11 and Folia 26.2; a failing
+leg uploads `results.json`, `client.log` and `server.log` as an artifact. Run it by hand for
+any other server version before claiming a rule works there.
 
 ## What it covers
 

@@ -150,6 +150,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # The integration harness's test-only probe plugin (scripts/integration/README.md). Built
+      # after the snapshot check, which expects build/libs to hold the plugin jar alone, and
+      # uploaded on its own: it is never part of the deployable artifact.
+      - name: Build Probe Plugin
+        env:
+          PLUGIN_VERSION: ${{ steps.version.outputs.version }}
+        run: ./gradlew probeJar -PpluginVersion="$PLUGIN_VERSION" --no-daemon
+
+      - name: Upload Probe Plugin
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: AntiSpeedrunProbe
+          path: build/libs/AntiSpeedrunProbe.jar
+          if-no-files-found: error
+          retention-days: 7
+
   server-smoke:
     name: Server Boot (${{ matrix.platform }} ${{ matrix.minecraft }})
     runs-on: ubuntu-latest
@@ -231,5 +247,144 @@ jobs:
         with:
           name: server-log-${{ matrix.platform }}-${{ matrix.minecraft }}
           path: run/server.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  gameplay-probes:
+    name: Gameplay Probes (${{ matrix.platform }} ${{ matrix.minecraft }})
+    runs-on: ubuntu-latest
+    needs: build
+    # The harness bounds its own run with --deadline (25 minutes); the probe step below caps it
+    # at 30, and this leaves room for the downloads around it. A full run takes about
+    # MINUTES_PLACEHOLDER minutes on a hosted runner.
+    timeout-minutes: 40
+
+    # The real-server gameplay probes (scripts/integration/README.md, #58): a scripted player
+    # joins and each probe asserts on what the server reports. Run against the same pinned
+    # builds as `server-smoke`, at both ends of the range that matters for gameplay: the newest
+    # Paper and Folia, and the last 1.21 Paper. mineflayer cannot speak 26.2 yet, so those legs
+    # join with a 26.1 client through ViaVersion and ViaBackwards, which run.py fetches from
+    # Hangar pinned by version and SHA-256 and installs on the test server only.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: paper, minecraft: '26.2', build: 129, java: '25', client: '26.1', via: true, sha256: b1d8f6bfa1b6101fa8e947b53041cb3bdf5540e7b83b6547ca19ba7edefeb083 }
+          - { platform: paper, minecraft: '1.21.11', build: 132, java: '21', client: '1.21.11', via: false, sha256: 5ffef465eeeb5f2a3c23a24419d97c51afd7dbb4923ff42df9a3f58bba1ccfba }
+          - { platform: folia, minecraft: '26.2', build: 7, java: '25', client: '26.1', via: true, sha256: 128a634192261cd38bb4a5dc54075018a0f896fd6c6f529e37dca6e99e32b3b3 }
+
+    steps:
+      # Only for scripts/: the plugin under test is the jar `build` produced, not a rebuild.
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: scripts/integration/client/package-lock.json
+
+      - name: Install Scripted Player
+        run: npm ci --prefix scripts/integration/client --no-audit --no-fund
+
+      - name: Download Built JAR
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v5.0.0
+        with:
+          name: AntiSpeedrun-SNAPSHOT
+          path: dist
+
+      - name: Download Probe Plugin
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v5.0.0
+        with:
+          name: AntiSpeedrunProbe
+          path: dist
+
+      # A restored jar is only used once its bytes match the pin; anything else is fetched again
+      # through fetch-server.py, which checks the pin against both the API and the download.
+      - name: Cache ${{ matrix.platform }} ${{ matrix.minecraft }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: server-cache
+          key: server-${{ matrix.platform }}-${{ matrix.minecraft }}-${{ matrix.build }}-${{ matrix.sha256 }}
+
+      - name: Download ${{ matrix.platform }} ${{ matrix.minecraft }}
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          MINECRAFT: ${{ matrix.minecraft }}
+          BUILD: ${{ matrix.build }}
+          SHA256: ${{ matrix.sha256 }}
+        run: |
+          mkdir -p server-cache
+          if [ -f server-cache/server.jar ] && echo "$SHA256  server-cache/server.jar" | sha256sum -c --quiet; then
+            echo "Using the cached server jar."
+          else
+            rm -f server-cache/server.jar
+            python3 scripts/fetch-server.py --project "$PLATFORM" --version "$MINECRAFT" \
+              --build "$BUILD" --sha256 "$SHA256" --out server-cache/server.jar
+          fi
+
+      # run.py keeps <workdir>/cache between runs and checks every Via jar against its pinned
+      # SHA-256 on each use, cached or not; the key follows run.py, where the pins live.
+      - name: Cache ViaVersion and ViaBackwards
+        if: matrix.via
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: probes/cache
+          key: via-${{ hashFiles('scripts/integration/run.py') }}
+
+      # Exit 0 only when every check passed. A check marked with a KNOWN_ISSUES entry is still
+      # run and recorded but does not fail the step, and one that passes while still marked does
+      # (scripts/integration/README.md, Results).
+      - name: Run Gameplay Probes
+        timeout-minutes: 30
+        env:
+          PLUGIN_JAR: dist/AntiSpeedrun-${{ needs.build.outputs.version }}.jar
+          CLIENT: ${{ matrix.client }}
+          VIA: ${{ matrix.via }}
+          LABEL: ${{ matrix.platform }} ${{ matrix.minecraft }} build ${{ matrix.build }}
+        run: |
+          via=()
+          if [ "$VIA" = true ]; then via=(--via); fi
+          python3 scripts/integration/run.py --server-jar server-cache/server.jar \
+            --plugin-jar "$PLUGIN_JAR" --probe-jar dist/AntiSpeedrunProbe.jar \
+            --client-version "$CLIENT" "${via[@]}" --workdir probes --label "$LABEL"
+
+      - name: Summarise Probe Results
+        if: always() && hashFiles('probes/results.json') != ''
+        run: |
+          python3 - >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          with open("probes/results.json", encoding="utf-8") as handle:
+              results = json.load(handle)
+          checks = results["checks"]
+          failed = [c for c in checks if not c["passed"]]
+          known = [c for c in checks if c.get("status") == "known-failure"]
+          print(f"### {results['label']}\n")
+          print(f"{results['server_build']}; AntiSpeedrun {results['plugin_version']}; "
+                f"client {results['client_version']}{' via ViaVersion' if results['via'] else ''}\n")
+          print(f"{len(checks) - len(failed)} of {len(checks)} checks passed, "
+                f"{len(known)} known failures.\n")
+          for check in failed:
+              print(f"- **{check['rule']}**: {check['check']} -- {check['detail']}")
+          PY
+
+      - name: Upload Harness Logs
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gameplay-probes-${{ matrix.platform }}-${{ matrix.minecraft }}
+          path: |
+            probes/results.json
+            probes/client.log
+            probes/server/server.log
           retention-days: 7
           if-no-files-found: warn
