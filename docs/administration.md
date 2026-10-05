@@ -405,8 +405,21 @@ backed up in `plugins/AntiSpeedrun/backups/`. `CUSTOM` cannot be applied.
   `/asr unlock <dimension> lock` followed by `/asr unlock <dimension>` to force a new
   write; unlocking an already unlocked dimension does not rewrite the file.
 
-## 8. Keys with no behavior yet
+## 8. A structure chest had no trim template
 
-`trim-progression.gate-natural-trim-chests` is validated at load and otherwise ignored,
-so there is nothing to administer or troubleshoot for it. Further feature groups ship
-in later development builds (see the README).
+With `trim-progression.enabled` and `gate-natural-trim-chests` both `true`, a Silence,
+Ward, Snout or Spire trim template or a netherite upgrade template is removed from
+naturally generated loot when the player it is generated for has not explored its
+structure (the table in [configuration.md](configuration.md#44-trim-progression)). Loot
+is generated once, when the chest or chest minecart is first opened or broken, so the
+template is gone for everyone, not held back until the player qualifies.
+
+- **Who is judged.** The player opening or breaking the container. Loot generated with
+  no player, such as a hopper or hopper minecart pulling from an unopened chest, never
+  receives a gated template.
+- **Bypass.** `antispeedrun.bypass.items` and `/asr bypass` waive the lock for the
+  player opening the chest.
+- **Folia.** A player standing in another region from the chest is judged from
+  `explored-structures.yml` instead of live, and bypasses are not read for them.
+- **Plugin loot.** Loot a plugin generates through the loot table API is not natural
+  loot and is left alone.

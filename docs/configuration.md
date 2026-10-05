@@ -15,7 +15,7 @@ the same as the value in the shipped `SMP_STANDARD` file unless noted.
 | `profile` | Live (label only) | Names the preset the file was written from. |
 | `dimension-gates` | Live | Requirements to enter the Nether and the End. |
 | `item-progression` | Live | Tier-gated items. |
-| `trim-progression` | Partly live | Armor trim and smithing template gating. Only `gate-natural-trim-chests` does nothing yet. |
+| `trim-progression` | Live | Armor trim and smithing template gating. |
 | `idle-reminder` | Live | Standing-still reminder of the next goal. |
 | `progress-card` | Live | How `/progress` renders. |
 | `journey-book` | Live | The Journey Guide Book. |
@@ -247,20 +247,25 @@ gated on having entered the Nether, not on being allowed to, so they cannot be h
 before the first visit. Exception: `BREEZE_ROD` and `WIND_CHARGE` are in `nether-tier` but come from overworld trial chambers, so a player who finds them before entering the Nether meets the lock. The `HARDCORE` profile uses the same diamond and Nether-tier keys and
 adds its playtime requirement; `CASUAL` and `SMP_STANDARD` match the table above.
 
-### 4.4 `trim-progression` (partially implemented)
+### 4.4 `trim-progression`
 
 With `enabled` and `block-unearned-template-duplication` set to `true`, a player cannot
 copy a gated template in a crafting table until they have earned its structure
 advancement. Crafters use the advancement record of the player who placed them; they
 continue to work while that player is offline. A Crafter without a recorded owner
 refuses gated template recipes. Smithing and wearing locks also apply to unearned trims.
-`gate-natural-trim-chests` (default `false`) is parsed but nothing acts on it yet; the
-natural trim chest lock remains tracked in
-[#45](https://github.com/Ninja6-MC/AntiSpeedrun/issues/45). The three locks
-`block-unearned-template-duplication`, `block-unearned-smithing` and
+The three locks `block-unearned-template-duplication`, `block-unearned-smithing` and
 `block-wearing-unearned-trims` default to `true`.
 
-The structure each lock will require is fixed, not configured:
+With `gate-natural-trim-chests` (default `false`) also `true`, a gated template that
+generates in a naturally generated chest or chest minecart is removed from the loot when
+the player opening or breaking it has not earned its structure. Loot generated with no
+player, such as a hopper pulling from an unopened chest, never keeps a gated template,
+the same rule as a Crafter without an owner. The removal is permanent for that container.
+`antispeedrun.bypass.items` and `/asr bypass` waive it; loot a plugin generates is not
+affected. See [administration.md](administration.md#8-a-structure-chest-had-no-trim-template).
+
+The structure each lock requires is fixed, not configured:
 
 | Structure | Gates | Advancement |
 | :--- | :--- | :--- |
@@ -429,7 +434,7 @@ file. The differences in the live sections:
 | `anti-cheese.block-early-eye-throwing` | `false` | `true` | `true` |
 | `villager-progression.gate-mending-trade` | `false` | `false` | `true` |
 | `trim-progression.enabled` and the three locks (`block-unearned-template-duplication`, `block-unearned-smithing`, `block-wearing-unearned-trims`) | `false` | `true` | `true` |
-| `trim-progression.gate-natural-trim-chests` (inert: nothing acts on it yet) | `false` | `false` | `true` |
+| `trim-progression.gate-natural-trim-chests` | `false` | `false` | `true` |
 | `boss-scaling.multi-dragon.enabled` | `false` | `true` | `true` |
 
 Because a preset overwrites `config.yml`, apply one before you customize, not after.

@@ -36,6 +36,7 @@ import com.ninja6.antispeedrun.listeners.BossCombatListener;
 import com.ninja6.antispeedrun.listeners.EyeThrowListener;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
+import com.ninja6.antispeedrun.listeners.NaturalTrimLootListener;
 import com.ninja6.antispeedrun.listeners.OuterEndBoundaryListener;
 import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
@@ -272,6 +273,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         }
         this.templateDuplicationListener = new TemplateDuplicationListener(this, exploredStructures);
         getServer().getPluginManager().registerEvents(templateDuplicationListener, this);
+        // The natural loot lock (#198) shares that record for a looter another region owns.
+        getServer().getPluginManager().registerEvents(
+                new NaturalTrimLootListener(this, exploredStructures), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
