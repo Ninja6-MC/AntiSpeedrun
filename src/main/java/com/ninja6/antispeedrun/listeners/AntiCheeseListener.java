@@ -5,6 +5,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.EnderDragon;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Wither;
 import org.bukkit.event.EventHandler;
@@ -12,6 +13,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.damage.DamageType;
 import org.bukkit.entity.EnderDragonPart;
@@ -46,10 +48,18 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  * The cap applies to {@code getFinalDamage()}, after armour and resistance, by scaling the base
  * damage. {@code /kill} is left alone: it is an operator's deliberate act, not a hit.
  *
+ * <h2>Hits in the same tick</h2>
+ *
+ * Every hit a boss takes in one tick of its world's game time draws on one budget of the cap,
+ * recorded in a {@link BossDamageLedger} once the event has gone through. A later hit in that
+ * tick is clamped to what is left and cancelled once nothing is, so a stack of explosions
+ * detonating together removes at most the cap (#203). Hits the bypass waives are neither capped
+ * nor counted.
+ *
  * <h2>Folia</h2>
  *
- * Called on the region owning the victim. The handler reads the event and the configuration
- * snapshot and schedules nothing.
+ * Called on the region owning the victim. The handlers read the event and the configuration
+ * snapshot, touch only the victim's ledger entry, and schedule nothing.
  */
 public final class AntiCheeseListener implements Listener {
 
@@ -57,6 +67,8 @@ public final class AntiCheeseListener implements Listener {
     public static final String BYPASS_PERMISSION = EyeThrowListener.BYPASS_PERMISSION;
 
     private final AntiSpeedrunPlugin plugin;
+
+    private final BossDamageLedger ledger = new BossDamageLedger();
 
     public AntiCheeseListener(AntiSpeedrunPlugin plugin) {
         this.plugin = plugin;
@@ -68,11 +80,8 @@ public final class AntiCheeseListener implements Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDamage(EntityDamageEvent event) {
-        Entity victim = event.getEntity();
-        if (victim instanceof EnderDragonPart part) {
-            victim = part.getParent();
-        }
-        if (!(victim instanceof EnderDragon) && !(victim instanceof Wither)) {
+        LivingEntity boss = boss(event.getEntity());
+        if (boss == null) {
             return;
         }
         PluginConfig config = plugin.configuration();
@@ -81,12 +90,16 @@ public final class AntiCheeseListener implements Listener {
             event.setCancelled(true);
             return;
         }
-        if (!DamageCapRules.armed(config)
-                || event.getDamageSource().getDamageType() == DamageType.GENERIC_KILL) {
+        if (!capped(config, event)) {
             return;
         }
-        double cap = config.antiCheese().maxSingleHitBossDamage();
+        double cap = ledger.remaining(boss.getUniqueId(), boss.getWorld().getGameTime(),
+                config.antiCheese().maxSingleHitBossDamage());
         if (!DamageCapRules.exceeds(event.getFinalDamage(), cap) || waived(event)) {
+            return;
+        }
+        if (!DamageCapRules.exceeds(cap, 0.0D)) {
+            event.setCancelled(true);
             return;
         }
         // Final damage is not linear in the base (Wither armour is not, absorption is a min()), so
@@ -95,6 +108,25 @@ public final class AntiCheeseListener implements Listener {
             event.setDamage(base);
             return event.getFinalDamage();
         }, cap);
+    }
+
+    /** Counts a hit that went through against its boss's budget for the tick. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDamageSettled(EntityDamageEvent event) {
+        LivingEntity boss = boss(event.getEntity());
+        if (boss == null || !capped(plugin.configuration(), event) || waived(event)) {
+            return;
+        }
+        ledger.record(boss.getUniqueId(), boss.getWorld().getGameTime(), event.getFinalDamage(),
+                System.currentTimeMillis());
+    }
+
+    /** Drops a dead boss's budget. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onBossDeath(EntityDeathEvent event) {
+        if (boss(event.getEntity()) != null) {
+            ledger.forget(event.getEntity().getUniqueId());
+        }
     }
 
     /**
@@ -117,6 +149,20 @@ public final class AntiCheeseListener implements Listener {
             return;
         }
         event.setCancelled(true);
+    }
+
+    /** The Ender Dragon or Wither an entity is or belongs to, or null for anything else. */
+    private static LivingEntity boss(Entity victim) {
+        if (victim instanceof EnderDragonPart part) {
+            victim = part.getParent();
+        }
+        return victim instanceof EnderDragon || victim instanceof Wither ? (LivingEntity) victim : null;
+    }
+
+    /** Whether the cap applies to this event: armed, and not {@code /kill}. */
+    private static boolean capped(PluginConfig config, EntityDamageEvent event) {
+        return DamageCapRules.armed(config)
+                && event.getDamageSource().getDamageType() != DamageType.GENERIC_KILL;
     }
 
     private boolean waived(EntityDamageEvent event) {

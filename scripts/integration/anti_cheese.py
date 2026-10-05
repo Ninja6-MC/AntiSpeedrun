@@ -81,9 +81,7 @@ def configured_cap(config_text):
 # Checks that fail today because of an open bug, keyed by issue number. Such a check is still
 # run and recorded, as "known-failure", but does not fail the run. Once it passes, the issue is
 # fixed and the entry is stale: the check then fails as "unexpected-pass" until it is removed here.
-KNOWN_ISSUES = {
-    203: "the single-hit cap does not limit a same-tick TNT minecart stack",
-}
+KNOWN_ISSUES = {}
 
 
 class Results:
@@ -399,13 +397,13 @@ class AntiCheeseProbes:
                 label = f"each hit of an 8-TNT-minecart stack on the {'Wither' if boss == 'wither' else 'dragon'}"
                 self.results.check(rule, expectation(label), ok, detail)
                 if armed:
-                    # #197 asks that the whole stack remove at most the cap, not only each hit.
+                    # The whole stack removes at most the cap, not only each hit (#197, #203).
                     total = None if after is None else before - after
                     self.results.check(
                         rule, f"cap on: the whole 8-TNT-minecart stack removes at most {cap} from the "
                         f"{'Wither' if boss == 'wither' else 'dragon'}",
                         total is not None and total <= cap + EPSILON,
-                        f"total delta={total} across {len(landed(events))} hits", known_issue=203)
+                        f"total delta={total} across {len(landed(events))} hits")
                 self.clear_arena(OVERWORLD, cx, cy, cz)
 
             # A Mace smash from a fall of about 25 blocks.
