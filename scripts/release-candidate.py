@@ -88,8 +88,64 @@ def published_assets(version):
     return release_files(version)[:2]
 
 
+# Release channel -> (Modrinth version type, Hangar channel), per RELEASE_PROCESS.md section 2.
+# Nothing else reaches a distributor: not a development build (major version 0, whatever its
+# suffix, whose channel is "development") and not a release candidate.
+DISTRIBUTOR_CHANNELS = {
+    "alpha": ("alpha", "Alpha"),
+    "beta": ("beta", "Beta"),
+    "stable": ("release", "Release"),
+}
+
+# Modrinth loader and Hangar platform for each server platform in SERVER_LEGS. Folia is no
+# Hangar platform: a Folia plugin is a Paper plugin whose Hangar project carries the
+# "Supports Folia" tag, which scripts/release-distributors.py checks before publishing.
+MODRINTH_LOADERS = {"paper": "paper", "folia": "folia"}
+HANGAR_PLATFORMS = {"paper": "PAPER"}
+
+
+def _version_key(version):
+    return tuple(int(part) for part in version.split("."))
+
+
+def tested_platforms():
+    """Server platforms the release boots on, from SERVER_LEGS alone."""
+    return sorted({leg.split("-", 1)[0] for leg in SERVER_LEGS})
+
+
+def tested_minecraft_versions():
+    """Minecraft versions the release boots on, from SERVER_LEGS alone, oldest first."""
+    return sorted({leg.split("-", 1)[1] for leg in SERVER_LEGS}, key=_version_key)
+
+
+def distribution(tag):
+    """Modrinth and Hangar destinations for a tag, or [] when it must never reach them.
+
+    Every declared platform and Minecraft version is derived from SERVER_LEGS, the servers
+    the candidate itself boots on, so a listing cannot claim more than was tested.
+    """
+    info = release(tag)
+    if info["version"].split(".", 1)[0] == "0" or info["channel"] not in DISTRIBUTOR_CHANNELS:
+        return []
+    version_type, channel = DISTRIBUTOR_CHANNELS[info["channel"]]
+    platforms = tested_platforms()
+    versions = tested_minecraft_versions()
+    unknown = [p for p in platforms if p not in MODRINTH_LOADERS]
+    if unknown:
+        raise CandidateError(f"No Modrinth loader is defined for tested platform(s) {unknown}")
+    if not any(p in HANGAR_PLATFORMS for p in platforms):
+        raise CandidateError(f"No tested platform in {platforms} is a Hangar platform")
+    return [
+        {"name": "modrinth", "version_type": version_type,
+         "loaders": sorted(MODRINTH_LOADERS[p] for p in platforms), "game_versions": versions},
+        {"name": "hangar", "channel": channel,
+         "platforms": {HANGAR_PLATFORMS[p]: versions for p in platforms if p in HANGAR_PLATFORMS},
+         "supports_folia": "folia" in platforms},
+    ]
+
+
 def destinations(repository, tag):
-    return [{"name": "github", "repository": repository, "release": tag}]
+    return [{"name": "github", "repository": repository, "release": tag}] + distribution(tag)
 
 
 def changelog_section(text, heading):

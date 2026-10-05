@@ -33,13 +33,17 @@ is a bug fix, optimization or small documentation correction.
 
 | Phase | Tag Pattern | GitHub Release Type | Modrinth / Hangar |
 | :--- | :--- | :--- | :--- |
-| Development | `v0.Y.Z` | Pre-release, never Latest | None |
-| Alpha | `v1.0.0-alpha.N` (and later `vX.Y.Z-alpha.N`) | Pre-release | Alpha channel |
-| Beta | `v1.0.0-beta.N` (and later `vX.Y.Z-beta.N`) | Pre-release | Beta channel |
-| Stable | `vX.Y.Z` (X >= 1) | Latest Release | Release channel |
+| Development | `v0.Y.Z`, any suffix | Pre-release, never Latest | Never |
+| Alpha | `v1.0.0-alpha.N` (and later `vX.Y.Z-alpha.N`) | Pre-release | Modrinth `alpha`, Hangar `Alpha` |
+| Beta | `v1.0.0-beta.N` (and later `vX.Y.Z-beta.N`) | Pre-release | Modrinth `beta`, Hangar `Beta` |
+| Release candidate | `vX.Y.Z-rc.N` (X >= 1) | Pre-release | Never |
+| Stable | `vX.Y.Z` (X >= 1) | Latest Release | Modrinth `release`, Hangar `Release` |
 
 Development builds are never marked Latest and never go to a distributor. Distributor
-publication starts at `v1.0.0-alpha.1`.
+publication starts at `v1.0.0-alpha.1`. A tag with major version `0` is refused for Modrinth
+and Hangar whatever its suffix: the workflow skips both, and
+`scripts/release-distributors.py` exits with an error if asked to publish one. Release
+candidates are GitHub-only as well; neither distributor has a matching channel.
 
 The release workflow derives the channel from the tag alone. Any tag with major version `0`
 is a development build, with or without a suffix, so it is always a pre-release and never
@@ -48,8 +52,7 @@ a suffix-free tag with X >= 1 becomes a full release. It is made Latest unless a
 stable version is already published, so an older stable release never displaces a newer
 one. Tags use
 SemVer numbers without leading zeros; any other `v*` tag fails the workflow before it
-builds anything. GitHub publication is described in section 3; distributor publication is
-#167.
+builds anything. Publication to all three destinations is described in section 3.
 
 ### CI snapshots
 
@@ -113,13 +116,14 @@ The tag push starts **Release** (`release.yml`) at the tagged commit.
 3. **Bind Candidate Evidence.** Verifies the candidate again and accepts only one passing
    receipt per leg, all for this candidate. It writes `evidence.json` and shows the manifest
    in the run summary for review.
-4. **Publish GitHub Release.** Runs in the protected `release` environment and starts only
-   after the maintainer approves the run in the browser. It builds nothing. See Step 5.
+4. **Publish Release.** Runs in the protected `release` environment and starts only after
+   the maintainer approves the run in the browser. It builds nothing. It publishes to
+   GitHub, then, for a distributor tag, to Modrinth and Hangar. See Step 5.
 
 The shipped JAR is not shaded: the plugin has no runtime dependencies to bundle, and the
 build produces exactly one JAR.
 
-A pull request that changes `release.yml` or either release script runs stages 1 to 3 as a
+A pull request that changes `release.yml` or a release script runs stages 1 to 3 as a
 rehearsal against the placeholder tag `v0.0.0`. The publish job never starts on a pull
 request.
 
@@ -127,8 +131,15 @@ request.
 
 `manifest.json` records the schema, candidate identifier (`<run id>-<attempt>-<commit>`),
 artifact name, repository, source commit SHA, tag, version, channel, pre-release and Latest
-flags, run ID and attempt, the destination (`github`, this repository, the tag), and the
-SHA-256 of every file:
+flags, run ID and attempt, the destinations, and the SHA-256 of every file. The
+destinations are `github` (this repository, the tag) and, for a distributor tag only,
+`modrinth` (version type, loaders, Minecraft versions) and `hangar` (channel, platform
+versions, Folia support). Both listings declare exactly the servers the candidate boots on:
+loaders, platforms and Minecraft versions are derived from `SERVER_LEGS` in
+`scripts/release-candidate.py`, which a unit test keeps equal to the `Server Boot` matrix in
+`ci.yml` and the `Candidate Server Boot` matrix in `release.yml`. Today that is Paper and
+Folia on `1.21.4`, `1.21.11` and `26.2`; moving a pin moves the listings with it. The files
+are:
 
 * `AntiSpeedrun-<version>.jar`, the plugin;
 * `AntiSpeedrun-<version>.jar.sha256`, its checksum line;
@@ -149,9 +160,11 @@ are gone and the publish job fails; push a new tag rather than rebuild the old o
 ### Step 5: Approval, publication and recovery
 
 **Approval.** Only the publish job holds `contents: write`. Every other job reads only, and
-no job receives a publishing secret: GitHub publication uses the job's own `GITHUB_TOKEN`.
-Approve the pending `release` deployment only after reading the manifest in the run
-summary. Automation never approves it.
+no other job receives a publishing secret. GitHub publication uses the job's own
+`GITHUB_TOKEN`. `MODRINTH_TOKEN` and `HANGAR_API_TOKEN` are secrets of the `release`
+environment, so only the approved publish job can read them, and each is passed only to the
+steps for its own destination. Approve the pending `release` deployment only after reading
+the manifest and the distributor projects in the run summary. Automation never approves it.
 
 The environment gate on its own fails open. If `release` does not exist, GitHub creates it
 without protection when the job first names it. If it loses its required reviewer, the job
@@ -161,7 +174,24 @@ therefore reads the run's approvals (`actions/runs/<id>/approvals`, the job's on
 this run, and it stops on any rejection. A tag pushed before the environment is set up fails
 there without writing anything; set the environment up and re-run the failed job.
 
-**Publication.** `scripts/release-github.py` runs in order:
+**Publication order.** After the approval check, the publish job:
+
+1. Decides from the tag whether Modrinth and Hangar are destinations at all
+   (`release-distributors.py plan`). For a development build or release candidate the
+   remaining distributor steps are skipped.
+2. For a distributor tag, **preflights Modrinth and Hangar** before anything public is
+   written. It checks that the token and project are set, that the token can see the
+   project and upload to it, that the Hangar project carries the Supports Folia tag and has
+   the target channel, that both registries already know every loader, platform and
+   Minecraft version the listing declares, and that the version is either absent or
+   already exactly the candidate. Any failure stops the run with all three destinations untouched. Neither
+   project needs to be public yet; see *First distributor release*.
+3. Publishes to **GitHub** (below).
+4. Publishes to **Modrinth**, then to **Hangar** (see *Distributor publication*).
+5. Fails unless both distributor versions are visible to a signed-out consumer and were
+   downloaded and matched (see *First distributor release*).
+
+**GitHub publication.** `scripts/release-github.py` runs in order:
 
 1. Re-verify the candidate, the manifest, every digest and the evidence. The run's commit
    must equal the candidate's source commit, and the tag on GitHub must still point at it.
@@ -188,10 +218,54 @@ there without writing anything; set the environment up and re-run the failed job
    it with the manifest. Then check Latest: a stable release with no higher stable release
    published must now be GitHub's Latest, and any other release must not be.
 
+**Distributor publication.** `scripts/release-distributors.py publish modrinth` and
+`publish hangar` each run in order:
+
+1. Refuse a tag that is not a distributor tag, then re-verify the candidate, the manifest,
+   every digest and the evidence. The run's commit must equal the candidate's source commit,
+   and the tag on `origin` must still point at it.
+2. Look the version up with the token, so a version only project members can see still
+   counts as present. On Modrinth the candidate JAR's SHA-512 is also looked up across all
+   of Modrinth, which finds a version the project listing omits.
+3. If it is **absent**, upload the candidate JAR as it is: the version number from the tag,
+   the channel from the table in section 2, `release-notes.md` as the changelog, and the
+   loaders, platforms and Minecraft versions from the manifest. Modrinth versions are
+   named `AntiSpeedrun <version>` and are not featured.
+4. If it is **present**, or after the upload, compare it with the candidate: version, name,
+   channel, visibility, changelog, platforms, Minecraft versions, file name and the digest
+   the registry reports. Then fetch the version signed out, download the file a consumer
+   would get, and compare its SHA-256 with the manifest. While the registry still hides a
+   version that matches, the step reports `awaiting-review` instead and the job's last
+   step fails.
+
+Both registries also refuse duplicates on their own: Modrinth rejects a file it already
+hosts and Hangar rejects a second version with the same name. A lost upload response
+therefore cannot produce a second copy; the next attempt finds the version and verifies it.
+
+**First distributor release.** Neither registry makes a project public before it has a
+version. Modrinth reviews a project only once it has one, so `v1.0.0-alpha.1` goes to a
+project that is still a draft. A Hangar project stays `new` until its first version is
+published, which makes it public. Preflight therefore checks each project with the token,
+which sees it in that state. It accepts a Hangar project that is `new` only while it has no
+versions. On that first run the Modrinth version is uploaded and verified with the token
+(metadata and SHA-512), but consumers cannot see it yet. The job then ends with
+**Require Signed-out Distributor Downloads** failed and Modrinth `awaiting-review`. GitHub
+and Hangar are complete by then. Submit the Modrinth project for review. Once it is
+approved, use **Re-run failed jobs**. That run finds every version present, verifies each
+one, and completes the signed-out download check. The same applies when Hangar holds a
+version for review (visibility `needsApproval`). A re-run works only while the run's
+candidate is retained, 30 days. If approval takes longer, leave the run failed: nothing
+wrong has been published, since each version was verified against the candidate with the
+token. The next distributor tag repeats the full signed-out check for its own version.
+
 **Retrying.** Use **Re-run failed jobs** on the same run. It re-runs the publish job, which
 needs approval again, against the candidate and evidence of the original attempt. The
-script resumes wherever the last attempt stopped: it creates the draft, finishes uploads,
-publishes, or only re-verifies a release that is already complete. Do not use **Re-run all
+scripts resume wherever the last attempt stopped. On GitHub that means creating the draft,
+finishing uploads, publishing, or only re-verifying a complete release. On Modrinth and
+Hangar a version already there is verified and never uploaded again, so a run in which
+GitHub and Modrinth succeeded and Hangar failed uploads only to Hangar on the retry. Fix the
+cause first: a missing secret, variable, channel or Folia tag, a project awaiting approval,
+or a registry outage. Do not use **Re-run all
 jobs** after anything was published: that builds a new candidate, and its bytes are checked
 against the published release and rejected on any difference.
 
@@ -206,15 +280,43 @@ deleted. Inspect the release in the browser:
   mark it Latest, then re-run the older release's failed job; it now finds everything complete.
 * **Anything else is wrong with the release:** delete the release, never the tag, and
   re-run the failed job. If the tag must change, it names a new version.
+* **A Modrinth or Hangar version differs from the candidate**, or the candidate JAR is on
+  Modrinth under another version. Compare it with the manifest in the run summary. If it
+  is wrong, delete that version in the registry's web UI and re-run the failed job, which
+  uploads the candidate. If the registry refuses the upload after a deletion, cut a new
+  version instead.
+* **A distributor reports `awaiting-review`.** The version matches the candidate but is not
+  public yet. See *First distributor release*: re-run the failed job once the registry
+  has approved the project or version.
 
 ### Maintainer setup
 
 Configured once, in the repository settings in the browser:
 
 * **Environments → `release`**, created before the first tag: required reviewer is the
-  maintainer. Deployment branches and tags: **Selected**, with the tag rule `v*`. No
-  environment secrets are needed for GitHub publication. Without the reviewer, every
-  publish run fails its approval check.
+  maintainer. Deployment branches and tags: **Selected**, with the tag rule `v*`. Without
+  the reviewer, every publish run fails its approval check. GitHub publication needs no
+  secret. Before the first distributor tag (`v1.0.0-alpha.1`), add two **environment
+  secrets** to `release`, never as repository or organisation secrets:
+  * `MODRINTH_TOKEN`: a Modrinth personal access token of a project member with upload
+    permission, with the scopes `USER_READ`, `PROJECT_READ`, `VERSION_READ` and
+    `VERSION_CREATE`.
+  * `HANGAR_API_TOKEN`: a Hangar API key of a project member, with the `create_version`
+    permission.
+* **Variables → Repository variables**, so the approval summary can show them:
+  * `MODRINTH_PROJECT`: the Modrinth project's slug or ID.
+  * `HANGAR_PROJECT`: the Hangar project's slug.
+
+  A distributor tag with any of the four missing fails in preflight, before anything is
+  published. A development build needs none of them.
+* **Modrinth project**: created, with the token's owner as a member who may upload
+  versions. It need not be approved yet. Submit it for review after the first distributor
+  release uploads its first version. License, icon and description are set in its
+  settings; versions carry only what the workflow sends.
+* **Hangar project**: created, with **Supports Folia** enabled in its settings, and the
+  channels `Alpha`, `Beta` and `Release` present. It may stay `new` until the first
+  distributor release publishes its first version. Each version is published for the
+  Paper platform.
 * **Rules → tag ruleset** (recommended): restrict creating, updating and deleting `v*` tags
   to the maintainer, so nothing else can start or move a release.
 
@@ -224,4 +326,5 @@ Configured once, in the repository settings in the browser:
 * **GitHub Releases** -- Every release: development builds and alphas/betas as
   pre-releases, stable `vX.Y.Z` tags as full releases, through the pipeline in section 3.
 * **Modrinth & Hangar** -- From `v1.0.0-alpha.1` onward, on the alpha, beta and release
-  channels matching the table in section 2. Implemented by #167.
+  channels matching the table in section 2, through the same approved publish job as
+  GitHub. Never a development build (`v0.Y.Z`, any suffix) or a release candidate.

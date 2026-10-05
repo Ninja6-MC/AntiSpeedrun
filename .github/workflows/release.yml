@@ -15,6 +15,7 @@ on:
       - .github/workflows/release.yml
       - scripts/release-candidate.py
       - scripts/release-github.py
+      - scripts/release-distributors.py
 
 concurrency:
   group: release-${{ github.ref }}
@@ -242,11 +243,20 @@ jobs:
           --receipts receipts --output evidence.json
 
       - name: Summarise Candidate for Approval
+        env:
+          MODRINTH_PROJECT: ${{ vars.MODRINTH_PROJECT }}
+          HANGAR_PROJECT: ${{ vars.HANGAR_PROJECT }}
         run: |
           {
             echo '## Verified release candidate'
             echo
             echo 'Approving the `release` environment publishes exactly these files to the destinations listed, unchanged.'
+            echo
+            if jq -e '.destinations | any(.name == "modrinth")' candidate/manifest.json > /dev/null; then
+              echo "Modrinth project: \`${MODRINTH_PROJECT:-not set}\`. Hangar project: \`${HANGAR_PROJECT:-not set}\`."
+            else
+              echo 'GitHub only: this tag is never published to Modrinth or Hangar.'
+            fi
             echo
             echo '```json'
             cat candidate/manifest.json
@@ -262,7 +272,7 @@ jobs:
           retention-days: 30
 
   publish:
-    name: Publish GitHub Release
+    name: Publish Release
     # Never on a rehearsal: only a pushed tag reaches the release environment.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -271,8 +281,10 @@ jobs:
     # Protected environment with a required maintainer reviewer. The job waits here, before
     # any step runs, until the maintainer approves this run in the browser.
     environment: release
-    # The only job with write access, and the only one that could publish. It builds nothing.
-    # actions: read is for the approval check below and nothing else.
+    # The only job with write access or a publishing secret, and the only one that could
+    # publish. It builds nothing. actions: read is for the approval check below and nothing else.
+    # MODRINTH_TOKEN and HANGAR_API_TOKEN are secrets of the release environment alone, and each
+    # reaches only the steps for its own destination.
     permissions:
       actions: read
       contents: write
@@ -322,6 +334,35 @@ jobs:
           name: release-evidence-${{ github.run_id }}-${{ needs.candidate.outputs.attempt }}
           path: evidence
 
+      # A development build (major version 0, any suffix) and a release candidate go to GitHub
+      # only. The distributor steps below are skipped for them, and the script refuses them.
+      - name: Plan Distributor Publication
+        id: plan
+        run: python3 scripts/release-distributors.py plan --tag "$TAG"
+
+      # Before anything public is written: every distributor's token, project, upload
+      # permission and existing version must check out, so a missing secret or a conflicting
+      # version stops the run while all three destinations are still untouched.
+      - name: Preflight Modrinth
+        if: steps.plan.outputs.distribute == 'true'
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          MODRINTH_PROJECT: ${{ vars.MODRINTH_PROJECT }}
+        run: >-
+          python3 scripts/release-distributors.py preflight modrinth --directory candidate
+          --evidence evidence/evidence.json --tag "$TAG" --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+          --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
+
+      - name: Preflight Hangar
+        if: steps.plan.outputs.distribute == 'true'
+        env:
+          HANGAR_API_TOKEN: ${{ secrets.HANGAR_API_TOKEN }}
+          HANGAR_PROJECT: ${{ vars.HANGAR_PROJECT }}
+        run: >-
+          python3 scripts/release-distributors.py preflight hangar --directory candidate
+          --evidence evidence/evidence.json --tag "$TAG" --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+          --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
+
       # Re-verifies the manifest, every digest and the boot evidence, that this run's commit is
       # the candidate's source and that the tag on GitHub still points at it, then
       # creates or resumes the release. Safe to re-run: see RELEASE_PROCESS.md section 3.
@@ -332,3 +373,47 @@ jobs:
           python3 scripts/release-github.py --directory candidate --evidence evidence/evidence.json
           --tag "$TAG" --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --attempt "$CANDIDATE_ATTEMPT"
           --repository "$GITHUB_REPOSITORY"
+
+      # Each re-verifies the candidate, its evidence and the tag, uploads only when the version
+      # is absent, and checks the signed-out download against the manifest. A version already
+      # there is verified, never replaced. Safe to re-run: see RELEASE_PROCESS.md section 3.
+      - name: Publish to Modrinth If Absent
+        id: modrinth
+        if: steps.plan.outputs.distribute == 'true'
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          MODRINTH_PROJECT: ${{ vars.MODRINTH_PROJECT }}
+        run: >-
+          python3 scripts/release-distributors.py publish modrinth --directory candidate
+          --evidence evidence/evidence.json --tag "$TAG" --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+          --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
+
+      - name: Publish to Hangar If Absent
+        id: hangar
+        if: steps.plan.outputs.distribute == 'true'
+        env:
+          HANGAR_API_TOKEN: ${{ secrets.HANGAR_API_TOKEN }}
+          HANGAR_PROJECT: ${{ vars.HANGAR_PROJECT }}
+        run: >-
+          python3 scripts/release-distributors.py publish hangar --directory candidate
+          --evidence evidence/evidence.json --tag "$TAG" --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+          --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
+
+      # The first release goes to projects the registries have not approved yet, so a version
+      # can match the candidate while consumers cannot see it. The job fails until they can;
+      # re-run it after approval and the signed-out download check completes.
+      - name: Require Signed-out Distributor Downloads
+        if: steps.plan.outputs.distribute == 'true'
+        env:
+          MODRINTH_STATE: ${{ steps.modrinth.outputs.state }}
+          HANGAR_STATE: ${{ steps.hangar.outputs.state }}
+        run: |
+          set -euo pipefail
+          status=0
+          for pair in "Modrinth=$MODRINTH_STATE" "Hangar=$HANGAR_STATE"; do
+            if [ "${pair#*=}" != complete ]; then
+              echo "::error::${pair%%=*} is ${pair#*=}: the version matches the candidate but is not public yet. Re-run this failed job once the registry has approved it."
+              status=1
+            fi
+          done
+          exit "$status"

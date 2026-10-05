@@ -1,0 +1,639 @@
+#!/usr/bin/env python3
+"""Publish a verified AntiSpeedrun release candidate to Modrinth and Hangar (N6-REL-03).
+
+  release-distributors.py plan --tag vX.Y.Z
+  release-distributors.py preflight modrinth|hangar COMMON
+  release-distributors.py publish modrinth|hangar COMMON
+
+COMMON is --directory, --evidence, --tag, --sha (this run's commit), --run-id, --attempt (the
+candidate job's attempt) and --repository, as for release-github.py.
+
+Runs only in the publisher job behind the protected `release` environment. Each destination
+reads its own token and project from the environment and nothing else:
+
+  modrinth  MODRINTH_TOKEN (secret), MODRINTH_PROJECT (project slug or ID)
+  hangar    HANGAR_API_TOKEN (secret), HANGAR_PROJECT (project slug)
+
+`plan` says whether a tag goes to the distributors at all. A development build (major
+version 0, with or without a suffix) and a release candidate never do; `preflight` and
+`publish` refuse them outright. Everything published is taken from the candidate manifest:
+version, channel, loaders, platforms and Minecraft versions.
+
+`preflight` writes nothing. It checks the configuration, that the token can see the project
+and upload to it, the Hangar channel and Folia tag, and that the destination either lacks
+this version or already holds exactly the candidate. The first release goes to projects that
+are not public yet: Modrinth reviews a project only once it has a version, and a Hangar
+project stays `new` until its first version is published. `publish` re-verifies the
+candidate and its evidence, uploads only when the version is absent, then checks what a
+signed-out consumer downloads against the manifest. Its state is `complete`, or
+`awaiting-review` while the registry still hides a version that matches the candidate; the
+workflow fails on the latter so that a re-run after approval completes the check. A version
+that differs from the candidate in any way stops the run; nothing published is overwritten.
+"""
+
+import argparse
+import hashlib
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from pathlib import Path
+
+_SPEC = importlib.util.spec_from_file_location("release_candidate", Path(__file__).with_name("release-candidate.py"))
+candidate = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(candidate)
+
+USER_AGENT = "Ninja6-MC/AntiSpeedrun-release (https://github.com/Ninja6-MC/AntiSpeedrun)"
+MODRINTH = "https://api.modrinth.com/v2"
+HANGAR = "https://hangar.papermc.io/api/v1"
+HANGAR_INTERNAL = "https://hangar.papermc.io/api/internal"
+# Modrinth's project member permission bit for uploading versions.
+MODRINTH_UPLOAD_VERSION = 1 << 0
+HANGAR_FOLIA_TAG = "SUPPORTS_FOLIA"
+CONFIG = {
+    "modrinth": ("MODRINTH_TOKEN", "MODRINTH_PROJECT"),
+    "hangar": ("HANGAR_API_TOKEN", "HANGAR_PROJECT"),
+}
+
+
+class DistributorError(ValueError):
+    pass
+
+
+def log(message):
+    print(message, flush=True)
+
+
+def quote(value):
+    return urllib.parse.quote(str(value), safe="")
+
+
+def multipart(parts):
+    """Encode (name, filename or None, content type, bytes) parts as multipart/form-data."""
+    boundary = uuid.uuid4().hex
+    body = bytearray()
+    for name, filename, content_type, data in parts:
+        disposition = f'form-data; name="{name}"'
+        if filename:
+            disposition += f'; filename="{filename}"'
+        body += (f"--{boundary}\r\nContent-Disposition: {disposition}\r\n"
+                 f"Content-Type: {content_type}\r\n\r\n").encode()
+        body += data + b"\r\n"
+    body += f"--{boundary}--\r\n".encode()
+    return f"multipart/form-data; boundary={boundary}", bytes(body)
+
+
+class Http:
+    """One HTTPS request. Returns (status, body) for every HTTP status; raises on transport errors."""
+
+    def request(self, method, url, headers=None, body=None, timeout=60):
+        request = urllib.request.Request(url, data=body, method=method,
+                                         headers={"User-Agent": USER_AGENT, **(headers or {})})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read()
+
+
+def parse(status, body, what):
+    if not 200 <= status < 300:
+        raise DistributorError(f"{what} returned HTTP {status}: {body[:300].decode(errors='replace')}")
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as error:
+        raise DistributorError(f"{what} returned unreadable JSON: {error}") from error
+
+
+def accepted(status, body, what):
+    """An upload's response is not relied on: the version is looked up again afterwards."""
+    if not 200 <= status < 300:
+        raise DistributorError(f"{what} returned HTTP {status}: {body[:300].decode(errors='replace')}")
+
+
+def optional(status, body, what):
+    """The parsed body, or None on 404."""
+    return None if status == 404 else parse(status, body, what)
+
+
+class ModrinthApi:
+    def __init__(self, token, http=None):
+        self.token = token
+        self.http = http or Http()
+
+    def _get(self, path, what, auth=True, allow_missing=False):
+        headers = {"Authorization": self.token} if auth else {}
+        status, body = self.http.request("GET", MODRINTH + path, headers)
+        return optional(status, body, what) if allow_missing else parse(status, body, what)
+
+    def project(self, project, auth=True):
+        """With the token, team members also see a draft or unapproved project."""
+        return self._get(f"/project/{quote(project)}",
+                         f"Modrinth project {project}{'' if auth else ' (signed out)'}",
+                         auth=auth, allow_missing=True)
+
+    def user(self):
+        return self._get("/user", "Modrinth token owner")
+
+    def known_game_versions(self):
+        result = self._get("/tag/game_version", "Modrinth game versions", auth=False)
+        return {item.get("version") for item in result or [] if isinstance(item, dict)}
+
+    def known_loaders(self):
+        result = self._get("/tag/loader", "Modrinth loaders", auth=False)
+        return {item.get("name") for item in result or [] if isinstance(item, dict)}
+
+    def members(self, project_id):
+        return self._get(f"/project/{quote(project_id)}/members", "Modrinth project members")
+
+    def versions(self, project_id):
+        """With the token, includes the team's hidden (draft, unlisted) versions."""
+        return self._get(f"/project/{quote(project_id)}/version", "Modrinth project versions")
+
+    def version_by_file(self, sha512):
+        return self._get(f"/version_file/{sha512}?algorithm=sha512", "Modrinth file lookup", allow_missing=True)
+
+    def public_version(self, version_id):
+        return self._get(f"/version/{quote(version_id)}", "Modrinth version (signed out)",
+                         auth=False, allow_missing=True)
+
+    def create_version(self, data, jar):
+        content_type, body = multipart([
+            ("data", None, "application/json", json.dumps(data).encode()),
+            ("jar", jar.name, "application/java-archive", jar.read_bytes()),
+        ])
+        status, response = self.http.request("POST", MODRINTH + "/version",
+                                             {"Authorization": self.token, "Content-Type": content_type},
+                                             body, timeout=300)
+        accepted(status, response, "Modrinth version upload")
+
+    def download(self, url):
+        status, body = self.http.request("GET", url, timeout=300)
+        if status != 200:
+            raise DistributorError(f"Signed-out download of {url} returned HTTP {status}")
+        return body
+
+
+class HangarApi:
+    def __init__(self, key, http=None):
+        self.key = key
+        self.http = http or Http()
+        self._session = None
+
+    def _auth(self):
+        if self._session is None:
+            status, body = self.http.request("POST", f"{HANGAR}/authenticate?apiKey={quote(self.key)}", body=b"")
+            if status != 200:
+                raise DistributorError(f"Hangar rejected HANGAR_API_TOKEN (HTTP {status})")
+            token = json.loads(body).get("token")
+            if not token:
+                raise DistributorError("Hangar authentication returned no session token")
+            self._session = {"Authorization": f"HangarAuth {token}"}
+        return self._session
+
+    def _get(self, url, what, auth=True, allow_missing=False):
+        status, body = self.http.request("GET", url, self._auth() if auth else {})
+        return optional(status, body, what) if allow_missing else parse(status, body, what)
+
+    def project(self, slug, auth=True):
+        """With the session, members also see a project that is still `new` (no version yet)."""
+        return self._get(f"{HANGAR}/projects/{quote(slug)}",
+                         f"Hangar project {slug}{'' if auth else ' (signed out)'}", auth=auth, allow_missing=True)
+
+    def known_platform_versions(self, platform):
+        """Every version Hangar accepts for a platform: each group and its sub-versions."""
+        result = self._get(f"{HANGAR}/platforms/{quote(platform)}/versions", f"Hangar {platform} versions", auth=False)
+        known = set()
+        for item in result or []:
+            if isinstance(item, dict):
+                known.add(item.get("version"))
+                known.update(item.get("subVersions") or [])
+        return known
+
+    def version_count(self, slug):
+        result = self._get(f"{HANGAR}/projects/{quote(slug)}/versions?limit=1&offset=0", "Hangar project versions")
+        count = ((result or {}).get("pagination") or {}).get("count")
+        if not isinstance(count, int) or isinstance(count, bool):
+            raise DistributorError("Hangar returned no version count for the project")
+        return count
+
+    def channels(self, project_id):
+        """The project's channels. Hangar has no v1 endpoint for them; this is the web UI's."""
+        result = self._get(f"{HANGAR_INTERNAL}/channels/{quote(project_id)}", "Hangar project channels")
+        if not isinstance(result, list):
+            raise DistributorError("Hangar returned no channel list for the project")
+        return result
+
+    def version(self, slug, name, auth=True):
+        return self._get(f"{HANGAR}/projects/{quote(slug)}/versions/{quote(name)}",
+                         f"Hangar version {name}{'' if auth else ' (signed out)'}", auth=auth, allow_missing=True)
+
+    def can_create_versions(self, project_id):
+        result = self._get(f"{HANGAR}/permissions/hasAll?permissions=create_version&project={quote(project_id)}",
+                           "Hangar permission check")
+        return isinstance(result, dict) and result.get("result") is True
+
+    def upload(self, slug, data, jar):
+        content_type, body = multipart([
+            ("versionUpload", None, "application/json", json.dumps(data).encode()),
+            ("files", jar.name, "application/java-archive", jar.read_bytes()),
+        ])
+        status, response = self.http.request("POST", f"{HANGAR}/projects/{quote(slug)}/upload",
+                                             {**self._auth(), "Content-Type": content_type}, body, timeout=300)
+        accepted(status, response, "Hangar version upload")
+
+    def download(self, url):
+        status, body = self.http.request("GET", url, timeout=300)
+        if status != 200:
+            raise DistributorError(f"Signed-out download of {url} returned HTTP {status}")
+        return body
+
+
+def sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def destination(manifest, name):
+    """The candidate's own record of what goes to this distributor."""
+    found = [d for d in manifest.get("destinations", []) if d.get("name") == name]
+    if len(found) != 1:
+        raise DistributorError(f"Candidate {manifest.get('candidate_id')} does not name {name} as a destination")
+    return found[0]
+
+
+def notes(directory):
+    return (Path(directory) / "release-notes.md").read_text(encoding="utf-8")
+
+
+def same_text(published, expected):
+    return (published or "").replace("\r\n", "\n").rstrip("\n") == expected.rstrip("\n")
+
+
+def stop(name, version, problems):
+    if problems:
+        raise DistributorError(f"{name} version {version} differs from the candidate in: {', '.join(problems)}. "
+                               "Reconcile it by hand; it is not overwritten.")
+
+
+# --- Modrinth ---------------------------------------------------------------------------
+
+def modrinth_project(api, project):
+    """The project's ID, and whether it is public yet.
+
+    Modrinth reviews a project only once it has a version, so the first release goes to a
+    project that is still a draft. The token sees it; signed out, it stays hidden until approved.
+    """
+    details = api.project(project)
+    if not isinstance(details, dict) or not details.get("id"):
+        raise DistributorError(f"MODRINTH_TOKEN cannot see Modrinth project {project}; check MODRINTH_PROJECT "
+                               "and that the token's owner is a project member with PROJECT_READ")
+    if project not in (details.get("id"), details.get("slug")):
+        raise DistributorError(f"Modrinth resolved {project} to {details.get('slug')}; set MODRINTH_PROJECT "
+                               "to the project's slug or ID")
+    public = api.project(project, auth=False)
+    return details["id"], isinstance(public, dict) and public.get("id") == details["id"]
+
+
+def modrinth_upload_access(api, project_id):
+    user = api.user()
+    for member in api.members(project_id) or []:
+        if not isinstance(member, dict):
+            continue
+        permissions = member.get("permissions")
+        if (isinstance(member.get("user"), dict) and member["user"].get("id") == user.get("id")
+                and member.get("accepted") is True and isinstance(permissions, int)
+                and not isinstance(permissions, bool) and permissions & MODRINTH_UPLOAD_VERSION):
+            return
+    raise DistributorError(f"The MODRINTH_TOKEN owner cannot upload versions to Modrinth project {project_id}")
+
+
+def modrinth_payload(manifest, dest, project_id, directory):
+    return {
+        "name": f"{candidate.PLUGIN} {manifest['version']}",
+        "version_number": manifest["version"],
+        "changelog": notes(directory),
+        "dependencies": [],
+        "game_versions": dest["game_versions"],
+        "version_type": dest["version_type"],
+        "loaders": dest["loaders"],
+        "featured": False,
+        "status": "listed",
+        "project_id": project_id,
+        "file_parts": ["jar"],
+        "primary_file": "jar",
+    }
+
+
+def modrinth_state(api, manifest, dest, project_id, public, directory):
+    """'absent'; 'awaiting-review' when the version is the candidate but the project is not
+    yet public; or 'complete' once a signed-out consumer is proven to receive the candidate."""
+    version = manifest["version"]
+    jar = Path(directory) / candidate.jar_name(version)
+    sha512 = hashlib.sha512(jar.read_bytes()).hexdigest()
+    # Both lookups use the token, so draft and unlisted versions count as present.
+    found = [v for v in api.versions(project_id) if isinstance(v, dict) and v.get("version_number") == version]
+    # Modrinth refuses a file it already hosts, anywhere. The lookup also finds a version the
+    # project listing omits, so neither a stale listing nor a lost response leads to a second upload.
+    by_file = api.version_by_file(sha512)
+    if not found:
+        if by_file is not None:
+            raise DistributorError(f"The candidate JAR is already on Modrinth as version {by_file.get('id')} "
+                                   f"({by_file.get('version_number')}), which the project does not list as "
+                                   f"{version}. Reconcile it by hand.")
+        return "absent"
+    if len(found) > 1:
+        raise DistributorError(f"{len(found)} Modrinth versions are numbered {version}; reconcile them by hand")
+    published = found[0]
+    expected = modrinth_payload(manifest, dest, project_id, directory)
+    problems = [key for key in ("name", "version_type", "project_id") if published.get(key) != expected[key]]
+    if published.get("status") != "listed":
+        problems.append(f"status {published.get('status')}")
+    for key in ("loaders", "game_versions"):
+        if sorted(published.get(key) or []) != sorted(expected[key]):
+            problems.append(key)
+    if not same_text(published.get("changelog"), expected["changelog"]):
+        problems.append("changelog")
+    files = published.get("files") or []
+    if (len(files) != 1 or files[0].get("filename") != jar.name
+            or (files[0].get("hashes") or {}).get("sha512") != sha512):
+        problems.append("files")
+    if not isinstance(by_file, dict) or by_file.get("id") != published.get("id"):
+        problems.append("file identity")
+    stop("Modrinth", version, problems)
+
+    if not public:
+        log(f"::warning::Modrinth {version} matches the candidate (SHA-512 {sha512[:16]}...), but project "
+            f"{project_id} is awaiting Modrinth review, so consumers cannot see it yet")
+        return "awaiting-review"
+    shown = api.public_version(published["id"])
+    if not isinstance(shown, dict) or shown.get("id") != published["id"] or shown.get("files") != files:
+        raise DistributorError(f"Modrinth version {version} is not visible signed out with the same files")
+    data = api.download(files[0]["url"])
+    if sha256(data) != manifest["files"][jar.name]:
+        raise DistributorError(f"What Modrinth serves for {version} does not match the candidate's SHA-256")
+    log(f"  modrinth {version}: {jar.name} sha256 {manifest['files'][jar.name]} matches, signed out")
+    return "complete"
+
+
+def unknown(kind, wanted, known):
+    missing = sorted(set(wanted) - set(known))
+    if missing:
+        raise DistributorError(f"{kind} does not know {missing} yet, so the upload would be rejected. Wait until "
+                               "it does, or move the server pin, before releasing.")
+
+
+def modrinth_preflight(api, manifest, project, directory):
+    dest = destination(manifest, "modrinth")
+    # Modrinth rejects a version naming a game version or loader it does not list.
+    unknown("Modrinth", dest["game_versions"], api.known_game_versions())
+    unknown("Modrinth", dest["loaders"], api.known_loaders())
+    project_id, public = modrinth_project(api, project)
+    modrinth_upload_access(api, project_id)
+    return modrinth_state(api, manifest, dest, project_id, public, directory)
+
+
+def modrinth_publish(api, manifest, project, directory):
+    dest = destination(manifest, "modrinth")
+    project_id, public = modrinth_project(api, project)
+    state = modrinth_state(api, manifest, dest, project_id, public, directory)
+    if state == "absent":
+        version = manifest["version"]
+        log(f"Uploading {version} to Modrinth project {project} as {dest['version_type']}")
+        api.create_version(modrinth_payload(manifest, dest, project_id, directory),
+                           Path(directory) / candidate.jar_name(version))
+        state = modrinth_state(api, manifest, dest, project_id, public, directory)
+        if state == "absent":
+            raise DistributorError(f"Modrinth does not list {version} after the upload; re-run the job to verify it")
+    return state
+
+
+# --- Hangar -----------------------------------------------------------------------------
+
+def hangar_project(api, slug, dest):
+    """The project's numeric ID, checked with the session.
+
+    A Hangar project stays `new` until its first version is published, which makes it public,
+    so `new` is accepted for a project without versions. The Folia tag is required.
+    """
+    details = api.project(slug)
+    namespace = details.get("namespace") if isinstance(details, dict) else None
+    project_id = details.get("id") if isinstance(details, dict) else None
+    if (not isinstance(namespace, dict) or namespace.get("slug") != slug
+            or not isinstance(project_id, int) or isinstance(project_id, bool)):
+        raise DistributorError(f"HANGAR_API_TOKEN cannot see Hangar project {slug}; set HANGAR_PROJECT to the "
+                               "project's slug and use a key of a project member")
+    visibility = details.get("visibility")
+    if visibility == "new":
+        if api.version_count(slug) != 0:
+            raise DistributorError(f"Hangar project {slug} is still new but already has versions; reconcile it by hand")
+    elif visibility != "public":
+        raise DistributorError(f"Hangar project {slug} has visibility {visibility}; it must be public, "
+                               "or new without versions")
+    tags = (details.get("settings") or {}).get("tags") or []
+    if dest["supports_folia"] and HANGAR_FOLIA_TAG not in tags:
+        raise DistributorError(f"Hangar project {slug} does not carry the Supports Folia tag, but every "
+                               "release is tested on Folia; enable it in the project settings")
+    return project_id
+
+
+def hangar_payload(manifest, dest, directory):
+    return {
+        "version": manifest["version"],
+        "pluginDependencies": {},
+        "platformDependencies": dest["platforms"],
+        "description": notes(directory),
+        "files": [{"platforms": sorted(dest["platforms"])}],
+        "channel": dest["channel"],
+    }
+
+
+def hangar_state(api, manifest, dest, slug, directory):
+    """'absent'; 'awaiting-review' when the version is the candidate but consumers cannot see
+    it yet; or 'complete' once a signed-out consumer is proven to receive the candidate."""
+    version = manifest["version"]
+    jar = candidate.jar_name(version)
+    digest = manifest["files"][jar]
+    # Authenticated, so a version only its members can see still counts as present.
+    published = api.version(slug, version)
+    if published is None:
+        return "absent"
+    expected = hangar_payload(manifest, dest, directory)
+    problems = []
+    if published.get("name") != version:
+        problems.append("name")
+    if (published.get("channel") or {}).get("name") != dest["channel"]:
+        problems.append("channel")
+    if published.get("visibility") not in ("public", "needsApproval"):
+        problems.append(f"visibility {published.get('visibility')}")
+    if not same_text(published.get("description"), expected["description"]):
+        problems.append("description")
+    platforms = published.get("platformDependencies") or {}
+    if {k: sorted(v or []) for k, v in platforms.items()} != {k: sorted(v) for k, v in dest["platforms"].items()}:
+        problems.append("platform versions")
+    downloads = published.get("downloads") or {}
+    if sorted(downloads) != sorted(dest["platforms"]):
+        problems.append("platforms")
+    for platform, download in sorted(downloads.items()):
+        download = download or {}
+        info = download.get("fileInfo") or {}
+        if info.get("name") != jar or str(info.get("sha256Hash", "")).lower() != digest or not download.get("downloadUrl"):
+            problems.append(f"{platform} file")
+    stop("Hangar", version, problems)
+
+    if published.get("visibility") != "public" or api.version(slug, version, auth=False) is None:
+        log(f"::warning::Hangar {version} matches the candidate (SHA-256 {digest}), but is not visible "
+            "signed out yet (awaiting Hangar review)")
+        return "awaiting-review"
+    for platform, download in sorted(downloads.items()):
+        if sha256(api.download(download["downloadUrl"])) != digest:
+            raise DistributorError(f"What Hangar serves for {version} on {platform} does not match the candidate's SHA-256")
+        log(f"  hangar {version} {platform}: {jar} sha256 {digest} matches, signed out")
+    return "complete"
+
+
+def hangar_preflight(api, manifest, slug, directory):
+    dest = destination(manifest, "hangar")
+    # Hangar rejects an upload naming a platform version it does not list.
+    for platform, versions in sorted(dest["platforms"].items()):
+        unknown(f"Hangar {platform}", versions, api.known_platform_versions(platform))
+    project_id = hangar_project(api, slug, dest)
+    # Through the API, Hangar creates a missing channel only when a colour is sent and fails the
+    # upload otherwise; the channel must exist before anything is published anywhere.
+    names = [c.get("name") for c in api.channels(project_id) if isinstance(c, dict)]
+    if dest["channel"] not in names:
+        raise DistributorError(f"Hangar project {slug} has no {dest['channel']} channel (it has {sorted(map(str, names))}); "
+                               "create it in the project settings")
+    if not api.can_create_versions(project_id):
+        raise DistributorError(f"The HANGAR_API_TOKEN cannot create versions in Hangar project {slug}")
+    return hangar_state(api, manifest, dest, slug, directory)
+
+
+def hangar_publish(api, manifest, slug, directory):
+    dest = destination(manifest, "hangar")
+    hangar_project(api, slug, dest)
+    state = hangar_state(api, manifest, dest, slug, directory)
+    if state == "absent":
+        version = manifest["version"]
+        log(f"Uploading {version} to Hangar project {slug} on the {dest['channel']} channel")
+        api.upload(slug, hangar_payload(manifest, dest, directory), Path(directory) / candidate.jar_name(version))
+        state = hangar_state(api, manifest, dest, slug, directory)
+        if state == "absent":
+            raise DistributorError(f"Hangar does not show {version} after the upload; re-run the job to verify it")
+    return state
+
+
+# --- Commands ---------------------------------------------------------------------------
+
+def refuse_ineligible(tag):
+    """Raise unless the tag may reach a distributor. Development builds never may."""
+    info = candidate.release(tag)
+    if not candidate.distribution(tag):
+        kind = "a development build" if info["version"].startswith("0.") else f"a {info['channel']} build"
+        raise DistributorError(f"{tag} is {kind}; it is published to GitHub only, never to Modrinth or Hangar")
+    return info
+
+
+def remote_tag_commit(tag, remote="origin"):
+    """The commit the tag names on the remote now, peeling an annotated tag."""
+    output = subprocess.run(("git", "ls-remote", remote, f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}"),
+                            capture_output=True, text=True, check=True).stdout.splitlines()
+    direct = [line.split()[0] for line in output if line.endswith(f"\trefs/tags/{tag}")]
+    peeled = [line.split()[0] for line in output if line.endswith(f"\trefs/tags/{tag}^{{}}")]
+    if len(direct) != 1 or len(peeled) > 1:
+        raise DistributorError(f"Tag {tag} is missing or ambiguous on {remote}")
+    return peeled[0] if peeled else direct[0]
+
+
+def configuration(name, environ=None):
+    environ = os.environ if environ is None else environ
+    names = CONFIG[name]
+    missing = [key for key in names if not environ.get(key, "").strip()]
+    if missing:
+        raise DistributorError(f"Missing {', '.join(missing)} for {name}. Tokens are secrets of the release "
+                               "environment and projects are repository variables; see RELEASE_PROCESS.md section 3.")
+    return [environ[key].strip() for key in names]
+
+
+def verified(args, tag_commit=remote_tag_commit):
+    """The candidate manifest, re-verified with its evidence against this run and the remote tag."""
+    refuse_ineligible(args.tag)
+    manifest = candidate.check_evidence(args)
+    if args.sha != manifest["source_sha"]:
+        raise DistributorError(f"This run's commit {args.sha} is not the candidate's source {manifest['source_sha']}")
+    current = tag_commit(manifest["tag"])
+    if current != manifest["source_sha"]:
+        raise DistributorError(f"Tag {manifest['tag']} now points at {current}, not the candidate's source "
+                               f"{manifest['source_sha']}; a moved tag is never released")
+    return manifest
+
+
+def plan(args):
+    distribute = bool(candidate.distribution(args.tag))
+    if distribute:
+        log(f"{args.tag} goes to GitHub, Modrinth and Hangar")
+    else:
+        try:
+            refuse_ineligible(args.tag)
+        except DistributorError as error:
+            log(f"::notice::{error}")
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8", newline="\n") as stream:
+            stream.write(f"distribute={'true' if distribute else 'false'}\n")
+    return distribute
+
+
+ACTIONS = {
+    ("preflight", "modrinth"): (ModrinthApi, modrinth_preflight),
+    ("preflight", "hangar"): (HangarApi, hangar_preflight),
+    ("publish", "modrinth"): (ModrinthApi, modrinth_publish),
+    ("publish", "hangar"): (HangarApi, hangar_publish),
+}
+
+
+def run(args, environ=None, tag_commit=remote_tag_commit, apis=None):
+    refuse_ineligible(args.tag)
+    token, project = configuration(args.destination, environ)
+    manifest = verified(args, tag_commit)
+    api_class, action = ACTIONS[(args.command, args.destination)]
+    api = (apis or {}).get(args.destination) or api_class(token)
+    state = action(api, manifest, project, args.directory)
+    log(f"{args.destination} {args.command}: {manifest['version']} is {state}")
+    output = os.environ.get("GITHUB_OUTPUT") if environ is None else None
+    if output:
+        with open(output, "a", encoding="utf-8", newline="\n") as stream:
+            stream.write(f"state={state}\n")
+    return state
+
+
+def parser():
+    root = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    commands = root.add_subparsers(dest="command", required=True)
+    commands.add_parser("plan").add_argument("--tag", required=True)
+    for name in ("preflight", "publish"):
+        command = commands.add_parser(name)
+        command.add_argument("destination", choices=sorted(CONFIG))
+        for option in ("--directory", "--evidence", "--tag", "--sha", "--run-id", "--attempt", "--repository"):
+            command.add_argument(option, required=True)
+    return root
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
+    if args.command == "plan":
+        plan(args)
+    else:
+        run(args)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, KeyError, json.JSONDecodeError, subprocess.CalledProcessError,
+            urllib.error.URLError) as error:
+        sys.exit(f"::error::{error}")
