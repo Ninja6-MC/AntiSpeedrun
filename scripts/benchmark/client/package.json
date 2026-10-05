@@ -1,0 +1,13 @@
+{
+  "name": "antispeedrun-benchmark-client",
+  "private": true,
+  "description": "Fighting party for the AntiSpeedrun max-dragons benchmark.",
+  "license": "GPL-3.0-only",
+  "main": "bots.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "mineflayer": "4.39.0"
+  }
+}
