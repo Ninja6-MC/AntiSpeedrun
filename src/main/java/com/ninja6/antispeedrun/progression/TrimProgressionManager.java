@@ -56,7 +56,8 @@ import io.papermc.paper.registry.RegistryKey;
  * The lookups — {@link #forPattern}, {@link #forTrim}, {@link #forTemplate} — are pure and safe
  * from any thread. They answer <em>which</em> milestone gates something, independent of
  * configuration; the listener decides whether its own lock ({@code block-unearned-smithing},
- * {@code block-wearing-unearned-trims}, {@code block-unearned-template-duplication}) is on, and
+ * {@code block-wearing-unearned-trims}, {@code block-unearned-template-duplication},
+ * {@code gate-natural-trim-chests}) is on, and
  * asks {@link #evaluate} only if it is. {@link #evaluate} carries the {@link ProgressionManager}
  * threading rule: call it from a context that owns the player.
  */

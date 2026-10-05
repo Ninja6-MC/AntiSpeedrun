@@ -82,8 +82,9 @@ step, adds optional anti-cheese rules, and can scale the Ender Dragon fight to t
   (`block-unearned-template-duplication`), applying a trim at a smithing table
   (`block-unearned-smithing`) and wearing a trimmed piece (`block-wearing-unearned-trims`)
   are refused until the player has discovered the matching structure; all three are on by
-  default. The key for gating templates in natural trim chests
-  (`gate-natural-trim-chests`, default `false`) is parsed but does nothing yet.
+  default. With `gate-natural-trim-chests` (default `false`) on, gated templates are also
+  removed from naturally generated chest loot for a player who has not discovered the
+  structure.
 - **Anti-cheese rules** (`anti-cheese`) -- `enabled`,
   `block-early-eye-throwing`, `early-eye-rejection-message`, the single-hit cap
   (`cap-single-hit-boss-damage`, off by default, with `max-single-hit-boss-damage`), the

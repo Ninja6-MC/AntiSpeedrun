@@ -154,7 +154,7 @@ item-progression:
 # 3. Armor Trim & Smithing Template Progression
 trim-progression:
   enabled: true
-  gate-natural-trim-chests: false             # Default FALSE: Allows looting trim templates from dungeon chests. Set TRUE to gate by tier.
+  gate-natural-trim-chests: false             # Default FALSE: structure loot keeps its templates. TRUE removes a gated template from natural loot for a player who has not explored its structure.
   block-unearned-template-duplication: true   # Require structure discovery to clone templates in crafting tables and Crafters
   block-unearned-smithing: true               # Require structure discovery to apply trim in Smithing Table
   block-wearing-unearned-trims: true          # Prevent wearing armor with unearned trims
