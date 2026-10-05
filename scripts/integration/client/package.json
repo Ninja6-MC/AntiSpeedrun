@@ -1,0 +1,13 @@
+{
+  "name": "antispeedrun-integration-client",
+  "private": true,
+  "description": "Scripted player for the AntiSpeedrun real-server integration harness.",
+  "license": "GPL-3.0-only",
+  "main": "client.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "mineflayer": "4.39.0"
+  }
+}

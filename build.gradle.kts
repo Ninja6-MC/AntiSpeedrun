@@ -58,3 +58,29 @@ tasks {
         useJUnitPlatform()
     }
 }
+
+// The integration harness's probe plugin (scripts/integration/README.md): a second, test-only
+// plugin that logs what the server reports for each boss hit and crystal click, so the probes can
+// assert on the damage type and final damage the AntiSpeedrun handlers saw. Never shipped:
+// `./gradlew probeJar` builds it on its own, and nothing in src/main depends on it.
+val probe: SourceSet by sourceSets.creating
+configurations[probe.compileOnlyConfigurationName].extendsFrom(configurations.compileOnly.get())
+
+tasks.named<JavaCompile>(probe.compileJavaTaskName) {
+    options.encoding = "UTF-8"
+    options.release.set(21)
+}
+
+// Compiled by every `./gradlew check` (and so `build`), so an API change that breaks the probe
+// plugin fails CI rather than the next manual harness run.
+tasks.named("check") {
+    dependsOn(probe.classesTaskName)
+}
+
+tasks.register<Jar>("probeJar") {
+    description = "Builds the integration harness's probe plugin."
+    group = "verification"
+    archiveBaseName.set("AntiSpeedrunProbe")
+    archiveVersion.set("")
+    from(probe.output)
+}

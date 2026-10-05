@@ -1,0 +1,6 @@
+name: AntiSpeedrunProbe
+version: '1'
+main: com.ninja6.antispeedrun.probe.ProbePlugin
+api-version: '1.21'
+folia-supported: true
+description: Test-only observer for the real-server integration harness. Never install it on a live server.
