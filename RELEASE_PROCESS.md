@@ -85,9 +85,15 @@ Tag a commit that is already on `main`. The workflow refuses any other commit.
 ```bash
 git checkout main
 git pull
-git tag -s v1.0.0 -m "release: AntiSpeedrun v1.0.0"
+git tag -a v1.0.0 -m "release: AntiSpeedrun v1.0.0"
 git push origin v1.0.0
 ```
+
+**Tag policy.** Release tags must be annotated (`git tag -a`). Signing is optional and
+needs no key setup: the pipeline does not verify tag signatures. Its tag check is
+source-commit verification only: the tag must point at the commit the workflow checked
+out, and that commit must be on `main`. The existing GitHub pre-releases, including
+v0.1.0, were published from unsigned annotated tags.
 
 ### Step 3: Automated stages
 
