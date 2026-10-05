@@ -8,11 +8,11 @@ and asserts on what the server reports: boss health before and after, entity pre
 player's inventory and the probe plugin's damage lines.
 """
 
-import os
 import re
 import time
 
 from harness import ProbeError, read
+from probes import END, KNOWN_ISSUES, NETHER, OVERWORLD, Probes, Results  # noqa: F401 - re-exported
 
 RULES = (
     "block-exit-portal-crystal-place",
@@ -21,8 +21,6 @@ RULES = (
 )
 EPSILON = 1.0e-3
 
-HEALTH = re.compile(r"has the following entity data: (-?[0-9.]+)f")
-NO_ENTITY = r"No entity was found|Found no elements"
 DAMAGE = re.compile(
     r"ASRPROBE damage victim=(?P<victim>\S+) uuid=(?P<uuid>\S+) part=(?P<part>\S+) type=(?P<type>\S+) "
     r"bad-respawn-point=(?P<bad>\S+) causing=(?P<causing>\S+) direct=(?P<direct>\S+) cause=(?P<cause>\S+) "
@@ -31,9 +29,6 @@ JOIN = re.compile(r"ASRPROBE join name=(?P<name>\S+) op=(?P<op>\S+) bypass=(?P<b
                   r"anticheese-bypass=(?P<anticheese>\S+)")
 CRYSTAL = re.compile(r"ASRPROBE crystal-click .* block=(?P<block>\S+) .* cancelled=(?P<cancelled>\S+)")
 
-OVERWORLD = "minecraft:overworld"
-NETHER = "minecraft:the_nether"
-END = "minecraft:the_end"
 BOSSES = {"wither": "minecraft:wither", "dragon": "minecraft:ender_dragon"}
 CLIENT_NAMES = {"wither": "wither", "dragon": "ender_dragon"}
 
@@ -78,110 +73,14 @@ def configured_cap(config_text):
     return float(match.group(1))
 
 
-# Checks that fail today because of an open bug, keyed by issue number. Such a check is still
-# run and recorded, as "known-failure", but does not fail the run. Once it passes, the issue is
-# fixed and the entry is stale: the check then fails as "unexpected-pass" until it is removed here.
-KNOWN_ISSUES = {}
-
-
-class Results:
-    def __init__(self):
-        self.checks = []
-        self.notes = []
-
-    def check(self, rule, name, passed, detail, known_issue=None):
-        entry = {"rule": rule, "check": name, "passed": bool(passed), "detail": detail}
-        label = "PASS" if passed else "FAIL"
-        if known_issue is not None:
-            if known_issue not in KNOWN_ISSUES:
-                raise ProbeError(f"#{known_issue} is not in KNOWN_ISSUES")
-            entry["known_issue"] = known_issue
-            if passed:
-                entry.update(passed=False, status="unexpected-pass")
-                entry["detail"] = (f"{detail}; passes now, so #{known_issue} looks fixed: "
-                                   f"remove it from KNOWN_ISSUES")
-                label = "FAIL"
-            else:
-                entry.update(passed=True, status="known-failure")
-                label = f"KNOWN #{known_issue}"
-        self.checks.append(entry)
-        print(f"[{label}] {rule}: {name} -- {entry['detail']}", flush=True)
-
-    def note(self, text):
-        self.notes.append(text)
-        print(f"[NOTE] {text}", flush=True)
-
-    @property
-    def passed(self):
-        return bool(self.checks) and all(check["passed"] for check in self.checks)
-
-
-class AntiCheeseProbes:
-    def __init__(self, server, client, player, results):
-        self.server = server
-        self.client = client
-        self.player = player
-        self.results = results
-        self.config_path = os.path.join(server.workdir, "plugins", "AntiSpeedrun", "config.yml")
+class AntiCheeseProbes(Probes):
 
     # ------------------------------------------------------------------ helpers
 
-    def run(self, line):
-        self.server.command(line)
-
     def rules(self, *enabled):
-        with open(self.config_path, "r", encoding="utf-8") as handle:
-            text = handle.read()
-        with open(self.config_path, "w", encoding="utf-8") as handle:
-            handle.write(set_rules(text, enabled))
-        match = self.server.query("asr reload", r"Configuration reloaded(?P<rest>[^\n]*)", timeout=30)
+        match = self.reload(lambda text: set_rules(text, enabled))
         if "warning" in match.group("rest").lower():
             self.results.note(f"/asr reload with {enabled or 'no rule'} on reported: {match.group(0)}")
-        time.sleep(0.5)
-
-    def health(self, selector):
-        match = self.server.query(f"data get entity {selector} Health",
-                                  rf"{HEALTH.pattern}|{NO_ENTITY}")
-        return float(match.group(1)) if match.group(1) is not None else None
-
-    def exists(self, dimension, selector):
-        match = self.server.query(f"execute in {dimension} if entity {selector}",
-                                  r"Test passed|Test failed")
-        return match.group(0) == "Test passed"
-
-    def tp(self, dimension, x, y, z, yaw=0, pitch=0):
-        self.run(f"execute in {dimension} run tp {self.player} {x} {y} {z} {yaw} {pitch}")
-        time.sleep(1.5)
-
-    def arena(self, dimension, x, y, z, half=12, height=30):
-        """A hollow obsidian box with its floor at y - 1, lit so nothing spawns inside it."""
-        self.run(f"execute in {dimension} run forceload add {x - half} {z - half} {x + half} {z + half}")
-        box = (f"{x - half} {y - 1} {z - half} {x + half} {y + height} {z + half}")
-        for _ in range(40):
-            match = self.server.query(f"execute in {dimension} run fill {box} minecraft:obsidian hollow",
-                                      r"Successfully filled|No blocks were filled|not loaded|"
-                                      r"Unknown or incomplete|Too many blocks|Incorrect argument")
-            if match.group(0) in ("Successfully filled", "No blocks were filled"):
-                break
-            if match.group(0) != "not loaded":
-                raise ProbeError(f"could not build the arena: {match.group(0)}")
-            time.sleep(1)
-        else:
-            raise ProbeError(f"the arena at {dimension} {x} {y} {z} never loaded")
-        inner = half - 1
-        for level in (y, y + height // 2):
-            self.run(f"execute in {dimension} run fill {x - inner} {level} {z - inner} {x + inner} {level} "
-                     f"{z + inner} minecraft:light[level=15] replace minecraft:air")
-        time.sleep(1)
-
-    def clear_arena(self, dimension, x, y, z, half=12):
-        self.run(f"execute in {dimension} run kill @e[tag=asrp]")
-        self.run(f"execute in {dimension} run kill @e[type=minecraft:item,x={x},y={y},z={z},distance=..40]")
-        self.run(f"execute in {dimension} run kill @e[type=minecraft:experience_orb,x={x},y={y},z={z},distance=..40]")
-        inner = half - 1
-        self.run(f"execute in {dimension} run fill {x - inner} {y} {z - inner} {x + inner} {y + 8} {z + inner} "
-                 f"minecraft:air replace minecraft:fire")
-        time.sleep(1)
 
     def summon(self, boss, dimension, x, y, z):
         self.run(f"execute in {dimension} run kill @e[tag=asrp]")
@@ -207,9 +106,6 @@ class AntiCheeseProbes:
         time.sleep(settle)
         after = self.health(selector)
         return before, after, parse_damage(self.server.lines_since(mark))
-
-    def count(self, item):
-        return self.client.request("count", item=item)["count"]
 
     # ------------------------------------------------------------------ setup
 
@@ -278,7 +174,10 @@ class AntiCheeseProbes:
         time.sleep(1)
         self.client.request("hold", item="end_crystal")
 
-        centre_crystal = f"@e[type=minecraft:end_crystal,x=0.5,y={ptop + 1},z=0.5,distance=..1]"
+        def crystal_at(x, y, z):
+            return self.near(END, x, y, z, 1, "end_crystal") > 0
+
+        centre = (0.5, ptop + 1, 0.5)
 
         def place(target, stand):
             self.tp(END, stand[0] + 0.5, py + 1, stand[1] + 0.5)
@@ -292,16 +191,16 @@ class AntiCheeseProbes:
         # Control: with the rule off, the same click on the centre pillar does place a crystal, so a
         # refusal below is the rule and not the probe failing to place.
         before, after, _ = place((0, ptop, 0), (4, 0))
-        placed = self.exists(END, centre_crystal)
+        placed = crystal_at(*centre)
         self.results.check(rule, "control, rule off: a crystal on the centre column (0, 0) is placed",
                            placed and after == before - 1,
                            f"crystal present={placed}, crystals in hand {before} -> {after}")
-        self.run(f"execute in {END} run kill {centre_crystal}")
+        self.near(END, *centre, 1, "end_crystal", remove=True)
         time.sleep(1)
 
         self.rules(rule)
         before, after, clicks = place((0, ptop, 0), (4, 0))
-        placed = self.exists(END, centre_crystal)
+        placed = crystal_at(*centre)
         refused = bool(clicks) and all(click["cancelled"] == "true" for click in clicks)
         self.results.check(rule, "rule on: a crystal on the centre column (0, 0) is refused",
                            not placed and after == before and refused,
@@ -311,8 +210,7 @@ class AntiCheeseProbes:
         for index, (name, (dx, dz)) in enumerate(rim.items()):
             stand = (dx + (1 if dx > 0 else -1 if dx < 0 else 0), dz + (1 if dz > 0 else -1 if dz < 0 else 0))
             before, after, _ = place((dx, py, dz), stand)
-            selector = f"@e[type=minecraft:end_crystal,x={dx + 0.5},y={py + 1},z={dz + 0.5},distance=..1]"
-            placed = self.exists(END, selector) or (index == 3 and after == before - 1)
+            placed = crystal_at(dx + 0.5, py + 1, dz + 0.5) or (index == 3 and after == before - 1)
             self.results.check(rule, f"rule on: a crystal on the {name} ritual position ({dx}, {py}, {dz}) is placed",
                                placed and after == before - 1,
                                f"crystal present={placed}, crystals in hand {before} -> {after}")

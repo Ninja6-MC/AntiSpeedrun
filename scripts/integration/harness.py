@@ -39,6 +39,12 @@ def read(path):
         return ""
 
 
+def platform(log):
+    """"folia" or "paper", from the server's own "This server is running" line."""
+    match = re.search(r"This server is running (\w+)", log)
+    return "folia" if match and match.group(1).lower() == "folia" else "paper"
+
+
 class Server:
     """One disposable server. Everything it writes stays under workdir for the run's artifacts."""
 
@@ -54,6 +60,7 @@ class Server:
         self.log_path = os.path.join(self.workdir, "server.log")
         self.process = None
         self._log = None
+        self.platform = None
 
     def __enter__(self):
         self.start()
@@ -117,7 +124,9 @@ class Server:
         raise ProbeError(f"timed out after {timeout}s waiting for /{pattern}/ in the server log")
 
     def wait_started(self, timeout):
-        return self.wait_for(DONE.pattern, timeout)
+        match = self.wait_for(DONE.pattern, timeout)
+        self.platform = platform(self.log())
+        return match
 
     def command(self, line):
         if self.process is None or self.process.poll() is not None:

@@ -30,6 +30,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from harness import Client, ProbeError, Server  # noqa: E402
 import anti_cheese  # noqa: E402
+import gates  # noqa: E402
+from probes import Results  # noqa: E402
 
 USER_AGENT = "AntiSpeedrun-CI/1.0 (+https://github.com/Ninja6-MC/AntiSpeedrun)"
 # Pinned by version and SHA-256, as Hangar publishes them. Test servers only.
@@ -42,6 +44,10 @@ VIA = (
      "f902f7da7eb99e8bfaf461f80283c4e2750b7d9727e6b508ea4bb9163f55b1db"),
 )
 PLAYER = "AsrProbe"
+# The gate probes run first: they set the player's progression case by case, and the anti-cheese
+# probes then grant every advancement once and leave it so.
+MODULES = (gates, anti_cheese)
+PROBES = tuple(name for module in MODULES for name in module.PROBES)
 SERVER_BUILD = re.compile(r"This server is running (?P<build>[^\r\n]+)")
 PLUGIN_VERSION = re.compile(r"Enabling AntiSpeedrun v(?P<version>\S+)")
 PROBE_SERVER = re.compile(r"ASRPROBE server (?P<line>[^\r\n]+)")
@@ -78,6 +84,8 @@ def plugin_failures(log):
 
 
 def main(argv=None):
+    # Check details quote what the player was told, emoji included, whatever the console encoding.
+    sys.stdout.reconfigure(errors="backslashreplace")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--server-jar", required=True)
     parser.add_argument("--plugin-jar", required=True)
@@ -94,7 +102,7 @@ def main(argv=None):
     parser.add_argument("--boot-timeout", type=int, default=300)
     parser.add_argument("--deadline", type=int, default=1500, help="seconds the whole run may take")
     parser.add_argument("--label", default="server")
-    parser.add_argument("--probe", action="append", choices=anti_cheese.PROBES,
+    parser.add_argument("--probe", action="append", choices=PROBES,
                         help="run only this probe; repeatable (default: all)")
     args = parser.parse_args(argv)
 
@@ -105,7 +113,7 @@ def main(argv=None):
     if os.path.exists(results_path):
         os.remove(results_path)
 
-    results = anti_cheese.Results()
+    results = Results()
     summary = {"label": args.label, "client_version": args.client_version, "via": args.via}
     plugins = [args.plugin_jar, args.probe_jar]
     server = Server(os.path.join(workdir, "server"), args.server_jar, plugins, java=args.java,
@@ -132,7 +140,8 @@ def main(argv=None):
             with client:
                 client.wait_event("spawn", 120)
                 server.wait_for(rf"ASRPROBE join name={PLAYER}", 30)
-                anti_cheese.run_all(server, client, PLAYER, results, args.probe or anti_cheese.PROBES)
+                for module in MODULES:
+                    module.run_all(server, client, PLAYER, results, args.probe or PROBES)
                 client.request("quit", timeout=10)
     except Exception as error:  # noqa: BLE001 - any failure still writes results.json
         if expired.is_set():
@@ -156,6 +165,7 @@ def main(argv=None):
     failures = plugin_failures(log)
     results.check("harness", "the server log shows no AntiSpeedrun error, config warning or stack trace",
                   not failures, "; ".join(failures) or "clean")
+    summary["platform"] = server.platform
     summary["checks"] = results.checks
     summary["notes"] = results.notes
     summary["passed"] = results.passed
