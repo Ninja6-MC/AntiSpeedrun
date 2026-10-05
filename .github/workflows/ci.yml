@@ -256,7 +256,7 @@ jobs:
     needs: build
     # The harness bounds its own run with --deadline (25 minutes); the probe step below caps it
     # at 30, and this leaves room for the downloads around it. A full run takes about
-    # MINUTES_PLACEHOLDER minutes on a hosted runner.
+    # 12 minutes on a hosted runner.
     timeout-minutes: 40
 
     # The real-server gameplay probes (scripts/integration/README.md, #58): a scripted player
