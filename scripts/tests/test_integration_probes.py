@@ -6,7 +6,9 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "integration"))
 
 import anti_cheese  # noqa: E402
+import gates  # noqa: E402
 import harness  # noqa: E402
+import probes  # noqa: E402
 
 CONFIG = """\
 anti-cheese:
@@ -94,9 +96,75 @@ class KnownIssueTest(unittest.TestCase):
 
 class ConsoleColourTest(unittest.TestCase):
     def test_strips_ansi_colours_from_command_feedback(self):
-        line = "Wither has the following entity data: \x1b[38;5;3m300.0\x1b[38;5;9mf\x1b[0m"
-        cleaned = harness.ANSI.sub("", line)
-        self.assertEqual(anti_cheese.HEALTH.search(cleaned).group(1), "300.0")
+        line = "[20:29:22 INFO]: \x1b[38;5;7m[\x1b[38;5;3mAntiSpeedrun\x1b[38;5;7m]\x1b[0m \x1b[38;5;10mConfiguration reloaded."
+        self.assertIn("[AntiSpeedrun] Configuration reloaded.", harness.ANSI.sub("", line))
+
+
+class PlatformTest(unittest.TestCase):
+    def test_reads_folia_from_the_build_line(self):
+        log = "[17:12:52 INFO]: This server is running Folia version 26.2-7-ver/26.2.x@14b7fee"
+        self.assertEqual(harness.platform(log), "folia")
+
+    def test_anything_else_is_paper(self):
+        log = "[20:22:32 INFO]: This server is running Paper version 26.2-129-ver/26.2@9240f58"
+        self.assertEqual(harness.platform(log), "paper")
+        self.assertEqual(harness.platform(""), "paper")
+
+
+GATES_CONFIG = """\
+dimension-gates:
+  nether:
+    enabled: true
+    require-advancements:
+      - "minecraft:story/smelt_iron"
+  the_end:
+    enabled: true
+
+item-progression:
+  enabled: true
+  drop-recall-enabled: true
+  gated-items:
+    iron-tier:
+      enabled: true
+"""
+
+
+class GateConfigTest(unittest.TestCase):
+    def test_switches_only_the_nether_gate(self):
+        text = gates.set_nether_gate(GATES_CONFIG, False)
+        self.assertIn("  nether:\n    enabled: false\n", text)
+        self.assertIn("  the_end:\n    enabled: true\n", text)
+        self.assertEqual(gates.set_nether_gate(text, True), GATES_CONFIG)
+
+    def test_sets_a_direct_child_of_a_section_only(self):
+        text = gates.set_key(GATES_CONFIG, "item-progression", "enabled", "false")
+        self.assertIn("item-progression:\n  enabled: false\n", text)
+        self.assertIn("    iron-tier:\n      enabled: true\n", text)
+        self.assertIn("  nether:\n    enabled: true\n", text)
+
+    def test_never_reaches_past_its_section(self):
+        config = ("item-progression:\n  drop-recall-enabled: true\n  enabled: true\n"
+                  "boss:\n  enabled: true\n")
+        text = gates.set_key(config, "item-progression", "enabled", "false")
+        self.assertIn("item-progression:\n  drop-recall-enabled: true\n  enabled: false\n", text)
+        self.assertIn("boss:\n  enabled: true\n", text)
+        with self.assertRaises(harness.ProbeError):
+            gates.set_key("item-progression:\n  drop-recall-enabled: true\nboss:\n  enabled: true\n",
+                          "item-progression", "enabled", "false")
+
+    def test_a_missing_key_is_a_harness_failure(self):
+        with self.assertRaises(harness.ProbeError):
+            gates.set_key(GATES_CONFIG, "item-progression", "gate-dispensers", "false")
+
+
+class ModuleTest(unittest.TestCase):
+    def test_probe_names_are_unique_across_modules(self):
+        names = list(gates.PROBES) + list(anti_cheese.PROBES)
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_the_results_class_is_shared(self):
+        self.assertIs(anti_cheese.Results, probes.Results)
+        self.assertIs(anti_cheese.KNOWN_ISSUES, probes.KNOWN_ISSUES)
 
 
 if __name__ == "__main__":

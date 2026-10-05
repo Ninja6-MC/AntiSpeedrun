@@ -35,8 +35,23 @@ const bot = mineflayer.createBot({
 bot.on('kicked', (reason) => { send({ event: 'kicked', reason: JSON.stringify(reason) }); process.exit(3) })
 bot.on('error', (error) => { send({ event: 'error', message: error.message }); process.exit(4) })
 bot.on('end', (reason) => { send({ event: 'end', reason: String(reason) }); process.exit(0) })
-bot.on('messagestr', (message) => note('CHAT', message))
+// Chat and action bar lines since the last "messages" request, for asserting what a player is told.
+let heard = []
+bot.on('messagestr', (message, position) => {
+  note('CHAT', position, message)
+  heard.push(message)
+  if (heard.length > 200) heard = heard.slice(-200)
+})
+bot.on('actionBar', (message) => {
+  const text = message.toString()
+  note('ACTIONBAR', text)
+  heard.push(text)
+})
 bot.once('spawn', () => send({ event: 'spawn', version: bot.version }))
+bot.on('death', () => note('DEATH'))
+
+// The container or merchant window the last open_block or open_merchant opened.
+let window = null
 
 function itemCount (name) {
   return bot.inventory.items().filter((item) => item.name === name).reduce((sum, item) => sum + item.count, 0)
@@ -144,6 +159,151 @@ const ops = {
     const hitAt = bot.entity.position.y
     await sleep(1500)
     return { fell: top - hitAt, hitY: hitAt }
+  },
+
+  // Every chat and action bar line heard since the last call.
+  async messages () {
+    const lines = heard
+    heard = []
+    return { lines }
+  },
+
+  // A chat line or, with a leading slash, a command run as this player.
+  async chat ({ text }) {
+    bot.chat(text)
+    await sleep(700)
+    return {}
+  },
+
+  // Walks forward for ms milliseconds toward the point [x, y, z].
+  async walk ({ toward, ms }) {
+    await bot.lookAt(new Vec3(toward[0], toward[1], toward[2]), true)
+    bot.setControlState('forward', true)
+    await sleep(ms)
+    bot.setControlState('forward', false)
+    await sleep(300)
+    const p = bot.entity.position
+    return { position: [p.x, p.y, p.z], dimension: bot.game.dimension }
+  },
+
+  // Boards the nearest entity whose name contains name, a boat or a minecart.
+  async mount ({ name }) {
+    const vehicle = bot.nearestEntity((entity) => entity.name && entity.name.includes(name))
+    if (!vehicle) throw new Error(`no ${name} in view`)
+    bot.mount(vehicle)
+    for (let i = 0; i < 30 && !bot.vehicle; i++) await sleep(100)
+    if (!bot.vehicle) throw new Error(`could not board the ${vehicle.name}`)
+    return { vehicle: vehicle.name }
+  },
+
+  // Steers the vehicle the player rides by reporting its movement, as a client paddling a boat
+  // does: steps moves of (dx, dz) each, step_ms apart, or until the dimension changes.
+  async drive ({ dx, dz, steps, step_ms }) {
+    if (!bot.vehicle) throw new Error('not riding anything')
+    const start = bot.game.dimension
+    const at = bot.vehicle.position.clone()
+    let moved = 0
+    for (; moved < steps && bot.game.dimension === start && bot.vehicle; moved++) {
+      at.x += dx
+      at.z += dz
+      bot._client.write('vehicle_move', { x: at.x, y: at.y, z: at.z, yaw: 0, pitch: 0, onGround: true })
+      await sleep(step_ms || 100)
+    }
+    return { moved, dimension: bot.game.dimension, riding: !!bot.vehicle }
+  },
+
+  async dismount () {
+    if (bot.vehicle) bot.dismount()
+    await sleep(500)
+    return { riding: !!bot.vehicle }
+  },
+
+  // Opens the container block at x, y, z and lists what the client sees in it.
+  async open_block ({ x, y, z }) {
+    const block = bot.blockAt(new Vec3(x, y, z))
+    if (!block) throw new Error(`block ${x},${y},${z} is not loaded`)
+    window = await bot.openContainer(block)
+    return { slots: window.containerItems().map((item) => ({ slot: item.slot, name: item.name, count: item.count })) }
+  },
+
+  // Opens the nearest merchant of the named entity type and lists its offers.
+  async open_merchant ({ entity }) {
+    const target = nearest(entity)
+    if (!target) throw new Error(`no ${entity} in view`)
+    window = await bot.openVillager(target)
+    for (let i = 0; i < 30 && !window.trades; i++) await sleep(100)
+    return { trades: (window.trades || []).map((trade) => trade.outputItem && trade.outputItem.name) }
+  },
+
+  // Selects offer index and takes its result the way a player does: select, then shift-click
+  // the result slot. The server's answer is read from the inventory afterwards, not from here.
+  async trade ({ index }) {
+    if (!window) throw new Error('no merchant window open')
+    bot._client.write('select_trade', { slot: index })
+    await sleep(600)
+    const result = window.slots[2]
+    try {
+      await bot.clickWindow(2, 0, 1)
+    } catch (error) {
+      note('trade click', error.message)
+    }
+    await sleep(600)
+    return { result: result ? result.name : null }
+  },
+
+  // A click on a slot of the open window: mode 0 is a pickup click, 1 a shift-click.
+  async window_click ({ slot, button, mode }) {
+    if (!window) throw new Error('no window open')
+    try {
+      await bot.clickWindow(slot, button || 0, mode || 0)
+    } catch (error) {
+      note('window click', error.message)
+    }
+    await sleep(600)
+    // Put back whatever the cursor holds, so a refused click leaves nothing in hand.
+    if (window.selectedItem) {
+      try {
+        await bot.clickWindow(-999, 0, 0)
+      } catch (error) {
+        note('cursor return', error.message)
+      }
+    }
+    return {
+      slots: window.containerItems().map((item) => ({ slot: item.slot, name: item.name, count: item.count }))
+    }
+  },
+
+  async close_window () {
+    if (window) bot.closeWindow(window)
+    window = null
+    await sleep(500)
+    return {}
+  },
+
+  // Breaks the block at x, y, z with whatever is in the hand.
+  async dig ({ x, y, z }) {
+    const block = bot.blockAt(new Vec3(x, y, z))
+    if (!block) throw new Error(`block ${x},${y},${z} is not loaded`)
+    await bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true)
+    await bot.dig(block, true)
+    await sleep(500)
+    return { block: block.name }
+  },
+
+  // Throws count of the named item out of the inventory.
+  async toss ({ item, count }) {
+    const stack = bot.inventory.items().find((candidate) => candidate.name === item)
+    if (!stack) throw new Error(`no ${item} in the inventory`)
+    await bot.toss(stack.type, null, count || 1)
+    await sleep(300)
+    return { left: itemCount(item) }
+  },
+
+  async respawn () {
+    if (bot.health <= 0 || bot.isAlive === false) bot.respawn()
+    for (let i = 0; i < 50 && bot.health <= 0; i++) await sleep(100)
+    await sleep(1000)
+    return { health: bot.health }
   },
 
   async quit () {

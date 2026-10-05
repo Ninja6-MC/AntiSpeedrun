@@ -65,6 +65,10 @@ tasks {
 // `./gradlew probeJar` builds it on its own, and nothing in src/main depends on it.
 val probe: SourceSet by sourceSets.creating
 configurations[probe.compileOnlyConfigurationName].extendsFrom(configurations.compileOnly.get())
+// The probe calls AntiSpeedrunPlugin#expectTeleport (#137), so a change to that API fails here.
+dependencies {
+    add(probe.compileOnlyConfigurationName, sourceSets.main.get().output)
+}
 
 tasks.named<JavaCompile>(probe.compileJavaTaskName) {
     options.encoding = "UTF-8"
