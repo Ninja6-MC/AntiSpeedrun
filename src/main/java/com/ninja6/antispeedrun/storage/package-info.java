@@ -27,6 +27,15 @@
  *       unlock on.</li>
  * </ul>
  *
+ * <h2>Versions</h2>
+ *
+ * Every server-wide file is written through
+ * {@link com.ninja6.antispeedrun.storage.VersionedStateFile}, which stamps a top-level
+ * {@code state-version} and refuses a file from a newer build (#194). Player persistent data is
+ * deliberately not versioned: each key holds one typed primitive, so a format change is made by
+ * reading a new key and retiring the old one, which needs no marker, whereas a marker would cost a
+ * write to every player's container on join for data that has not changed.
+ *
  * <h2>Testability, and why {@code StateFile} exists</h2>
  *
  * {@code paper-api} is {@code compileOnly}, so Bukkit's {@code YamlConfiguration} is not on the

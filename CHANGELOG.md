@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `trim-progression.gate-natural-trim-chests` now acts: while it and `trim-progression.enabled` are on, a Silence, Ward, Snout or Spire trim template or a netherite upgrade template is removed from naturally generated chest and chest minecart loot when the player it is generated for has not explored its structure. Loot generated with no player (a hopper pulling from an unopened chest) never keeps one. The item bypass waives it; plugin-generated loot is not affected. Off by default; the `HARDCORE` profile turns it on.
+- The state files `state.yml`, `dragon-fights.yml`, `portal-locks.yml` and `explored-structures.yml` carry a `state-version` (1). On start an unversioned file is read as version 1 and the key is added with its data unchanged. A newer or malformed version stops startup with the file untouched. Player persistent data is not versioned.
 
 ## [0.2.0] - 2026-10-05
 

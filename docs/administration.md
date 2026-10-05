@@ -57,8 +57,9 @@ v0.1.x shipped them `true` but never enforced them, so `false` keeps the server 
 what it did. Set any of them back to `true` and run `/asr reload` to turn the rule on. A
 `config.yml` written by a newer version stops the plugin from starting, with the file
 untouched. See [configuration.md](configuration.md#32-upgrading-an-older-configyml). The
-state files are not versioned yet, so keep a backup of `plugins/AntiSpeedrun/` and
-`playerdata` before a jump between builds.
+state files are versioned the same way ([section 6.3](#63-state-file-versions)); player
+data is not, so keep a backup of `plugins/AntiSpeedrun/` and `playerdata` before a jump
+between builds.
 
 A clean install is also fine: back up `plugins/AntiSpeedrun/` and `playerdata`, delete
 `config.yml`, install the jar and restart. Deleting `config.yml` loses every local edit
@@ -300,6 +301,21 @@ read the old one to see what had been unlocked. If the move fails, the change ho
 for that server run only and the log says to move or delete the file by hand.
 
 To recover, fix or restore the file while the server is stopped and start again.
+
+### 6.3 State file versions
+
+`state.yml`, `dragon-fights.yml`, `portal-locks.yml` and `explored-structures.yml`
+each start with `state-version: 1`, written by the plugin. Do not edit or remove it.
+
+- A file with no `state-version` was written by 0.2.0 or earlier, whose format is
+  version 1. On start the plugin adds the key, logs `Marked <file> as state-version 1`,
+  and changes nothing else.
+- A file whose `state-version` is higher than this build reads, or is not a whole
+  number of at least 1, stops startup with a `SEVERE` line naming the file. The file is
+  not changed, moved or renamed. Install the version that wrote it, or restore a copy
+  this build can read, and start again.
+- Player persistent data keys are not versioned: each holds one typed value, and a
+  future format change uses a new key rather than reinterpreting an old one.
 
 ## 7. Troubleshooting
 

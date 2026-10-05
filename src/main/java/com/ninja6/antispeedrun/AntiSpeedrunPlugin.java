@@ -55,6 +55,8 @@ import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
 import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
 import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
+import com.ninja6.antispeedrun.storage.StateVersionException;
+import com.ninja6.antispeedrun.storage.VersionedStateFile;
 import com.ninja6.antispeedrun.storage.PortalLockStore;
 import com.ninja6.antispeedrun.storage.ProfileApplier;
 import com.ninja6.antispeedrun.storage.YamlStateFile;
@@ -181,6 +183,19 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
             configHolder.logWarnings(configHolder.get().warnings());
         }
 
+        // The plugin-written state files (#194), stamped with state-version before any store reads
+        // them. Every file is checked before any is stamped, so one from a newer build stops
+        // startup with all four untouched, as a newer config.yml does above, and before anything
+        // is registered.
+        VersionedStateFile unlockFile = stateFile("state.yml");
+        VersionedStateFile fightFile = stateFile("dragon-fights.yml");
+        VersionedStateFile portalLockFile = stateFile("portal-locks.yml");
+        VersionedStateFile exploredFile = stateFile("explored-structures.yml");
+        if (!migrateStateFiles(List.of(unlockFile, fightFile, portalLockFile, exploredFile))) {
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+
         this.playerState = new PlayerStateRegistry();
         // The announced-milestone record lives in each player's PDC, so it needs nothing but this
         // plugin instance and can be built here, ahead of the file-backed stores below. Without it
@@ -205,7 +220,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // asynchronously would answer "locked" for the first moments of the server's life.
         this.dimensionUnlocks = new DimensionUnlockStore(
                 getLogger(),
-                new YamlStateFile(new File(getDataFolder(), "state.yml").toPath()),
+                unlockFile,
                 write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
         if (!dimensionUnlocks.loadNow()) {
             // Deliberately not fatal, and deliberately not silent. The store has already logged the
@@ -247,7 +262,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // unlock store is: a window must not open for a fight already reinforced in an earlier run.
         ReinforcedFightStore reinforcedFights = new ReinforcedFightStore(
                 getLogger(),
-                new YamlStateFile(new File(getDataFolder(), "dragon-fights.yml").toPath()),
+                fightFile,
                 write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
         if (!reinforcedFights.loadNow()) {
             getLogger().warning("Starting with no reinforced dragon fights recorded. Secondary "
@@ -255,7 +270,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         }
         PortalLockStore portalLocks = new PortalLockStore(
                 getLogger(),
-                new YamlStateFile(new File(getDataFolder(), "portal-locks.yml").toPath()),
+                portalLockFile,
                 write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
         portalLocks.loadNow();
         getServer().getPluginManager().registerEvents(
@@ -265,7 +280,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // listener exists, so a Crafter whose owner is offline works from the first tick.
         ExploredStructureStore exploredStructures = new ExploredStructureStore(
                 getLogger(),
-                new YamlStateFile(new File(getDataFolder(), "explored-structures.yml").toPath()),
+                exploredFile,
                 write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
         if (!exploredStructures.loadNow()) {
             getLogger().warning("Starting with no explored structures recorded. Crafters refuse gated "
@@ -831,6 +846,33 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                     + "reading it as it is. Keys added by newer versions use their shipped defaults.",
                     failure);
             return true;
+        }
+    }
+
+    /** A state file in the data folder, read and written through its {@code state-version}. */
+    private VersionedStateFile stateFile(String name) {
+        return new VersionedStateFile(name,
+                new YamlStateFile(new File(getDataFolder(), name).toPath()));
+    }
+
+    /**
+     * Stamps each unversioned state file with the current {@code state-version}. See
+     * {@link VersionedStateFile}. Runs in {@code onEnable} before the stores load; file I/O.
+     *
+     * @return {@code false} when a file declares a version this build cannot read, which stops
+     *         startup; {@code true} otherwise, including when a file could not be read at all,
+     *         since its store then reports it and handles it as damage
+     */
+    private boolean migrateStateFiles(List<VersionedStateFile> files) {
+        try {
+            for (VersionedStateFile file : VersionedStateFile.migrateAll(files)) {
+                getLogger().info("Marked " + file.name() + " as " + VersionedStateFile.VERSION_KEY
+                        + " " + VersionedStateFile.STATE_VERSION + ". Its contents are unchanged.");
+            }
+            return true;
+        } catch (StateVersionException unsupported) {
+            getLogger().severe("AntiSpeedrun will not start: " + unsupported.getMessage());
+            return false;
         }
     }
 }
