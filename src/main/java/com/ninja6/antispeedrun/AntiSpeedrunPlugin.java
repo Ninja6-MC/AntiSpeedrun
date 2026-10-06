@@ -38,6 +38,7 @@ import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
 import com.ninja6.antispeedrun.listeners.NaturalTrimLootListener;
 import com.ninja6.antispeedrun.listeners.OuterEndBoundaryListener;
+import com.ninja6.antispeedrun.listeners.PlacedBlockListener;
 import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
 import com.ninja6.antispeedrun.listeners.RefusedArrivals;
@@ -54,6 +55,7 @@ import com.ninja6.antispeedrun.storage.ConfigMigrator;
 import com.ninja6.antispeedrun.storage.DimensionUnlockStore;
 import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
+import com.ninja6.antispeedrun.storage.PlacedBlockRegistry;
 import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
 import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
 import com.ninja6.antispeedrun.storage.StateVersionException;
@@ -135,6 +137,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
 
     /** Whether a player has already received the journey book, held in their container. */
     private volatile JourneyBookStore journeyBook;
+
+    /** Player-placed credit-relevant blocks, held in each chunk's container (#212). */
+    private volatile PlacedBlockRegistry placedBlocks;
 
     /** The dimension gate, kept for {@link #expectTeleport}. */
     private volatile ProgressionGateListener dimensionGate;
@@ -295,6 +300,11 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new NaturalTrimLootListener(this, exploredStructures), this);
 
+        // The placed-block registry (#212). Its state is the chunks' own containers, so it needs no
+        // file and nothing to load; it records from the first placement on.
+        this.placedBlocks = new PlacedBlockRegistry(this);
+        getServer().getPluginManager().registerEvents(new PlacedBlockListener(placedBlocks), this);
+
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
         if (antispeedrun == null) {
@@ -391,6 +401,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     public BypassStore bypasses() {
         return bypasses;
+    }
+
+    /**
+     * Which credit-relevant blocks a player placed (#212), so mining them earns no credit. Every
+     * method needs the region thread that owns the block; see {@link PlacedBlockRegistry}.
+     */
+    public PlacedBlockRegistry placedBlocks() {
+        return placedBlocks;
     }
 
     /**
