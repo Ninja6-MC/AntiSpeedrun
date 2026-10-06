@@ -33,7 +33,9 @@ class PersonalCreditRulesTest {
         assertFalse(PersonalCreditRules.minedEarns(credit, true, true, true), "placed");
         assertFalse(PersonalCreditRules.minedEarns(credit, false, false, true), "no pickaxe");
         assertFalse(PersonalCreditRules.minedEarns(credit, false, true, false), "no drops");
-        assertTrue(PersonalCreditRules.needsPickaxeDrop(credit));
+        assertTrue(PersonalCreditRules.dropsEarn(credit, List.of(Material.COBBLESTONE)));
+        assertTrue(PersonalCreditRules.dropsEarn(credit, List.of(Material.STONE)), "silk touch");
+        assertFalse(PersonalCreditRules.dropsEarn(credit, List.of()), "drops nothing");
     }
 
     @Test
@@ -72,10 +74,12 @@ class PersonalCreditRulesTest {
         assertFalse(PersonalCreditRules.minedEarns(credit, true, true, true), "placed");
         assertFalse(PersonalCreditRules.minedEarns(credit, false, false, false), "no pickaxe");
         assertFalse(PersonalCreditRules.minedEarns(credit, false, true, false), "wooden pickaxe drops nothing");
+        assertTrue(PersonalCreditRules.dropsEarn(credit, List.of(Material.RAW_IRON)));
+        assertFalse(PersonalCreditRules.dropsEarn(credit, List.of()), "drops nothing");
     }
 
     @Test
-    @DisplayName("mine_diamond: diamond ore that is not in the registry")
+    @DisplayName("mine_diamond: diamond ore that is not in the registry, broken so it yields a diamond")
     void mineDiamond() {
         assertEquals(Optional.of(PersonalCredit.MINE_DIAMOND),
                 PersonalCreditRules.minable(Material.DIAMOND_ORE));
@@ -83,9 +87,22 @@ class PersonalCreditRulesTest {
                 PersonalCreditRules.minable(Material.DEEPSLATE_DIAMOND_ORE));
         PersonalCredit credit = PersonalCredit.MINE_DIAMOND;
         assertTrue(PersonalCreditRules.minedEarns(credit, false, true, true));
-        assertTrue(PersonalCreditRules.minedEarns(credit, false, false, false));
+        assertTrue(PersonalCreditRules.minedEarns(credit, false, false, true), "any tool that yields a diamond");
+        assertFalse(PersonalCreditRules.minedEarns(credit, false, true, false), "yields no diamond");
         assertFalse(PersonalCreditRules.minedEarns(credit, true, true, true), "placed");
-        assertFalse(PersonalCreditRules.needsPickaxeDrop(credit));
+    }
+
+    @Test
+    @DisplayName("mine_diamond needs the break to yield a diamond, as vanilla grants it on obtaining one")
+    void mineDiamondYield() {
+        PersonalCredit credit = PersonalCredit.MINE_DIAMOND;
+        assertTrue(PersonalCreditRules.dropsEarn(credit, List.of(Material.DIAMOND)), "iron pickaxe");
+        assertTrue(PersonalCreditRules.dropsEarn(credit, List.of(Material.DIAMOND, Material.DIAMOND)), "fortune");
+        assertFalse(PersonalCreditRules.dropsEarn(credit, List.of(Material.DIAMOND_ORE)), "silk touch");
+        assertFalse(PersonalCreditRules.dropsEarn(credit, List.of(Material.DEEPSLATE_DIAMOND_ORE)),
+                "silk touch, deepslate");
+        assertFalse(PersonalCreditRules.dropsEarn(credit, List.of()),
+                "stone or wooden pickaxe, creative, or drops disabled");
     }
 
     @Test

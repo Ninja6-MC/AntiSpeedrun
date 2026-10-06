@@ -1,6 +1,7 @@
 package com.ninja6.antispeedrun.listeners;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -102,14 +103,14 @@ public final class PersonalCreditListener implements Listener {
         if (credit == null) {
             return;
         }
-        boolean pickaxe = false;
-        boolean drops = false;
-        if (PersonalCreditRules.needsPickaxeDrop(credit)) {
-            ItemStack tool = player.getInventory().getItemInMainHand();
-            pickaxe = Tag.ITEMS_PICKAXES.isTagged(tool.getType());
-            drops = pickaxe && event.isDropItems() && player.getGameMode() != GameMode.CREATIVE
-                    && !block.getDrops(tool, player).isEmpty();
+        ItemStack tool = player.getInventory().getItemInMainHand();
+        boolean pickaxe = Tag.ITEMS_PICKAXES.isTagged(tool.getType());
+        // Reading the drops is the costly part: skip it when no drop could make the break earn.
+        if (!PersonalCreditRules.minedEarns(credit, placed, pickaxe, true)) {
+            return;
         }
+        boolean drops = event.isDropItems() && player.getGameMode() != GameMode.CREATIVE
+                && PersonalCreditRules.dropsEarn(credit, types(block.getDrops(tool, player)));
         if (PersonalCreditRules.minedEarns(credit, placed, pickaxe, drops)) {
             record(player.getUniqueId(), credit, CreditSource.ACTION);
         }
@@ -168,19 +169,24 @@ public final class PersonalCreditListener implements Listener {
     }
 
     private void recordLoot(UUID player, List<ItemStack> loot) {
-        List<Material> items = new ArrayList<>(loot.size());
-        for (ItemStack item : loot) {
-            if (item != null) {
-                items.add(item.getType());
-            }
-        }
         boolean changed = false;
-        for (PersonalCredit credit : PersonalCreditRules.looted(items)) {
+        for (PersonalCredit credit : PersonalCreditRules.looted(types(loot))) {
             changed |= credits.record(player, credit, CreditSource.LOOT);
         }
         if (changed) {
             refresh.changed(player);
         }
+    }
+
+    /** The item types of {@code items}, skipping {@code null}s. */
+    private static List<Material> types(Collection<ItemStack> items) {
+        List<Material> types = new ArrayList<>(items.size());
+        for (ItemStack item : items) {
+            if (item != null) {
+                types.add(item.getType());
+            }
+        }
+        return types;
     }
 
     /** Records one credit, refreshing the player's gates if it is new. */

@@ -1,5 +1,6 @@
 package com.ninja6.antispeedrun.listeners;
 
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
@@ -52,12 +53,12 @@ public final class PersonalCreditRules {
      * Whether a break earns {@code credit}, which {@link #minable} named for the block.
      *
      * <p>A block in the placed-block registry never earns. Stone and iron ore also need a pickaxe
-     * and a break that drops items. Diamond ore needs neither: its row in the Amendment names only
-     * the ore and the registry.
+     * and a break that drops items. Diamond ore needs a break that would yield a diamond, as vanilla
+     * grants {@code story/mine_diamond} on obtaining one; any tool that yields it will do.
      *
      * @param placed  whether the registry held the block when it was broken
      * @param pickaxe whether the breaking tool is a pickaxe
-     * @param drops   whether the break drops items
+     * @param drops   whether the break drops what {@link #dropsEarn} asks of {@code credit}
      */
     public static boolean minedEarns(PersonalCredit credit, boolean placed, boolean pickaxe, boolean drops) {
         if (placed) {
@@ -65,14 +66,24 @@ public final class PersonalCreditRules {
         }
         return switch (credit) {
             case MINE_STONE, MINED_IRON -> pickaxe && drops;
-            case MINE_DIAMOND -> true;
+            case MINE_DIAMOND -> drops;
             default -> false;
         };
     }
 
-    /** Whether {@link #minedEarns} reads the tool and the drops for {@code credit}. */
-    public static boolean needsPickaxeDrop(PersonalCredit credit) {
-        return credit == PersonalCredit.MINE_STONE || credit == PersonalCredit.MINED_IRON;
+    /**
+     * Whether the items a break would drop are the ones {@code credit} asks for: a diamond for
+     * {@code mine_diamond}, so silk touch (the ore block), a stone or wooden pickaxe (nothing) and a
+     * break with drops disabled earn nothing; anything at all for stone and iron ore.
+     *
+     * @param drops the item types the block drops for the breaking tool; empty for a break whose
+     *              drops are disabled or that drops nothing
+     */
+    public static boolean dropsEarn(PersonalCredit credit, Collection<Material> drops) {
+        if (credit == PersonalCredit.MINE_DIAMOND) {
+            return drops.contains(Material.DIAMOND);
+        }
+        return !drops.isEmpty();
     }
 
     /**
