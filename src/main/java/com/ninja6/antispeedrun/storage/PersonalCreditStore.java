@@ -31,8 +31,8 @@ import java.util.logging.Logger;
  * with no credits has no keys. Keys that are not a UUID and a known credit, values that are not a
  * list, and unknown sources are skipped on load.
  *
- * <p>Credits are only ever added here. Nothing the recorder sees takes one away; an administrator's
- * grant or reset is a separate operation on top of {@link #record}.
+ * <p>The recorder only ever adds credits. Nothing it sees takes one away; only an administrator's
+ * {@link #revoke} does, and an administrator's grant is a {@link #record} like any other (#217).
  *
  * <h2>Threading and damage</h2>
  *
@@ -143,6 +143,38 @@ public final class PersonalCreditStore {
             after.put(credit, Set.copyOf(grown));
             Map<UUID, Map<PersonalCredit, Set<CreditSource>>> next = new HashMap<>(current);
             next.put(player, Map.copyOf(after));
+            this.credits = Map.copyOf(next);
+        }
+        persist();
+        return true;
+    }
+
+    /**
+     * Takes {@code credit} away from {@code player}, through every source it was earned by, and
+     * persists the change. Only an administrator's revoke calls this (#217); nothing the recorder
+     * sees ever does. Legal from any thread, for an online or offline player.
+     *
+     * @return {@code true} if the player held the credit; {@code false} if not, in which case nothing
+     *         is written
+     */
+    public boolean revoke(UUID player, PersonalCredit credit) {
+        Objects.requireNonNull(player, "player");
+        Objects.requireNonNull(credit, "credit");
+        synchronized (stateLock) {
+            Map<UUID, Map<PersonalCredit, Set<CreditSource>>> current = credits;
+            Map<PersonalCredit, Set<CreditSource>> before = current.get(player);
+            if (before == null || !before.containsKey(credit)) {
+                return false;
+            }
+            Map<PersonalCredit, Set<CreditSource>> after = new EnumMap<>(PersonalCredit.class);
+            after.putAll(before);
+            after.remove(credit);
+            Map<UUID, Map<PersonalCredit, Set<CreditSource>>> next = new HashMap<>(current);
+            if (after.isEmpty()) {
+                next.remove(player);
+            } else {
+                next.put(player, Map.copyOf(after));
+            }
             this.credits = Map.copyOf(next);
         }
         persist();

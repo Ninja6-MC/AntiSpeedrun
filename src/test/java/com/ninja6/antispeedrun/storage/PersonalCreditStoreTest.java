@@ -247,4 +247,45 @@ class PersonalCreditStoreTest {
         }
         assertEquals(Optional.empty(), PersonalCredit.fromId("smelt-iron"));
     }
+
+    @Test
+    @DisplayName("a revoke removes every source at once, is persisted, and leaves other credits")
+    void revokeRemovesEverySource() {
+        InMemoryStateFile file = new InMemoryStateFile();
+        PersonalCreditStore store = store(file);
+        assertTrue(store.loadNow());
+        UUID player = UUID.randomUUID();
+        store.record(player, PersonalCredit.MINE_DIAMOND, CreditSource.ACTION);
+        store.record(player, PersonalCredit.MINE_DIAMOND, CreditSource.LOOT);
+        store.record(player, PersonalCredit.MINE_STONE, CreditSource.ACTION);
+        int saves = file.saves;
+
+        assertTrue(store.revoke(player, PersonalCredit.MINE_DIAMOND));
+        assertFalse(store.has(player, PersonalCredit.MINE_DIAMOND, true));
+        assertEquals(Set.of(), store.sources(player, PersonalCredit.MINE_DIAMOND));
+        assertTrue(store.has(player, PersonalCredit.MINE_STONE, false));
+        assertEquals(saves + 1, file.saves);
+
+        PersonalCreditStore after = store(file);
+        assertTrue(after.loadNow());
+        assertFalse(after.has(player, PersonalCredit.MINE_DIAMOND, true));
+        assertTrue(after.has(player, PersonalCredit.MINE_STONE, false));
+    }
+
+    @Test
+    @DisplayName("revoking a credit the player lacks writes nothing; the last one drops the player")
+    void revokeOfNothing() {
+        InMemoryStateFile file = new InMemoryStateFile();
+        PersonalCreditStore store = store(file);
+        assertTrue(store.loadNow());
+        UUID player = UUID.randomUUID();
+
+        assertFalse(store.revoke(player, PersonalCredit.IRON_TOOLS));
+        assertEquals(0, file.saves);
+
+        store.record(player, PersonalCredit.IRON_TOOLS, CreditSource.ACTION);
+        assertTrue(store.revoke(player, PersonalCredit.IRON_TOOLS));
+        assertFalse(store.revoke(player, PersonalCredit.IRON_TOOLS));
+        assertTrue(file.document.isEmpty(), "a player with no credits has no keys: " + file.document);
+    }
 }

@@ -132,6 +132,7 @@ Download the plugin jar from the
 | `/asr unlock <nether\|end> [lock]` | `antispeedrun.admin.unlock` | op | Unlocks (or re-locks) a dimension for everyone, persistently. |
 | `/asr bypass <player> [duration\|off]` | `antispeedrun.admin.bypass` | op | Grants or revokes a temporary bypass for a player. |
 | `/asr inspect <player>` | `antispeedrun.admin.inspect` | op | Reports a player's progression state. |
+| `/asr credit <grant\|revoke> <player> <credit\|smelt-iron\|all>` | `antispeedrun.admin.credit` | op | Grants or revokes a personal-action credit, online or offline. |
 
 `antispeedrun.admin` grants all the administrative nodes above. It does not include
 `antispeedrun.bypass`, which exempts the holder from gates and is never granted by

@@ -45,6 +45,13 @@ public enum Subcommand {
     INSPECT("inspect", "antispeedrun.admin.inspect", "/asr inspect <player>"),
 
     /**
+     * {@code /asr credit <grant|revoke> <player> <credit>} — grants or revokes a personal-action
+     * credit (#217), for an online or offline player. The grammar is {@link CreditArgument}.
+     */
+    CREDIT("credit", "antispeedrun.admin.credit",
+            "/asr credit <grant|revoke> <player> <credit|smelt-iron|all>"),
+
+    /**
      * {@code /asr progress} — the delegate to {@code /progress}, Task 2.1.2 (#3).
      *
      * <p>The one constant here that is not administration, and the one gated outside the
@@ -94,7 +101,7 @@ public enum Subcommand {
     /** Every label, in declaration order. */
     public static List<String> labels() {
         return List.of(RELOAD.label, PROFILE.label, UNLOCK.label, BYPASS.label, INSPECT.label,
-                PROGRESS.label, BOOK.label);
+                CREDIT.label, PROGRESS.label, BOOK.label);
     }
 
     /**

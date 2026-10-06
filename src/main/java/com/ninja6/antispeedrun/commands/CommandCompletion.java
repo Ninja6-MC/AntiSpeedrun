@@ -64,6 +64,7 @@ public final class CommandCompletion {
             case UNLOCK -> filter(unlockArguments(args), partial);
             case BYPASS -> filter(bypassArguments(args, playerNames), partial);
             case INSPECT -> args.length == 2 ? filter(playerNames, partial) : List.of();
+            case CREDIT -> filter(creditArguments(args, playerNames), partial);
             // Takes no arguments, and deliberately does not complete player names: /asr progress
             // shows the sender their own card, so a name would be an argument it then ignores.
             case RELOAD, PROGRESS, BOOK -> List.of();
@@ -111,6 +112,26 @@ public final class CommandCompletion {
             return playerNames;
         }
         return args.length == 3 ? BypassDuration.suggestions() : List.of();
+    }
+
+    /**
+     * {@code grant} or {@code revoke}, then online names, then the credit words. Names and credits
+     * are offered only after a valid action, as {@code lock} is under {@code unlock}. Only online
+     * names: offering every name the server has cached would list every player who ever joined.
+     */
+    private static Collection<String> creditArguments(String[] args, Collection<String> playerNames) {
+        if (args.length == 2) {
+            return CreditArgument.Action.labels();
+        }
+        boolean validAction = CreditArgument.Action.labels()
+                .contains(args[1].trim().toLowerCase(Locale.ROOT));
+        if (!validAction) {
+            return List.of();
+        }
+        if (args.length == 3) {
+            return playerNames;
+        }
+        return args.length == 4 ? CreditArgument.creditWords() : List.of();
     }
 
     private static List<String> filter(Collection<String> candidates, String partial) {
