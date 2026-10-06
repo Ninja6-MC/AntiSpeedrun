@@ -39,7 +39,7 @@ dimension-gates:
     require-advancements:
       - "minecraft:story/smelt_iron"
       - "minecraft:story/upgrade_tools"
-    rejection-message: "<red>🔒 The Nether is locked! Requires <yellow>Iron Gear<red> and <yellow>2 hours<red> of survival. Type <gold>/progress"
+    rejection-message: "<red>🔒 The Nether is locked! Craft a <yellow>stone pickaxe<red>, <yellow>mine iron ore<red> and smelt it in a furnace <yellow>you loaded yourself<red>, and survive <yellow>2 hours<red>. Type <gold>/progress"
 
   the_end:
     enabled: true
@@ -50,7 +50,7 @@ dimension-gates:
       - "minecraft:nether/obtain_blaze_rod"
       - "minecraft:nether/find_fortress"
       - "minecraft:story/enchant_item"
-    rejection-message: "<red>🔒 The End is sealed! Requires full survival progression and <yellow>10 hours<red> of play. Type <gold>/progress"
+    rejection-message: "<red>🔒 The End is sealed! <yellow>Mine diamond ore<red>, <yellow>kill a Blaze<red> yourself in a Nether Fortress, enchant an item and play <yellow>10 hours<red>. Type <gold>/progress"
 
 # 2. Anti-Boosting & Item Progression Gating
 item-progression:
@@ -98,7 +98,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/mine_stone"
       require-playtime-hours: 0
-      hint: "Mine Stone with a wooden pickaxe (Stone Age)"
+      hint: "Mine natural stone with a pickaxe yourself (Stone Age)"
 
     diamond-tier:
       match-patterns:
@@ -109,7 +109,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/iron_tools"
       require-playtime-hours: 2.0
-      hint: "Craft an Iron Pickaxe and put 2 hours in"
+      hint: "Craft an Iron Pickaxe yourself and put 2 hours in"
 
     nether-tier:
       items:
@@ -144,7 +144,7 @@ item-progression:
         - "minecraft:story/enchant_item"
       require-playtime-hours: 10.0
       require-account-age-days: 0      # See NOTE 2 above.
-      hint: "Unlock The End Gate"
+      hint: "Kill a Blaze yourself in a Nether Fortress, enchant an item and put 10 hours in"
 
     netherite-tier:
       match-patterns:
@@ -159,7 +159,7 @@ item-progression:
         - "minecraft:story/mine_diamond"
         - "minecraft:nether/obtain_blaze_rod"
       require-playtime-hours: 10.0
-      hint: "Mine Diamonds & Explore the Nether"
+      hint: "Mine diamond ore and kill a Blaze yourself, and put 10 hours in"
 
 # 3. Armor Trim & Smithing Template Progression
 trim-progression:

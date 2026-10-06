@@ -226,6 +226,16 @@ any other advancement vanilla completes on possession, such as `story/obtain_arm
 `end/elytra`, is reported as a warning at load, since a gift still satisfies it. Both
 settings take effect on `/asr reload`.
 
+A credit opens its gate the moment it is recorded, with no reload or rejoin, and an online
+player is told the gate is open just as an advancement would tell them; a player who is
+offline is told on their next join. `/asr credit` revoke closes it the same way. While
+`require-personal-credit` is on, `/progress`, the idle reminder, the Journey Guide Book and
+an item refusal with no `hint` name the action that earns each of these six (for example
+"mine iron ore and smelt iron in a furnace you loaded yourself") instead of the
+advancement. While `count-structure-loot` is also on they name the loot alternative, and
+the book adds that loot counts only from a chest the player opens first, so a friend
+should not open it for them.
+
 Each tier under `gated-items` takes:
 
 | Key | Default | Notes |
@@ -316,8 +326,9 @@ Every other trim is ungated.
 
 The book's content is generated from the live configuration: the dimension gates and
 their requirements, the item tiers with their hints, and the Eye of Ender and Mending
-rules while they are on. `/journeybook` refuses while the player already carries a
-copy or has no room for one.
+rules while they are on. A requirement answered from a personal credit is written as the
+action that earns it (section 4.3). `/journeybook` refuses while the player already
+carries a copy or has no room for one.
 
 ### 4.8 `boss-scaling`
 

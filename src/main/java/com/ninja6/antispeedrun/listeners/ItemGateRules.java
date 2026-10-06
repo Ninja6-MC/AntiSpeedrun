@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import com.ninja6.antispeedrun.config.CreditedActions;
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.PluginConfig.ItemTier;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
@@ -229,7 +230,7 @@ public final class ItemGateRules {
      * What to put in {@code {REQUIREMENT}}.
      *
      * <p>The configured {@code hint} wins whenever it is set, because it is the operator saying how
-     * they want the requirement described — "Mine Stone with a wooden pickaxe (Stone Age)" is better
+     * they want the requirement described — "Mine natural stone with a pickaxe (Stone Age)" is better
      * player-facing text than any list of advancement keys this method could assemble. The composed
      * fallback exists for a gate whose hint was left blank, and names only what the player can still
      * go and do: {@link EligibilityResult#unresolvableAdvancements()} is excluded because the
@@ -244,17 +245,19 @@ public final class ItemGateRules {
      * composed fallback allocates, and a refused pickup retries every two seconds for as long as the
      * player stands on the item.
      *
-     * @param hint the operator's configured hint; blank means "compose one from the result"
+     * @param hint  the operator's configured hint; blank means "compose one from the result"
+     * @param items the snapshot's item progression, which says how credited advancements are named
      * @return never blank; falls back to a generic line when there is no hint and the result carries
      *         nothing actionable, which happens when the only outstanding requirement was waived
      */
-    public static String requirementText(String hint, EligibilityResult result) {
+    public static String requirementText(String hint, EligibilityResult result,
+                                         PluginConfig.ItemProgression items) {
         Objects.requireNonNull(hint, "hint");
         Objects.requireNonNull(result, "result");
         if (!hint.isBlank()) {
             return hint;
         }
-        return outstanding(result);
+        return outstanding(result, items);
     }
 
     /**
@@ -267,17 +270,21 @@ public final class ItemGateRules {
      * <p>Names only what the player can still go and do:
      * {@link EligibilityResult#unresolvableAdvancements()} is excluded because the evaluator has
      * already waived those, and repeating them here would tell a player to go and earn something
-     * this server does not define.
+     * this server does not define. A credited advancement is named by the action that earns it while
+     * credits are on; see {@link CreditedActions}.
      *
      * @return never blank; falls back to a generic line when the result carries nothing actionable,
      *         which happens when the only outstanding requirement was waived
      */
-    public static String outstanding(EligibilityResult result) {
+    public static String outstanding(EligibilityResult result, PluginConfig.ItemProgression items) {
         Objects.requireNonNull(result, "result");
+        Objects.requireNonNull(items, "items");
 
         List<String> parts = new ArrayList<>(3);
-        if (!result.missingAdvancements().isEmpty()) {
-            parts.add(String.join(", ", result.missingAdvancements()));
+        CreditedActions.Split missing = CreditedActions.split(result.missingAdvancements(), items);
+        parts.addAll(missing.actions());
+        if (!missing.advancements().isEmpty()) {
+            parts.add(String.join(", ", missing.advancements()));
         }
         if (result.missingPlaytimeHours() > 0.0D) {
             parts.add(formatHours(result.missingPlaytimeHours()) + " more playtime");

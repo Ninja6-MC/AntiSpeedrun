@@ -29,6 +29,7 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 
+import com.ninja6.antispeedrun.progression.CreditRefresh;
 import com.ninja6.antispeedrun.storage.CreditSource;
 import com.ninja6.antispeedrun.storage.PersonalCredit;
 import com.ninja6.antispeedrun.storage.PersonalCreditStore;
@@ -57,7 +58,8 @@ import com.ninja6.antispeedrun.storage.PersonalCreditStore;
  * still written through {@link #atFurnace}, inline when this thread owns the block and on the
  * block's region otherwise. A smelt runs on the furnace's own region. The loader is credited by UUID
  * through {@link PersonalCreditStore}, which is safe from any thread; the loader's {@code Player} is
- * never touched.
+ * never touched here. A new credit goes to {@link CreditRefresh}, which hands the announcement to the
+ * loader's own scheduler when this region does not own them.
  */
 public final class FurnaceLoaderListener implements Listener {
 
@@ -66,13 +68,15 @@ public final class FurnaceLoaderListener implements Listener {
 
     private final Plugin plugin;
     private final PersonalCreditStore credits;
+    private final CreditRefresh refresh;
 
     /** The PDC key the stamp is stored under: {@code antispeedrun:furnace-loader}. */
     private final NamespacedKey loaderKey;
 
-    public FurnaceLoaderListener(Plugin plugin, PersonalCreditStore credits) {
+    public FurnaceLoaderListener(Plugin plugin, PersonalCreditStore credits, CreditRefresh refresh) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.credits = Objects.requireNonNull(credits, "credits");
+        this.refresh = Objects.requireNonNull(refresh, "refresh");
         this.loaderKey = new NamespacedKey(plugin, "furnace-loader");
     }
 
@@ -129,7 +133,11 @@ public final class FurnaceLoaderListener implements Listener {
             FurnaceLoaderRules.Smelt smelt = FurnaceLoaderRules.smelt(stamp);
             return new Update(smelt.after(), smelt.credited());
         });
-        credited.ifPresent(loader -> credits.record(loader, PersonalCredit.SMELTED_IRON, CreditSource.ACTION));
+        credited.ifPresent(loader -> {
+            if (credits.record(loader, PersonalCredit.SMELTED_IRON, CreditSource.ACTION)) {
+                refresh.changed(loader);
+            }
+        });
     }
 
     /**

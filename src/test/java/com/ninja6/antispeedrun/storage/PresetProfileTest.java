@@ -5,6 +5,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
@@ -77,6 +80,50 @@ class PresetProfileTest {
                             + "would fill an operator's log the moment they used it: "
                             + parsed.warnings());
         }
+    }
+
+    /**
+     * What a player-facing line must say, in some form, for a gate on each credited key (#216):
+     * the action that earns the credit, never the item the vanilla advancement fires on.
+     */
+    private static final Map<String, String> ACTION_WORDS = Map.of(
+            "minecraft:story/mine_stone", "stone with a pickaxe",
+            "minecraft:story/upgrade_tools", "stone pickaxe",
+            "minecraft:story/smelt_iron", "furnace you loaded yourself",
+            "minecraft:story/iron_tools", "craft an iron pickaxe yourself",
+            "minecraft:story/mine_diamond", "mine diamond ore",
+            "minecraft:nether/obtain_blaze_rod", "kill a blaze");
+
+    private static void namesActions(String where, List<String> keys, String text, List<String> misses) {
+        String plain = text.replaceAll("<[^>]*>", "").toLowerCase(Locale.ROOT);
+        for (String key : keys) {
+            String words = ACTION_WORDS.get(key);
+            if (words != null && !plain.contains(words)) {
+                misses.add(where + " requires " + key + " but does not say \"" + words + "\": " + text);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("every shipped rejection message and tier hint for a credited gate names the action")
+    void protectedGateCopyNamesTheAction() throws Exception {
+        List<PluginConfig> configs = new ArrayList<>();
+        configs.add(shipped());
+        for (Profile profile : ProfileApplier.applicable()) {
+            configs.add(preset(profile));
+        }
+        List<String> misses = new ArrayList<>();
+        for (PluginConfig config : configs) {
+            String name = config.profile().name();
+            PluginConfig.DimensionGate nether = config.dimensionGates().nether();
+            PluginConfig.DimensionGate end = config.dimensionGates().theEnd();
+            namesActions(name + " nether", nether.requireAdvancements(), nether.rejectionMessage(), misses);
+            namesActions(name + " the_end", end.requireAdvancements(), end.rejectionMessage(), misses);
+            for (PluginConfig.ItemTier tier : config.itemProgression().gatedItems()) {
+                namesActions(name + " " + tier.id(), tier.requireAdvancements(), tier.hint(), misses);
+            }
+        }
+        assertTrue(misses.isEmpty(), String.join("\n", misses));
     }
 
     @Test

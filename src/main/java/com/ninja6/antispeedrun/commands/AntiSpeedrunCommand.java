@@ -69,10 +69,12 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *       persistent data container, their statistics and their advancement progress.</li>
  *   <li>{@code unlock} mutates one volatile reference here and hands its file write to the store,
  *       which queues it asynchronously.</li>
- *   <li>{@code credit} runs on the <strong>async scheduler</strong>. It touches nothing a region
- *       owns: the credit record is keyed by UUID and legal from any thread, and resolving an
- *       offline player's name may read the server's profile data, which no region thread should
- *       wait on.</li>
+ *   <li>{@code credit} runs on the <strong>async scheduler</strong>, one change at a time in the
+ *       order issued, so a revoke followed at once by a grant cannot land the other way round. It
+ *       touches nothing a region owns: the credit record is keyed by UUID and legal from any
+ *       thread, and resolving an offline player's name may read the server's profile data, which no
+ *       region thread should wait on. The announcement of a gate the change opens goes to the
+ *       player's own scheduler, through {@code CreditRefresh}.</li>
  * </ul>
  *
  * <p>The configuration snapshot is read <strong>once</strong>, at the top of
@@ -95,10 +97,19 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
     /** What {@code /asr book} delegates to. */
     private final JourneyBookCommand book;
 
+    /**
+     * Where every {@code credit} change runs: on the async scheduler, one at a time, in the order
+     * the commands were issued. See {@link SerialExecutor}.
+     */
+    private final SerialExecutor credits;
+
     public AntiSpeedrunCommand(AntiSpeedrunPlugin plugin) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.progress = new ProgressCommand(plugin);
         this.book = new JourneyBookCommand(plugin);
+        this.credits = new SerialExecutor(
+                task -> plugin.getServer().getAsyncScheduler().runNow(plugin, scheduled -> task.run()),
+                plugin.getLogger());
     }
 
     // -----------------------------------------------------------------------------------------
@@ -457,11 +468,14 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
      * keyed by UUID and kept in the plugin's own file, not in the player's region. The store
      * publishes each change before returning, so every gate reading through it decides on the new
      * record from the next check on.
+     *
+     * <p>Changes are applied one at a time in the order the commands were issued, by
+     * {@link #credits}. Each runs on the async scheduler, whose tasks otherwise run concurrently and
+     * in no promised order.
      */
     private void credit(CommandSender sender, String[] args) {
         switch (CreditArgument.parse(args)) {
-            case CreditArgument.Change change -> plugin.getServer().getAsyncScheduler()
-                    .runNow(plugin, task -> applyCredit(sender, change));
+            case CreditArgument.Change change -> credits.execute(() -> applyCredit(sender, change));
             case CreditArgument.Invalid invalid -> reply(sender, switch (invalid.reason()) {
                 case MISSING_ACTION, MISSING_PLAYER, MISSING_CREDIT ->
                         "<red>Usage: <yellow>" + Subcommand.CREDIT.usage();
@@ -503,17 +517,17 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
     }
 
     /**
-     * Drops {@code player}'s cached progression snapshot after a grant or revoke.
+     * Refreshes {@code player}'s gates after a grant or revoke, through the same path the recorder
+     * uses (#216).
      *
      * <p>Every tier and dimension gate reads through {@code ProgressionManager}, which serves a
      * cached snapshot that only an advancement or a reload otherwise drops; a credit change fires
-     * neither, so without this an online player would keep the old answer until the entry expired.
-     * The invalidation is a remove on a thread-safe map, legal from this async task and harmless for
-     * an offline player or one in another region. #216 adds its refresh here; every changing path of
-     * {@code credit} already calls it.
+     * neither. {@code CreditRefresh} drops the snapshot at once, from this async task, and hands
+     * the announcement of anything that has just opened to the player's own scheduler. An offline
+     * player is told on their next join.
      */
     private void refreshCachedCredits(UUID player) {
-        plugin.progression().invalidate(player);
+        plugin.creditRefresh().changed(player);
     }
 
     /**

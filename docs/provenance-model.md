@@ -315,6 +315,14 @@ There is no upgrade migration. On an existing server every player earns the cred
 an admin grants them, so updating relocks every player's iron, Nether, diamond, netherite and
 End gates at once. The release notes and the CHANGELOG entry must warn about it.
 
+### Unlock refresh
+
+A recorded or revoked credit takes the path an earned advancement takes
+([#216](https://github.com/Ninja6-MC/AntiSpeedrun/issues/216)): the player's cached
+evaluation is dropped at once, and any gate that has just opened is announced, inline on the
+player's own region or handed to their scheduler when the credit was recorded elsewhere. A
+player who is offline is told on their next join.
+
 ### The recorder always runs
 
 The recorder runs regardless of the toggle and of the structure loot setting. Loot-sourced

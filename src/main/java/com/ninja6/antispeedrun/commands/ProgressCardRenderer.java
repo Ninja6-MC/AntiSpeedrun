@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ninja6.antispeedrun.config.PluginConfig.ItemProgression;
 import com.ninja6.antispeedrun.config.PluginConfig.SimpleCard;
 import com.ninja6.antispeedrun.progression.IdleReminderRules;
 import com.ninja6.antispeedrun.progression.IdleReminderRules.MilestoneProgress;
@@ -25,8 +26,8 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * <h2>The next step is not computed twice</h2>
  *
  * The {@code ➔ NEXT STEP:} line and the per-row detail both come from
- * {@link IdleReminderRules#nextStep(List)} and {@link IdleReminderRules#outstanding} rather than
- * from a second copy of that logic living here. A card and an idle reminder that disagreed about
+ * {@link IdleReminderRules#nextStep(List, ItemProgression)} and
+ * {@link IdleReminderRules#outstanding} rather than from a second copy of that logic living here. A card and an idle reminder that disagreed about
  * what a player owes a gate would be a real bug, and the ordinary way that happens is a second
  * implementation written because the first returned the wrong shape. So the shape moved instead.
  *
@@ -94,12 +95,13 @@ public final class ProgressCardRenderer {
      *
      * <p>A milestone that is outstanding but has nothing actionable — every remaining requirement
      * waived because this server cannot resolve it — still gets a row, with no detail. That case
-     * is the one {@link IdleReminderRules#nextStep(List)} deliberately says nothing about, because
+     * is the one {@link IdleReminderRules#nextStep(List, ItemProgression)} deliberately says nothing about, because
      * a reminder with a blank next step is a nag with no content. A card is different: leaving the
      * milestone out entirely would tell the player it does not exist.
      */
-    public static List<Row> rows(List<MilestoneProgress> progress) {
+    public static List<Row> rows(List<MilestoneProgress> progress, ItemProgression items) {
         Objects.requireNonNull(progress, "progress");
+        Objects.requireNonNull(items, "items");
         List<Row> rows = new ArrayList<>(progress.size());
         boolean seenOutstanding = false;
         for (MilestoneProgress entry : progress) {
@@ -110,7 +112,7 @@ public final class ProgressCardRenderer {
             Status status = seenOutstanding ? Status.LOCKED : Status.IN_PROGRESS;
             seenOutstanding = true;
             rows.add(new Row(status, entry.milestone().displayName(),
-                    IdleReminderRules.outstanding(entry.result())));
+                    IdleReminderRules.outstanding(entry.result(), items)));
         }
         return List.copyOf(rows);
     }
@@ -127,11 +129,14 @@ public final class ProgressCardRenderer {
      * @param playerName the viewer's name, for the header
      * @param progress   every milestone with the verdict on it, in configured order
      * @param style      which shape to draw
+     * @param items      the snapshot's item progression, which says how credited advancements are
+     *                   named
      */
-    public static List<String> card(String playerName, List<MilestoneProgress> progress, Style style) {
+    public static List<String> card(String playerName, List<MilestoneProgress> progress, Style style,
+                                    ItemProgression items) {
         Objects.requireNonNull(playerName, "playerName");
         Objects.requireNonNull(style, "style");
-        List<Row> rows = rows(progress);
+        List<Row> rows = rows(progress, items);
 
         List<String> lines = new ArrayList<>(rows.size() + 3);
         lines.add(header(playerName));
@@ -143,7 +148,7 @@ public final class ProgressCardRenderer {
         for (Row row : rows) {
             lines.add(line(row, style));
         }
-        IdleReminderRules.nextStep(progress)
+        IdleReminderRules.nextStep(progress, items)
                 .ifPresentOrElse(step -> lines.add(nextStep(step, style)),
                         () -> lines.add(finished(style)));
         return List.copyOf(lines);

@@ -27,7 +27,7 @@ dimension-gates:
     require-playtime-hours: 0          # Advancement-driven. CASUAL never gates on time.
     require-advancements:
       - "minecraft:story/smelt_iron"
-    rejection-message: "<red>🔒 The Nether is locked! Requires <yellow>Iron Gear<red> (Smelt an iron ingot). Type <gold>/progress"
+    rejection-message: "<red>🔒 The Nether is locked! <yellow>Mine iron ore<red> and smelt it in a furnace <yellow>you loaded yourself<red>. Type <gold>/progress"
 
   the_end:
     enabled: true
@@ -37,7 +37,7 @@ dimension-gates:
     # and beaten a blaze has done the interesting part of the journey.
     require-advancements:
       - "minecraft:nether/obtain_blaze_rod"
-    rejection-message: "<red>🔒 The End is sealed! Find a Nether Fortress and beat a Blaze first. Type <gold>/progress"
+    rejection-message: "<red>🔒 The End is sealed! Find a <yellow>Nether Fortress<red> and <yellow>kill a Blaze<red> yourself first. Type <gold>/progress"
 
 # 2. Anti-Boosting & Item Progression Gating
 item-progression:
@@ -88,7 +88,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/mine_stone"
       require-playtime-hours: 0
-      hint: "Mine Stone with a wooden pickaxe (Stone Age)"
+      hint: "Mine natural stone with a pickaxe yourself (Stone Age)"
 
     diamond-tier:
       match-patterns:
@@ -99,7 +99,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/iron_tools"
       require-playtime-hours: 0
-      hint: "Craft an Iron Pickaxe"
+      hint: "Craft an Iron Pickaxe yourself"
 
     nether-tier:
       items:
@@ -132,7 +132,7 @@ item-progression:
         - "minecraft:nether/obtain_blaze_rod"
       require-playtime-hours: 0
       require-account-age-days: 0
-      hint: "Unlock The End Gate"
+      hint: "Kill a Blaze yourself"
 
     netherite-tier:
       match-patterns:
@@ -146,7 +146,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/mine_diamond"
         - "minecraft:nether/obtain_blaze_rod"
-      hint: "Mine Diamonds & Explore the Nether"
+      hint: "Mine diamond ore and kill a Blaze yourself"
 
 # 3. Armor Trim & Smithing Template Progression
 trim-progression:

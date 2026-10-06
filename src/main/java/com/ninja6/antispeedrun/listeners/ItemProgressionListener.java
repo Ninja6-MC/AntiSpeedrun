@@ -1031,7 +1031,8 @@ public final class ItemProgressionListener implements Listener {
         String line = ItemGateRules.rejection(
                 config.itemProgression().rejectionMessage(),
                 mini.escapeTags(ItemGateRules.friendlyName(material.name())),
-                mini.escapeTags(ItemGateRules.requirementText(hint, result)));
+                mini.escapeTags(ItemGateRules.requirementText(hint, result,
+                        config.itemProgression())));
         player.sendActionBar(mini.deserialize(line));
         result.fallbackHint().ifPresent(fallback ->
                 player.sendMessage(mini.deserialize("<gray>" + mini.escapeTags(fallback))));

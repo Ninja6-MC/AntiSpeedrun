@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.PluginConfig.ItemTier;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
 
@@ -24,6 +25,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the answer. What is worth testing is in this file.
  */
 class ItemGateRulesTest {
+
+    private static final PluginConfig.ItemProgression ITEMS =
+            PluginConfig.defaults().itemProgression();
 
     private static final boolean TOP = true;
     private static final boolean BOTTOM = false;
@@ -187,38 +191,48 @@ class ItemGateRulesTest {
         @Test
         @DisplayName("a configured hint wins outright")
         void hintWins() {
-            ItemTier iron = tier("iron-tier", "Mine Stone with a wooden pickaxe (Stone Age)");
+            ItemTier iron = tier("iron-tier", "Mine natural stone with a pickaxe yourself (Stone Age)");
             String text = ItemGateRules.requirementText(iron.hint(),
-                    blocked(List.of("minecraft:story/mine_stone"), 0.0D, 0));
-            assertEquals("Mine Stone with a wooden pickaxe (Stone Age)", text);
+                    blocked(List.of("minecraft:story/mine_stone"), 0.0D, 0), ITEMS);
+            assertEquals("Mine natural stone with a pickaxe yourself (Stone Age)", text);
         }
 
         @Test
         @DisplayName("with no hint, the outstanding advancements are named")
         void fallsBackToAdvancements() {
             String text = ItemGateRules.requirementText("",
-                    blocked(List.of("minecraft:story/smelt_iron"), 0.0D, 0));
-            assertEquals("minecraft:story/smelt_iron", text);
+                    blocked(List.of("minecraft:story/enchant_item"), 0.0D, 0), ITEMS);
+            assertEquals("minecraft:story/enchant_item", text);
+        }
+
+        @Test
+        @DisplayName("with no hint, a credited advancement is named by its action")
+        void fallsBackToTheCreditedAction() {
+            String text = ItemGateRules.requirementText("",
+                    blocked(List.of("minecraft:story/iron_tools", "minecraft:story/enchant_item"),
+                            1.0D, 0), ITEMS);
+            assertEquals("craft an iron pickaxe yourself and minecraft:story/enchant_item and "
+                    + "1h more playtime", text);
         }
 
         @Test
         @DisplayName("playtime and account age join the sentence, and whole hours lose the decimal")
         void fallsBackToTime() {
             assertEquals("2h more playtime",
-                    ItemGateRules.requirementText("", blocked(List.of(), 2.0D, 0)));
+                    ItemGateRules.requirementText("", blocked(List.of(), 2.0D, 0), ITEMS));
             assertEquals("1.5h more playtime",
-                    ItemGateRules.requirementText("", blocked(List.of(), 1.5D, 0)));
+                    ItemGateRules.requirementText("", blocked(List.of(), 1.5D, 0), ITEMS));
             assertEquals("1 more day on this server",
-                    ItemGateRules.requirementText("", blocked(List.of(), 0.0D, 1)));
+                    ItemGateRules.requirementText("", blocked(List.of(), 0.0D, 1), ITEMS));
             assertEquals("3 more days on this server",
-                    ItemGateRules.requirementText("", blocked(List.of(), 0.0D, 3)));
+                    ItemGateRules.requirementText("", blocked(List.of(), 0.0D, 3), ITEMS));
         }
 
         @Test
         @DisplayName("several outstanding requirements read as one clause")
         void fallbackJoinsParts() {
             String text = ItemGateRules.requirementText("",
-                    blocked(List.of("a", "b"), 2.0D, 1));
+                    blocked(List.of("a", "b"), 2.0D, 1), ITEMS);
             assertEquals("a, b and 2h more playtime and 1 more day on this server", text);
         }
 
@@ -231,7 +245,7 @@ class ItemGateRulesTest {
         @DisplayName("nothing actionable still produces a line rather than a blank")
         void neverBlank() {
             String text = ItemGateRules.requirementText("",
-                    new EligibilityResult(false, List.of(), List.of("minecraft:nope"), 0.0D, 0, false));
+                    new EligibilityResult(false, List.of(), List.of("minecraft:nope"), 0.0D, 0, false), ITEMS);
             assertEquals("further progression", text);
         }
 
@@ -245,13 +259,13 @@ class ItemGateRulesTest {
             EligibilityResult result = blocked(List.of("minecraft:story/cure_zombie_villager"),
                     0.0D, 0);
             assertEquals("Cure a Zombie Villager",
-                    ItemGateRules.requirementText("Cure a Zombie Villager", result));
+                    ItemGateRules.requirementText("Cure a Zombie Villager", result, ITEMS));
             assertEquals("minecraft:story/cure_zombie_villager",
-                    ItemGateRules.requirementText("", result));
+                    ItemGateRules.requirementText("", result, ITEMS));
             assertEquals("minecraft:story/cure_zombie_villager",
-                    ItemGateRules.requirementText("   ", result));
-            assertEquals(ItemGateRules.outstanding(result),
-                    ItemGateRules.requirementText("", result));
+                    ItemGateRules.requirementText("   ", result, ITEMS));
+            assertEquals(ItemGateRules.outstanding(result, ITEMS),
+                    ItemGateRules.requirementText("", result, ITEMS));
         }
     }
 

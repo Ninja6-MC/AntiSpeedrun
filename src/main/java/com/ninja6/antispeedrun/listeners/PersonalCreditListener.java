@@ -24,6 +24,7 @@ import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.world.LootGenerateEvent;
 import org.bukkit.inventory.ItemStack;
 
+import com.ninja6.antispeedrun.progression.CreditRefresh;
 import com.ninja6.antispeedrun.storage.CreditSource;
 import com.ninja6.antispeedrun.storage.PersonalCredit;
 import com.ninja6.antispeedrun.storage.PersonalCreditStore;
@@ -52,6 +53,9 @@ import com.ninja6.antispeedrun.storage.PlacedBlockRegistry;
  * their {@code Player} is read inline. The looting player of a container or vault, and the killer
  * of a blaze, may be owned by another region: from those only the UUID and the server's plugin
  * metadata store (which has its own lock and no region state) are read.
+ *
+ * <p>Every credit the store reports as new goes to {@link CreditRefresh}, which opens and announces
+ * the gate inline when this thread owns the player and on the player's own scheduler otherwise.
  */
 public final class PersonalCreditListener implements Listener {
 
@@ -60,11 +64,14 @@ public final class PersonalCreditListener implements Listener {
 
     private final PersonalCreditStore credits;
     private final PlacedBlockRegistry placedBlocks;
+    private final CreditRefresh refresh;
     private final BreakVerdicts verdicts = new BreakVerdicts();
 
-    public PersonalCreditListener(PersonalCreditStore credits, PlacedBlockRegistry placedBlocks) {
+    public PersonalCreditListener(PersonalCreditStore credits, PlacedBlockRegistry placedBlocks,
+                                  CreditRefresh refresh) {
         this.credits = Objects.requireNonNull(credits, "credits");
         this.placedBlocks = Objects.requireNonNull(placedBlocks, "placedBlocks");
+        this.refresh = Objects.requireNonNull(refresh, "refresh");
     }
 
     /**
@@ -104,7 +111,7 @@ public final class PersonalCreditListener implements Listener {
                     && !block.getDrops(tool, player).isEmpty();
         }
         if (PersonalCreditRules.minedEarns(credit, placed, pickaxe, drops)) {
-            credits.record(player.getUniqueId(), credit, CreditSource.ACTION);
+            record(player.getUniqueId(), credit, CreditSource.ACTION);
         }
     }
 
@@ -145,7 +152,7 @@ public final class PersonalCreditListener implements Listener {
         InventoryType grid = event.getInventory().getType();
         boolean craftingGrid = grid == InventoryType.WORKBENCH || grid == InventoryType.CRAFTING;
         PersonalCreditRules.crafted(result, craftingGrid)
-                .ifPresent(credit -> credits.record(player.getUniqueId(), credit, CreditSource.ACTION));
+                .ifPresent(credit -> record(player.getUniqueId(), credit, CreditSource.ACTION));
     }
 
     /** A blaze the player killed. */
@@ -156,7 +163,7 @@ public final class PersonalCreditListener implements Listener {
         }
         Player killer = event.getEntity().getKiller();
         if (killer != null && creditable(killer)) {
-            credits.record(killer.getUniqueId(), PersonalCredit.OBTAIN_BLAZE_ROD, CreditSource.ACTION);
+            record(killer.getUniqueId(), PersonalCredit.OBTAIN_BLAZE_ROD, CreditSource.ACTION);
         }
     }
 
@@ -167,8 +174,19 @@ public final class PersonalCreditListener implements Listener {
                 items.add(item.getType());
             }
         }
+        boolean changed = false;
         for (PersonalCredit credit : PersonalCreditRules.looted(items)) {
-            credits.record(player, credit, CreditSource.LOOT);
+            changed |= credits.record(player, credit, CreditSource.LOOT);
+        }
+        if (changed) {
+            refresh.changed(player);
+        }
+    }
+
+    /** Records one credit, refreshing the player's gates if it is new. */
+    private void record(UUID player, PersonalCredit credit, CreditSource source) {
+        if (credits.record(player, credit, source)) {
+            refresh.changed(player);
         }
     }
 

@@ -14,7 +14,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import com.ninja6.antispeedrun.config.CreditedActions;
 import com.ninja6.antispeedrun.config.PluginConfig.IdleReminder;
+import com.ninja6.antispeedrun.config.PluginConfig.ItemProgression;
 
 /**
  * Every decision the idle reminder makes, with no Bukkit type anywhere in the signature.
@@ -515,14 +517,18 @@ public final class IdleReminderRules {
      * treats those as satisfied, so such a milestone cannot in fact be outstanding; the guard is
      * there so that a future requirement kind this method does not know how to describe produces
      * silence rather than a milestone name followed by nothing.
+     *
+     * @param items the snapshot's item progression, which says whether a credited advancement is
+     *              named by the action that earns it; see {@link CreditedActions}
      */
-    public static Optional<String> nextStep(List<MilestoneProgress> progress) {
+    public static Optional<String> nextStep(List<MilestoneProgress> progress, ItemProgression items) {
         Objects.requireNonNull(progress, "progress");
+        Objects.requireNonNull(items, "items");
         for (MilestoneProgress entry : progress) {
             if (entry.result().eligible()) {
                 continue;
             }
-            Optional<String> outstanding = outstanding(entry.result());
+            Optional<String> outstanding = outstanding(entry.result(), items);
             if (outstanding.isEmpty()) {
                 continue;
             }
@@ -541,18 +547,21 @@ public final class IdleReminderRules {
      * happens is a second implementation written because the first returned the wrong shape.
      *
      * @return the clauses joined with "and", or empty when nothing outstanding is actionable
-     * @see #nextStep(List)
+     * @see #nextStep(List, ItemProgression)
      */
-    public static Optional<String> outstanding(EligibilityResult result) {
-        List<String> clauses = clauses(Objects.requireNonNull(result, "result"));
+    public static Optional<String> outstanding(EligibilityResult result, ItemProgression items) {
+        List<String> clauses = clauses(Objects.requireNonNull(result, "result"),
+                Objects.requireNonNull(items, "items"));
         return clauses.isEmpty() ? Optional.empty() : Optional.of(String.join(" and ", clauses));
     }
 
     /** The outstanding requirements of one verdict, in the order a player would tackle them. */
-    private static List<String> clauses(EligibilityResult result) {
+    private static List<String> clauses(EligibilityResult result, ItemProgression items) {
         List<String> clauses = new ArrayList<>(3);
-        if (!result.missingAdvancements().isEmpty()) {
-            clauses.add("earn " + String.join(", ", result.missingAdvancements()));
+        CreditedActions.Split missing = CreditedActions.split(result.missingAdvancements(), items);
+        clauses.addAll(missing.actions());
+        if (!missing.advancements().isEmpty()) {
+            clauses.add("earn " + String.join(", ", missing.advancements()));
         }
         if (result.missingPlaytimeHours() > 0.0D) {
             clauses.add(hours(result.missingPlaytimeHours()) + " more playtime");
