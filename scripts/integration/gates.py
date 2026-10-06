@@ -26,6 +26,15 @@ GATES = "dimension-gates"
 ITEMS = "item-progression"
 NETHER_GATE = "minecraft:story/smelt_iron"
 DIAMOND_TIER = "minecraft:story/iron_tools"
+# The advancements answered from personal credits, and the /asr credit word for each.
+CREDITED = {
+    "minecraft:story/mine_stone": "mine-stone",
+    "minecraft:story/smelt_iron": "smelt-iron",
+    "minecraft:story/iron_tools": "iron-tools",
+    "minecraft:story/upgrade_tools": "upgrade-tools",
+    "minecraft:story/mine_diamond": "mine-diamond",
+    "minecraft:nether/obtain_blaze_rod": "obtain-blaze-rod",
+}
 LOCKED_NETHER = "Nether is locked"
 LOCKED_ITEM = "cannot pick up"
 
@@ -78,10 +87,19 @@ class GateProbes(Probes):
     # ------------------------------------------------------------------ helpers
 
     def progression(self, *advancements):
-        """Revokes every advancement, grants only those named, and drops cached evaluations."""
+        """Revokes every advancement and personal credit, grants only those named, and drops
+        cached evaluations.
+
+        A possession-triggered key is answered from personal credits while
+        item-progression.require-personal-credit is on (#215), so the matching credit is granted
+        beside the advancement; the advancement grant is kept for every other key.
+        """
         self.run(f"advancement revoke {self.player} everything")
+        self.run(f"asr credit revoke {self.player} all")
         for key in advancements:
             self.run(f"advancement grant {self.player} only {key}")
+            if key in CREDITED:
+                self.run(f"asr credit grant {self.player} {CREDITED[key]}")
         # A revoke fires no event, so the plugin's progression cache only forgets on a reload.
         self.reload()
         self.client.request("messages")
