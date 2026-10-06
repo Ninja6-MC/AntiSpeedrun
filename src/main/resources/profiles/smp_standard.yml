@@ -210,7 +210,7 @@ boss-scaling:
 # 7. Anti-Cheese Engine
 anti-cheese:
   enabled: true
-  block-bed-anchor-boss-damage: false  # Off until the v0.2.0/v0.3.0 playtest. Cancels DamageType.BAD_RESPAWN_POINT against bosses
+  block-bed-anchor-boss-damage: false  # Off until the v0.2.0 playtest. Cancels DamageType.BAD_RESPAWN_POINT against bosses
   # Off by default; set true to enforce max-single-hit-boss-damage.
   cap-single-hit-boss-damage: false
   # Time-to-kill budget, not just an anti-1-shot guard. The Ender Dragon has 200 HP and
@@ -221,7 +221,7 @@ anti-cheese:
   # MiniMessage. A legacy § code is refused at load; the default is used.
   early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
   block-exit-portal-crystal-place: false
-  block-gateway-pre-dragon: false      # Off until the v0.2.0/v0.3.0 playtest. Block bridging, pearling & chorus fruit to the Outer End
+  block-gateway-pre-dragon: false      # Off until the v0.2.0 playtest. Block bridging, pearling & chorus fruit to the Outer End
   outer-end-radius: 500                # Boundary enforced until the world's first dragon dies
   outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
 
