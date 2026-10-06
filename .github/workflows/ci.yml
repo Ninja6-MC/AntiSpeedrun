@@ -294,7 +294,7 @@ jobs:
           cache-dependency-path: scripts/integration/client/package-lock.json
 
       - name: Install Scripted Player
-        run: npm ci --prefix scripts/integration/client --no-audit --no-fund
+        run: npm ci --prefix scripts/integration/client --ignore-scripts --no-audit --no-fund
 
       - name: Download Built JAR
         uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v5.0.0
