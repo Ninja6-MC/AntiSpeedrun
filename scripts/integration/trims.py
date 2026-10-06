@@ -23,6 +23,8 @@ from harness import ProbeError
 from probes import OVERWORLD
 
 RULE = "trim unlock"
+CITY_ID = "trim:ancient_city"
+CITY_LOOT_ID = "trim:ancient_city/loot"
 TRIMS = "trim-progression"
 SNEAK_ADVANCEMENT = "minecraft:adventure/avoid_vibration"
 BASTION_ADVANCEMENT = "minecraft:nether/find_bastion"
@@ -105,6 +107,40 @@ class TrimProbes(CreditProbes):
         # A revoke fires no event, so the plugin's progression cache only forgets on a reload.
         self.reload()
 
+    def explored(self, clear=False):
+        """The trim structure ids AntiSpeedrun has recorded for the player; with clear, every one is
+        cleared first. Clearing is what isolates these probes: the player may have stood in an Ancient
+        City before they run, at the world spawn among others, which the Deep Dark world can put on
+        top of one."""
+        query = f"x{next(self._queries)}"
+        verb = "clear" if clear else "show"
+        match = self.server.query(f"asrprobe explored {self.player} {verb} {query}",
+                                  rf"ASRPROBE explored query={query} (?P<rest>[^\r\n]*)")
+        rest = match.group("rest")
+        if not rest.startswith("ids="):
+            raise ProbeError(f"/asrprobe explored answered {rest}")
+        ids = rest[len("ids="):]
+        return set() if ids == "none" else set(ids.split(","))
+
+    def isolate(self):
+        """The player's explored record cleared and moved to the box, far above any city, and the
+        record checked still empty once the Ancient City watch has had time to run there."""
+        self.tp(OVERWORLD, TX + 0.5, TY, TZ + 0.5)
+        before = self.explored()
+        if before:
+            self.results.note(f"the player's explored record before the trim probes cleared it: {sorted(before)}")
+        left = self.explored(clear=True)
+        time.sleep(3)
+        left |= self.explored()
+        if left:
+            raise ProbeError(f"the player's explored record did not stay clear: {sorted(left)}")
+
+    def expect_unrecorded(self, label):
+        """The regression guard on each negative: nothing recorded the Ancient City meanwhile."""
+        ids = self.explored()
+        self.results.check(RULE, f"{label} (nothing recorded)", not ids & {CITY_ID, CITY_LOOT_ID},
+                           f"recorded {sorted(ids) or 'none'}")
+
     def done(self, key):
         query = f"a{next(self._queries)}"
         match = self.server.query(f"asrprobe advancement {self.player} {key} {query}",
@@ -177,6 +213,7 @@ class TrimProbes(CreditProbes):
         # player sneaking past it, which is all Sneak 100 asks. A crouching player on the ground makes
         # no vibrations at all, so the player hops as it goes, as a player earning it does.
         self.advancements()
+        self.isolate()
         self.setblock(SENSOR, "sculk_sensor")
         self.tp(OVERWORLD, TX - 4.5, TY, TZ + 0.5, -90, 0)
         walked = self.client.request("walk", toward=[TX + 5, TY + 1.6, TZ + 0.5], ms=4000, sneak=True,
@@ -185,12 +222,14 @@ class TrimProbes(CreditProbes):
         if not self.done(SNEAK_ADVANCEMENT):
             raise ProbeError(f"sneaking past the Sculk Sensor did not earn adventure/avoid_vibration: walked to "
                              f"{walked.get('position')}, server has {self.where()}")
-        self.expect_template(f"{label}: sneaking past a Sculk Sensor placed outside any Ancient City "
-                             "(adventure/avoid_vibration earned) does not unlock them",
-                             "silence_armor_trim_smithing_template", False)
+        name = f"{label}: sneaking past a Sculk Sensor placed outside any Ancient City " \
+               "(adventure/avoid_vibration earned) does not unlock them"
+        self.expect_unrecorded(name)
+        self.expect_template(name, "silence_armor_trim_smithing_template", False)
         self.advancements(SNEAK_ADVANCEMENT)
-        self.expect_template(f"{label}: adventure/avoid_vibration granted by command does not unlock them",
-                             "ward_armor_trim_smithing_template", False)
+        name = f"{label}: adventure/avoid_vibration granted by command does not unlock them"
+        self.expect_unrecorded(name)
+        self.expect_template(name, "ward_armor_trim_smithing_template", False)
         self.advancements()
 
         # Deep Dark depth in the overworld, but below the city rather than in it.
@@ -200,8 +239,10 @@ class TrimProbes(CreditProbes):
             raise ProbeError(f"the city's pieces reach the world floor, leaving no point under them: {found}")
         self.tp(OVERWORLD, x + 0.5, FLOOR, z + 0.5)
         time.sleep(4)
-        self.expect_template(f"{label}: standing at Deep Dark depth under an Ancient City, outside its pieces, "
-                             "does not unlock them", "silence_armor_trim_smithing_template", False)
+        name = f"{label}: standing at Deep Dark depth under an Ancient City, outside its pieces, " \
+               "does not unlock them"
+        self.expect_unrecorded(name)
+        self.expect_template(name, "silence_armor_trim_smithing_template", False)
 
         # Loot from an Ancient City chest the player opens first, while count-structure-loot is on.
         self.tp(OVERWORLD, TX + 0.5, TY, TZ + 0.5)

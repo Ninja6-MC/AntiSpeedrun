@@ -105,6 +105,7 @@ def main(argv=None):
     parser.add_argument("--boot-timeout", type=int, default=300)
     parser.add_argument("--deadline", type=int, default=1500, help="seconds the whole run may take")
     parser.add_argument("--label", default="server")
+    parser.add_argument("--seed", help="the world seed, to repeat a run that depended on where things generated")
     parser.add_argument("--probe", action="append", choices=PROBES,
                         help="run only this probe; repeatable (default: all)")
     args = parser.parse_args(argv)
@@ -120,7 +121,8 @@ def main(argv=None):
     summary = {"label": args.label, "client_version": args.client_version, "via": args.via}
     plugins = [args.plugin_jar, args.probe_jar]
     server = Server(os.path.join(workdir, "server"), args.server_jar, plugins, java=args.java,
-                    memory=args.memory, port=args.port)
+                    memory=args.memory, port=args.port,
+                    properties={"level-seed": args.seed} if args.seed else None)
     client = Client("127.0.0.1", args.port, PLAYER, args.client_version,
                     os.path.join(workdir, "client.log"), node=args.node)
     expired = threading.Event()

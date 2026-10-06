@@ -12,7 +12,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import com.destroystokyo.paper.event.entity.EntityRemoveFromWorldEvent;
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
+import com.ninja6.antispeedrun.progression.TrimProgressionManager;
 import com.ninja6.antispeedrun.storage.CreditSource;
+import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 import com.ninja6.antispeedrun.storage.PersonalCredit;
 import com.ninja6.antispeedrun.storage.PersonalCreditStore;
 import io.papermc.paper.registry.RegistryAccess;
@@ -87,11 +89,17 @@ import org.bukkit.util.BoundingBox;
  * block yields a known item through the server's own path, {@code nodrops} disables the drops of a
  * player's next block break, as a protection plugin may, and {@code npc} sets the {@code NPC}
  * metadata an NPC plugin would. For the trim probes, {@code structure} reports what the structure
- * API returns for a chunk and {@code enter} moves a player into a piece of a generated structure.
+ * API returns for a chunk, {@code enter} moves a player into a piece of a generated structure and
+ * {@code explored} reads or clears the trim structures recorded for a player.
  */
 public final class ProbePlugin extends JavaPlugin implements Listener {
 
     private static final String BYPASS = "antispeedrun.bypass.anticheese";
+
+    /** Every id AntiSpeedrun's explored-structure store can hold. */
+    private static final List<String> EXPLORED_IDS = List.of(
+            TrimProgressionManager.ANCIENT_CITY.id(), TrimProgressionManager.ANCIENT_CITY_LOOT_ID,
+            TrimProgressionManager.BASTION.id(), TrimProgressionManager.END_CITY.id());
 
     /** The scoreboard tag a probe gives every entity it summons and later asks about. */
     private static final String TAG = "asrp";
@@ -136,6 +144,9 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             log("nodrops armed=" + args[1]);
         } else if (args.length == 3 && args[0].equals("npc") && (args[2].equals("on") || args[2].equals("off"))) {
             npc(args[1], args[2].equals("on"));
+        } else if (args.length == 4 && args[0].equals("explored")
+                && (args[2].equals("show") || args[2].equals("clear"))) {
+            explored(args[1], args[2].equals("clear"), args[3]);
         } else if (args.length == 4 && args[0].equals("advancement")) {
             advancement(args[1], args[2], args[3]);
         } else if (args.length == 6 && args[0].equals("structure")) {
@@ -148,7 +159,7 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                     + "| near|remove <dimension> <x> <y> <z> <radius> <entity-type> <item-or-any> <query> "
                     + "| credits <player> <query> | container <dimension> <x> <y> <z> <query> "
                     + "| loot <material> <count> | loot off | nodrops <player> | npc <player> on|off "
-                    + "| advancement <player> <key> <query> "
+                    + "| advancement <player> <key> <query> | explored <player> show|clear <query> "
                     + "| structure <dimension> <structure> <x> <z> <query> "
                     + "| enter <player> <dimension> <structure> <x> <z> <query>");
         }
@@ -269,6 +280,35 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         }
         nextLoot.set(new ItemStack(material, Integer.parseInt(args[2])));
         log("loot armed=" + material.name() + ":" + args[2]);
+    }
+
+    /**
+     * Logs the trim structures AntiSpeedrun's store has recorded for a player, after clearing
+     * every one of them first with {@code clear}, so a probe starts from a known record.
+     */
+    private void explored(String name, boolean clear, String query) {
+        if (!(Bukkit.getPluginManager().getPlugin("AntiSpeedrun") instanceof AntiSpeedrunPlugin target)) {
+            log("explored query=" + query + " no-antispeedrun");
+            return;
+        }
+        Player online = Bukkit.getPlayerExact(name);
+        OfflinePlayer player = online != null ? online : Bukkit.getOfflinePlayerIfCached(name);
+        if (player == null) {
+            log("explored query=" + query + " unknown-player");
+            return;
+        }
+        ExploredStructureStore store = target.exploredStructures();
+        UUID id = player.getUniqueId();
+        List<String> ids = new ArrayList<>();
+        for (String structure : EXPLORED_IDS) {
+            if (clear) {
+                store.record(id, structure, false);
+            }
+            if (store.hasExplored(id, structure)) {
+                ids.add(structure);
+            }
+        }
+        log("explored query=" + query + " ids=" + (ids.isEmpty() ? "none" : String.join(",", ids)));
     }
 
     /** Logs whether a player has completed an advancement, read on the thread that owns them. */

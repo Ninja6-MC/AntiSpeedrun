@@ -98,7 +98,7 @@ of the way. It always has Resistance V, so explosions beside it do not end the r
 | `trims.py` | The trim structure probes. |
 | `anti_cheese.py` | The section 7 probes. |
 | `client/` | The scripted player: a [mineflayer](https://github.com/PrismarineJS/mineflayer) client that takes one JSON request per line from `run.py`. |
-| `src/probe/` (repository root) | `AntiSpeedrunProbe`, a test-only plugin that logs one `ASRPROBE` line per boss damage event, crystal click, pickup attempt, container click, trade selection, portal event, world change and loot generation, and answers the harness's console queries (`/asrprobe`), a player's personal credits and advancements and what the structure API reports among them. Apart from the plugin teleports `teleports` and the trim probes' `enter` ask of it, announced through `expectTeleport` for one of them, the one-shot loot replacement and the `NPC` metadata the credit probes ask of it, it changes nothing. Never install it on a real server. |
+| `src/probe/` (repository root) | `AntiSpeedrunProbe`, a test-only plugin that logs one `ASRPROBE` line per boss damage event, crystal click, pickup attempt, container click, trade selection, portal event, world change and loot generation, and answers the harness's console queries (`/asrprobe`), a player's personal credits and advancements, explored trim structures and what the structure API reports among them. Apart from the plugin teleports `teleports` and the trim probes' `enter` ask of it, announced through `expectTeleport` for one of them, the one-shot loot replacement and the `NPC` metadata the credit probes ask of it, it changes nothing. Never install it on a real server. |
 
 ## Running it
 
@@ -188,6 +188,10 @@ Server behaviours that already cost a cycle:
 * from 1.21.3 mineflayer reports sneaking only in `player_input`, which servers before 1.21.6
   ignore, so the server never sees the player sneak; `walk` also sends the older
   `entity_action` there;
+* the world spawn can land inside an Ancient City, so a player may be recorded as having
+  explored one on joining; the trim probes clear the record with `/asrprobe explored ... clear`
+  first and check after each negative case that nothing recorded it, and `--seed` repeats a
+  run's world;
 * the probe's Ancient City is placed by vanilla's random spread rule for the
   `minecraft:ancient_cities` set (spacing 24, separation 8, salt 20083232) from the seed
   `/seed` reports, which `trims.city_chunk` reproduces, so the probe enters a generated city.

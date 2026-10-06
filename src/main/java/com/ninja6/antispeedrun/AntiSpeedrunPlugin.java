@@ -150,6 +150,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     /** The personal-action credits each player has earned (#213), keyed by UUID. */
     private volatile PersonalCreditStore personalCredits;
 
+    /** Which trim structures each player has explored (#18, #221), keyed by UUID. */
+    private volatile ExploredStructureStore exploredStructures;
+
     /** The credit-changed path (#216). Null before {@code onEnable} assigns it. */
     private volatile CreditRefresh creditRefresh;
 
@@ -293,7 +296,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // Which trim structures each player has explored (#18). Read before any trim lock exists,
         // so a Crafter whose owner is offline works from the first tick, and so the Ancient City,
         // which only this record proves (#221), is known to every lock at once.
-        ExploredStructureStore exploredStructures = new ExploredStructureStore(
+        this.exploredStructures = new ExploredStructureStore(
                 getLogger(),
                 exploredFile,
                 write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
@@ -472,6 +475,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     public PersonalCreditStore personalCredits() {
         return personalCredits;
+    }
+
+    /**
+     * Which trim structures each player has explored (#18, #221), the Ancient City's only proof.
+     * Keyed by UUID; reading and recording are legal from any thread.
+     */
+    public ExploredStructureStore exploredStructures() {
+        return exploredStructures;
     }
 
     /**
