@@ -5,13 +5,16 @@ import java.io.InputStream;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.UUID;
 import java.util.logging.Level;
 
+import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -26,6 +29,7 @@ import com.ninja6.antispeedrun.progression.Milestone;
 import com.ninja6.antispeedrun.progression.PlayerProgressionSnapshot;
 import com.ninja6.antispeedrun.storage.BypassStore;
 import com.ninja6.antispeedrun.storage.DimensionUnlock;
+import com.ninja6.antispeedrun.storage.PersonalCredit;
 import com.ninja6.antispeedrun.storage.ProfileApplier;
 
 import net.kyori.adventure.text.Component;
@@ -34,8 +38,8 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 /**
  * {@code /antispeedrun} (alias {@code /asr}) — the administrative dispatcher, Task 8.1.1 (#40).
  *
- * <p>Five administrative subcommands — {@code reload}, {@code profile apply}, {@code unlock},
- * {@code bypass} and {@code inspect} — each gated on its own {@code antispeedrun.admin.*} node from
+ * <p>Six administrative subcommands — {@code reload}, {@code profile apply}, {@code unlock},
+ * {@code bypass}, {@code inspect} and {@code credit} — each gated on its own {@code antispeedrun.admin.*} node from
  * {@code plugin.yml}, mapped once in {@link Subcommand}; the parsing and the completion grammar
  * live in {@link Subcommand}, {@link BypassDuration} and {@link CommandCompletion}, which are
  * Bukkit-free and unit tested. What is left here is dispatch, threading and message rendering.
@@ -65,6 +69,10 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *       persistent data container, their statistics and their advancement progress.</li>
  *   <li>{@code unlock} mutates one volatile reference here and hands its file write to the store,
  *       which queues it asynchronously.</li>
+ *   <li>{@code credit} runs on the <strong>async scheduler</strong>. It touches nothing a region
+ *       owns: the credit record is keyed by UUID and legal from any thread, and resolving an
+ *       offline player's name may read the server's profile data, which no region thread should
+ *       wait on.</li>
  * </ul>
  *
  * <p>The configuration snapshot is read <strong>once</strong>, at the top of
@@ -126,6 +134,7 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
             case UNLOCK -> unlock(sender, args);
             case BYPASS -> bypass(sender, args);
             case INSPECT -> inspect(sender, config, args);
+            case CREDIT -> credit(sender, args);
             // Delegated rather than reimplemented, and with the snapshot already read at the top of
             // this method carried in: /asr progress and /progress are the same command reached two
             // ways, so a second rendering here is a second thing to keep in step (#3, #73).
@@ -435,6 +444,110 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
             parts.add(result.missingAccountAgeDays() + " more day(s) of tenure");
         }
         return parts.isEmpty() ? "not yet eligible" : escape(String.join("; ", parts));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // credit
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * Grants or revokes personal-action credits (#217).
+     *
+     * <p>Works for offline players, unlike {@code bypass} and {@code inspect}: the credit record is
+     * keyed by UUID and kept in the plugin's own file, not in the player's region. The store
+     * publishes each change before returning, so every gate reading through it decides on the new
+     * record from the next check on.
+     */
+    private void credit(CommandSender sender, String[] args) {
+        switch (CreditArgument.parse(args)) {
+            case CreditArgument.Change change -> plugin.getServer().getAsyncScheduler()
+                    .runNow(plugin, task -> applyCredit(sender, change));
+            case CreditArgument.Invalid invalid -> reply(sender, switch (invalid.reason()) {
+                case MISSING_ACTION, MISSING_PLAYER, MISSING_CREDIT ->
+                        "<red>Usage: <yellow>" + Subcommand.CREDIT.usage();
+                case UNKNOWN_ACTION -> "<red>Unknown action <yellow>" + escape(invalid.token())
+                        + "<red>. Choose <yellow>grant<red> or <yellow>revoke<red>.";
+                case UNKNOWN_CREDIT -> "<red>Unknown credit <yellow>" + escape(invalid.token())
+                        + "<red>. Choose one of <yellow>"
+                        + String.join("<red>, <yellow>", CreditArgument.creditWords()) + "<red>.";
+                case EXTRA_ARGUMENT -> "<red>Unexpected <yellow>" + escape(invalid.token())
+                        + "<red>. Nothing was changed. Usage: <yellow>" + Subcommand.CREDIT.usage();
+            });
+        }
+    }
+
+    private void applyCredit(CommandSender sender, CreditArgument.Change change) {
+        Optional<UUID> resolved = creditTarget(change.target());
+        if (resolved.isEmpty()) {
+            reply(sender, "<red>No player named <yellow>" + escape(change.target())
+                    + "<red> is online or known to this server. Give their UUID instead.");
+            return;
+        }
+        UUID player = resolved.get();
+        String name = escape(displayName(player, change.target()));
+
+        List<PersonalCredit> changed = change.applyTo(plugin.personalCredits(), player);
+        if (!changed.isEmpty()) {
+            refreshCachedCredits(player);
+        }
+
+        boolean grant = change.action() == CreditArgument.Action.GRANT;
+        if (changed.isEmpty()) {
+            reply(sender, "<gray>" + name + (grant ? " already held " : " held none of ")
+                    + creditList(change.credits()) + "; nothing changed.");
+            return;
+        }
+        reply(sender, (grant ? "<green>Granted " : "<yellow>Revoked ") + creditList(changed)
+                + (grant ? " to " : " from ") + "<white>" + name
+                + "<gray>. It is stored in personal-credits.yml and survives a restart.");
+    }
+
+    /**
+     * Drops {@code player}'s cached progression snapshot after a grant or revoke.
+     *
+     * <p>Every tier and dimension gate reads through {@code ProgressionManager}, which serves a
+     * cached snapshot that only an advancement or a reload otherwise drops; a credit change fires
+     * neither, so without this an online player would keep the old answer until the entry expired.
+     * The invalidation is a remove on a thread-safe map, legal from this async task and harmless for
+     * an offline player or one in another region. #216 adds its refresh here; every changing path of
+     * {@code credit} already calls it.
+     */
+    private void refreshCachedCredits(UUID player) {
+        plugin.progression().invalidate(player);
+    }
+
+    /**
+     * The player a {@code credit} target names: an online player by exact name, a UUID as given, or
+     * a name the server has cached from an earlier join. Never a web lookup, so an unknown name is
+     * refused rather than resolved to an account that may never have played here.
+     */
+    private Optional<UUID> creditTarget(String target) {
+        Player online = plugin.getServer().getPlayerExact(target);
+        if (online != null) {
+            return Optional.of(online.getUniqueId());
+        }
+        Optional<UUID> uuid = CreditArgument.asUuid(target);
+        if (uuid.isPresent()) {
+            return uuid;
+        }
+        OfflinePlayer cached = plugin.getServer().getOfflinePlayerIfCached(target);
+        return cached == null ? Optional.empty() : Optional.of(cached.getUniqueId());
+    }
+
+    /** The player's known name, or what the operator typed when the server has none. */
+    private String displayName(UUID player, String typed) {
+        String known = plugin.getServer().getOfflinePlayer(player).getName();
+        return known == null ? typed : known;
+    }
+
+    private static String creditList(Collection<PersonalCredit> credits) {
+        List<String> ids = new ArrayList<>();
+        for (PersonalCredit credit : PersonalCredit.values()) {
+            if (credits.contains(credit)) {
+                ids.add(credit.id());
+            }
+        }
+        return "<white>" + String.join("<gray>, <white>", ids) + "<gray>";
     }
 
     // -----------------------------------------------------------------------------------------

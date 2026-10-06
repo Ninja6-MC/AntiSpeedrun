@@ -91,7 +91,7 @@ If the plugin is missing or disabled, read section 7.1.
 ## 4. Commands and permissions
 
 `/asr` is an alias of `/antispeedrun`. The player argument of `bypass` and `inspect`
-must name an online player.
+must name an online player; `credit` also takes an offline player (section 5.6).
 
 | Command | Permission | Default |
 | :--- | :--- | :--- |
@@ -102,6 +102,7 @@ must name an online player.
 | `/asr unlock <nether\|end> [lock]` | `antispeedrun.admin.unlock` | op |
 | `/asr bypass <player> [duration\|off]` | `antispeedrun.admin.bypass` | op |
 | `/asr inspect <player>` | `antispeedrun.admin.inspect` | op |
+| `/asr credit <grant\|revoke> <player> <credit\|smelt-iron\|all>` | `antispeedrun.admin.credit` | op |
 
 `/asr progress` and `/asr book` check the same node as their standalone command, so a
 player who can run one spelling can run the other. A refused subcommand names the
@@ -114,12 +115,13 @@ refuse, and `/progress` points at `/asr inspect <player>`.
 | :--- | :--- | :--- |
 | `antispeedrun.progress` | true | `/progress` and `/asr progress`. |
 | `antispeedrun.book` | true | `/journeybook`, `/rulesbook` and `/asr book`. |
-| `antispeedrun.admin` | op | Parent of the five `antispeedrun.admin.*` nodes. |
+| `antispeedrun.admin` | op | Parent of the six `antispeedrun.admin.*` nodes. |
 | `antispeedrun.admin.reload` | op | `/asr reload`. |
 | `antispeedrun.admin.profile` | op | `/asr profile apply`. |
 | `antispeedrun.admin.unlock` | op | `/asr unlock`. |
 | `antispeedrun.admin.bypass` | op | `/asr bypass` (the right to hand out a bypass). |
 | `antispeedrun.admin.inspect` | op | `/asr inspect`. |
+| `antispeedrun.admin.credit` | op | `/asr credit`. |
 | `antispeedrun.bypass` | false | Parent of the three bypass nodes below. |
 | `antispeedrun.bypass.gates` | false | Exempt from dimension gates (foot, vehicle and stasis access) and the Dragon's Breath bottling gate. |
 | `antispeedrun.bypass.items` | false | Exempt from item pickup, dispenser, container and Allay restrictions, and Dragon's Breath bottling. |
@@ -240,6 +242,29 @@ does not remove the permission.
 recorded" when the server has no first-join time for them), bypass state, and for each
 enabled dimension gate whether it is unlocked, open server-wide, or what is still
 missing (advancements, playtime, tenure). It reads the live configuration.
+
+### 5.6 Personal credits
+
+```text
+/asr credit grant <player> mine-diamond
+/asr credit revoke <player> smelt-iron
+/asr credit grant <player> all
+```
+
+Grants or revokes the personal-action credits that stand in for the possession-triggered
+gate advancements (`docs/provenance-model.md`, Amendment). The credits are `mine-stone`,
+`mined-iron`, `smelted-iron`, `iron-tools`, `upgrade-tools`, `mine-diamond` and
+`obtain-blaze-rod`; underscores work in place of hyphens. `smelt-iron` names both
+sub-credits of `story/smelt_iron`, and `all` names every credit. An unknown credit,
+action or extra word is refused and changes nothing.
+
+The player is an online player's name, a UUID, or the name of a player who has joined
+this server before. A name the server has never seen is refused; give the UUID instead.
+
+A grant counts whatever `item-progression.count-structure-loot` says. A revoke removes
+the credit however it was earned, loot included, and the player can earn it again by
+playing. Either takes effect at once and is kept in `personal-credits.yml`, so it
+survives a restart. The reply names the credits that changed, or says nothing changed.
 
 ## 6. Persisted state
 

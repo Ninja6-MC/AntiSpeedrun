@@ -188,8 +188,8 @@ class CommandGrammarTest {
             assertTrue(Subcommand.parse("relaod").isEmpty());
             assertTrue(Subcommand.parse("").isEmpty());
             assertTrue(Subcommand.parse(null).isEmpty());
-            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "progress",
-                    "book"), Subcommand.labels());
+            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "credit",
+                    "progress", "book"), Subcommand.labels());
             assertEquals(Subcommand.BOOK, Subcommand.parse("Book").orElseThrow());
         }
     }
@@ -201,8 +201,8 @@ class CommandGrammarTest {
         @Test
         @DisplayName("the first argument offers only subcommands the sender may run")
         void firstArgumentIsPermissionFiltered() {
-            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "progress",
-                    "book"), CommandCompletion.complete(new String[] {""}, ADMIN, ONLINE));
+            assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "credit",
+                    "progress", "book"), CommandCompletion.complete(new String[] {""}, ADMIN, ONLINE));
             assertEquals(List.of("reload"),
                     CommandCompletion.complete(new String[] {""}, allowing(Subcommand.RELOAD), ONLINE));
             assertEquals(List.of(),
@@ -270,6 +270,34 @@ class CommandGrammarTest {
             // /asr book likewise hands the sender their own copy.
             assertEquals(List.of(),
                     CommandCompletion.complete(new String[] {"book", ""}, ADMIN, ONLINE));
+        }
+
+        @Test
+        @DisplayName("credit completes the action, then players, then credit words")
+        void creditArguments() {
+            assertEquals(List.of("grant", "revoke"),
+                    CommandCompletion.complete(new String[] {"credit", ""}, ADMIN, ONLINE));
+            assertEquals(List.of("revoke"),
+                    CommandCompletion.complete(new String[] {"credit", "R"}, ADMIN, ONLINE));
+            assertEquals(List.of("Alex", "alexandra"),
+                    CommandCompletion.complete(new String[] {"credit", "grant", "al"}, ADMIN, ONLINE));
+            assertEquals(CreditArgument.creditWords(),
+                    CommandCompletion.complete(new String[] {"credit", "revoke", "Steve", ""},
+                            ADMIN, ONLINE));
+            assertEquals(List.of("mine-stone", "mined-iron", "mine-diamond"),
+                    CommandCompletion.complete(new String[] {"credit", "grant", "Steve", "min"},
+                            ADMIN, ONLINE));
+            // No names or credits after an action that does not exist, and nothing at all after
+            // the credit word.
+            assertEquals(List.of(),
+                    CommandCompletion.complete(new String[] {"credit", "grnat", ""}, ADMIN, ONLINE));
+            assertEquals(List.of(),
+                    CommandCompletion.complete(new String[] {"credit", "grant", "Steve", "all", ""},
+                            ADMIN, ONLINE));
+            // And none of it for a sender without antispeedrun.admin.credit.
+            assertEquals(List.of(),
+                    CommandCompletion.complete(new String[] {"credit", "grant", ""},
+                            allowing(Subcommand.INSPECT), ONLINE));
         }
 
         @Test
