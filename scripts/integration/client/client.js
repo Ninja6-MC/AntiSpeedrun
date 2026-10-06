@@ -61,6 +61,21 @@ function nearest (name) {
   return bot.nearestEntity((entity) => entity.name === name)
 }
 
+const FACES = {
+  up: new Vec3(0, 1, 0),
+  down: new Vec3(0, -1, 0),
+  north: new Vec3(0, 0, -1),
+  south: new Vec3(0, 0, 1),
+  west: new Vec3(-1, 0, 0),
+  east: new Vec3(1, 0, 0)
+}
+
+function blockAt (x, y, z) {
+  const block = bot.blockAt(new Vec3(x, y, z))
+  if (!block) throw new Error(`block ${x},${y},${z} is not loaded`)
+  return block
+}
+
 const ops = {
   async state () {
     const p = bot.entity.position
@@ -75,6 +90,13 @@ const ops = {
 
   async count ({ item }) {
     return { count: itemCount(item) }
+  },
+
+  // Every item the inventory holds, as { name: count }.
+  async inventory () {
+    const items = {}
+    for (const item of bot.inventory.items()) items[item.name] = (items[item.name] || 0) + item.count
+    return { items }
   },
 
   // Holds the named item, or an empty hand when item is null.
@@ -106,17 +128,8 @@ const ops = {
 
   // Right-clicks a block face with whatever is in the hand: places a crystal, wakes a bed.
   async use_block ({ x, y, z, face }) {
-    const block = bot.blockAt(new Vec3(x, y, z))
-    if (!block) throw new Error(`block ${x},${y},${z} is not loaded`)
-    const faces = {
-      up: new Vec3(0, 1, 0),
-      down: new Vec3(0, -1, 0),
-      north: new Vec3(0, 0, -1),
-      south: new Vec3(0, 0, 1),
-      west: new Vec3(-1, 0, 0),
-      east: new Vec3(1, 0, 0)
-    }
-    await bot.activateBlock(block, faces[face || 'up'])
+    const block = blockAt(x, y, z)
+    await bot.activateBlock(block, FACES[face || 'up'])
     await sleep(500)
     return { block: block.name }
   },
@@ -219,10 +232,10 @@ const ops = {
   },
 
   // Opens the container block at x, y, z and lists what the client sees in it.
+  // A furnace opens through openBlock: openContainer takes storage blocks only.
   async open_block ({ x, y, z }) {
-    const block = bot.blockAt(new Vec3(x, y, z))
-    if (!block) throw new Error(`block ${x},${y},${z} is not loaded`)
-    window = await bot.openContainer(block)
+    const block = blockAt(x, y, z)
+    window = block.name.endsWith('furnace') ? await bot.openBlock(block) : await bot.openContainer(block)
     return { slots: window.containerItems().map((item) => ({ slot: item.slot, name: item.name, count: item.count })) }
   },
 
@@ -273,6 +286,29 @@ const ops = {
     }
   },
 
+  // Moves count (all when omitted) of the named item from the player's part of the open window
+  // into slot, as a player does: pick the stack up, then a left click (all) or right clicks (one
+  // each) on the slot. Whatever is left on the cursor goes back where it came from.
+  async window_load ({ item, slot, count }) {
+    if (!window) throw new Error('no window open')
+    const type = bot.registry.itemsByName[item]
+    if (!type) throw new Error(`unknown item ${item}`)
+    const stack = window.findInventoryItem(type.id, null)
+    if (!stack) throw new Error(`no ${item} in the inventory`)
+    const from = stack.slot
+    await bot.clickWindow(from, 0, 0)
+    if (count) {
+      for (let i = 0; i < count; i++) await bot.clickWindow(slot, 1, 0)
+    } else {
+      await bot.clickWindow(slot, 0, 0)
+    }
+    if (window.selectedItem) await bot.clickWindow(from, 0, 0)
+    await sleep(600)
+    return {
+      slots: window.containerItems().map((entry) => ({ slot: entry.slot, name: entry.name, count: entry.count }))
+    }
+  },
+
   async close_window () {
     if (window) bot.closeWindow(window)
     window = null
@@ -280,12 +316,71 @@ const ops = {
     return {}
   },
 
+  // Places the held block against the face of the block at x, y, z.
+  async place ({ x, y, z, face }) {
+    const reference = blockAt(x, y, z)
+    await bot.lookAt(reference.position.offset(0.5, 0.5, 0.5), true)
+    await bot.placeBlock(reference, FACES[face || 'up'])
+    await sleep(500)
+    return { placed: bot.blockAt(reference.position.plus(FACES[face || 'up'])).name }
+  },
+
+  // Crafts count of the named item in the crafting table at table [x, y, z], from what the
+  // inventory holds, by clicking the grid and the result slot as a player does. mineflayer's
+  // view of the grid can fall behind the server's, on Folia above all, and the craft then stops
+  // short; closing the table hands the grid back, so it tries again, up to three times.
+  async craft ({ item, count, table }) {
+    const type = bot.registry.itemsByName[item]
+    if (!type) throw new Error(`unknown item ${item}`)
+    const bench = table ? blockAt(table[0], table[1], table[2]) : null
+    const before = itemCount(item)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const recipes = bot.recipesFor(type.id, null, 1, bench)
+      if (!recipes.length) throw new Error(`no recipe for ${item} from this inventory`)
+      try {
+        await bot.craft(recipes[0], count || 1, bench)
+      } catch (error) {
+        note('craft attempt', attempt, error.message)
+      }
+      await sleep(800)
+      if (bot.currentWindow) {
+        bot.closeWindow(bot.currentWindow)
+        await sleep(800)
+      }
+      if (itemCount(item) > before) return { count: itemCount(item), attempts: attempt }
+    }
+    return { count: itemCount(item), attempts: 3 }
+  },
+
+  // Uses the held item on the block at x, y, z and keeps using it for ms milliseconds, looking at
+  // the block, as a player holding the use key does: brushing a suspicious block.
+  async brush ({ x, y, z, face, ms }) {
+    const block = blockAt(x, y, z)
+    const target = block.position.offset(0.5, 0.5, 0.5).plus(FACES[face || 'up'].scaled(0.5))
+    await bot.lookAt(target, true)
+    await bot.activateBlock(block, FACES[face || 'up'])
+    await sleep(ms || 8000)
+    bot.deactivateItem()
+    await sleep(300)
+    return { block: bot.blockAt(block.position).name }
+  },
+
   // Breaks the block at x, y, z with whatever is in the hand.
-  async dig ({ x, y, z }) {
-    const block = bot.blockAt(new Vec3(x, y, z))
-    if (!block) throw new Error(`block ${x},${y},${z} is not loaded`)
+  // With ms, digs for that long by sending the start and finish packets itself: mineflayer cannot
+  // work out the dig time of an enchanted tool through ViaVersion.
+  async dig ({ x, y, z, ms }) {
+    const block = blockAt(x, y, z)
     await bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true)
-    await bot.dig(block, true)
+    if (ms) {
+      bot._client.write('block_dig', { status: 0, location: block.position, face: 1 })
+      for (let waited = 0; waited < ms; waited += 250) {
+        bot.swingArm()
+        await sleep(250)
+      }
+      bot._client.write('block_dig', { status: 2, location: block.position, face: 1 })
+    } else {
+      await bot.dig(block, true)
+    }
     await sleep(500)
     return { block: block.name }
   },

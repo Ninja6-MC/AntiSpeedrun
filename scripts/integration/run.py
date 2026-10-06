@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from harness import Client, ProbeError, Server  # noqa: E402
 import anti_cheese  # noqa: E402
+import credits  # noqa: E402
 import gates  # noqa: E402
 from probes import Results  # noqa: E402
 
@@ -44,9 +45,10 @@ VIA = (
      "f902f7da7eb99e8bfaf461f80283c4e2750b7d9727e6b508ea4bb9163f55b1db"),
 )
 PLAYER = "AsrProbe"
-# The gate probes run first: they set the player's progression case by case, and the anti-cheese
-# probes then grant every advancement once and leave it so.
-MODULES = (gates, anti_cheese)
+# The gate probes run first: they set the player's progression case by case. The credit probes
+# set the player's credits the same way, and the anti-cheese probes then grant every advancement
+# and credit once and leave them so.
+MODULES = (gates, credits, anti_cheese)
 PROBES = tuple(name for module in MODULES for name in module.PROBES)
 SERVER_BUILD = re.compile(r"This server is running (?P<build>[^\r\n]+)")
 PLUGIN_VERSION = re.compile(r"Enabling AntiSpeedrun v(?P<version>\S+)")

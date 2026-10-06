@@ -1,20 +1,27 @@
 package com.ninja6.antispeedrun.probe;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import com.destroystokyo.paper.event.entity.EntityRemoveFromWorldEvent;
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
+import com.ninja6.antispeedrun.storage.CreditSource;
+import com.ninja6.antispeedrun.storage.PersonalCredit;
+import com.ninja6.antispeedrun.storage.PersonalCreditStore;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.Container;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
@@ -32,6 +39,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockDispenseLootEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityPortalEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -44,14 +53,18 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.server.ServerLoadEvent;
+import org.bukkit.event.world.LootGenerateEvent;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.MerchantRecipe;
+import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
- * The integration harness's observer (scripts/integration/README.md). It changes nothing: every
- * handler runs at MONITOR and only logs one {@code ASRPROBE} line, which the harness parses.
+ * The integration harness's observer (scripts/integration/README.md). It changes nothing it was
+ * not asked to: every observing handler runs at MONITOR and only logs one {@code ASRPROBE} line,
+ * which the harness parses.
  *
  * <p>The damage line reports what AntiSpeedrun's own handler compares against, the damage type and
  * the final damage, so a probe can tell "the rule refused this hit" apart from "the hit never
@@ -61,7 +74,11 @@ import org.bukkit.plugin.java.JavaPlugin;
  * platform: Folia has no {@code /data}, so an entity's health and a player's whereabouts are read
  * here, each on the thread that owns the entity. Its {@code teleport} is the one thing the plugin
  * does rather than observes: a plugin teleport, which the deliberate-teleport contract (#135) is
- * about.
+ * about. Two more act rather than observe, for the personal-credit probes: {@code loot} replaces
+ * the contents of the next loot the server generates, so a vanilla chest, vault or suspicious
+ * block yields a known item through the server's own path, {@code nodrops} disables the drops of a
+ * player's next block break, as a protection plugin may, and {@code npc} sets the {@code NPC}
+ * metadata an NPC plugin would.
  */
 public final class ProbePlugin extends JavaPlugin implements Listener {
 
@@ -72,6 +89,12 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
 
     /** Tagged entities in a loaded world, so a health query never searches a world. */
     private final Map<UUID, Entity> tracked = new ConcurrentHashMap<>();
+
+    /** What the next generated or dispensed loot is replaced with, once; null when not armed. */
+    private final AtomicReference<ItemStack> nextLoot = new AtomicReference<>();
+
+    /** The player whose next block break has its drops disabled, once; null when not armed. */
+    private final AtomicReference<String> noDrops = new AtomicReference<>();
 
     @Override
     public void onEnable() {
@@ -93,10 +116,23 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             teleport(args);
         } else if (args.length == 9 && (args[0].equals("near") || args[0].equals("remove"))) {
             near(args);
+        } else if (args.length == 3 && args[0].equals("credits")) {
+            credits(args[1], args[2]);
+        } else if (args.length == 6 && args[0].equals("container")) {
+            container(args);
+        } else if ((args.length == 3 || args.length == 2 && args[1].equals("off")) && args[0].equals("loot")) {
+            loot(args);
+        } else if (args.length == 2 && args[0].equals("nodrops")) {
+            noDrops.set(args[1]);
+            log("nodrops armed=" + args[1]);
+        } else if (args.length == 3 && args[0].equals("npc") && (args[2].equals("on") || args[2].equals("off"))) {
+            npc(args[1], args[2].equals("on"));
         } else {
             log("usage health <entity-type> <query> | where <player> <query> "
                     + "| teleport <player> <world> <x> <y> <z> [expect] "
-                    + "| near|remove <dimension> <x> <y> <z> <radius> <entity-type> <item-or-any> <query>");
+                    + "| near|remove <dimension> <x> <y> <z> <radius> <entity-type> <item-or-any> <query> "
+                    + "| credits <player> <query> | container <dimension> <x> <y> <z> <query> "
+                    + "| loot <material> <count> | loot off | nodrops <player> | npc <player> on|off");
         }
         return true;
     }
@@ -138,6 +174,103 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             }
             log("near query=" + query + " count=" + count);
         });
+    }
+
+    /**
+     * Logs every personal credit a player holds, as AntiSpeedrun's store has it: for each credit its
+     * sources ({@code none} when not held) and whether it counts under the live
+     * {@code count-structure-loot}, which is what the gates read.
+     */
+    private void credits(String name, String query) {
+        if (!(Bukkit.getPluginManager().getPlugin("AntiSpeedrun") instanceof AntiSpeedrunPlugin target)) {
+            log("credits query=" + query + " no-antispeedrun");
+            return;
+        }
+        Player online = Bukkit.getPlayerExact(name);
+        OfflinePlayer player = online != null ? online : Bukkit.getOfflinePlayerIfCached(name);
+        if (player == null) {
+            log("credits query=" + query + " unknown-player");
+            return;
+        }
+        PersonalCreditStore store = target.personalCredits();
+        boolean countLoot = target.configuration().itemProgression().countStructureLoot();
+        StringBuilder line = new StringBuilder("credits query=" + query + " count-loot=" + countLoot);
+        for (PersonalCredit credit : PersonalCredit.values()) {
+            List<String> sources = new ArrayList<>();
+            for (CreditSource source : store.sources(player.getUniqueId(), credit)) {
+                sources.add(source.id());
+            }
+            sources.sort(null);
+            line.append(' ').append(credit.id()).append('=')
+                    .append(sources.isEmpty() ? "none" : String.join(",", sources))
+                    .append('/').append(store.has(player.getUniqueId(), credit, countLoot));
+        }
+        log(line.toString());
+    }
+
+    /** Logs the slots of the container block at a point, read on the region that owns it. */
+    private void container(String[] args) {
+        String query = args[5];
+        NamespacedKey key = NamespacedKey.fromString(args[1]);
+        World world = key == null ? null : Bukkit.getWorld(key);
+        if (world == null) {
+            log("container query=" + query + " unknown-world");
+            return;
+        }
+        Location at = new Location(world, Integer.parseInt(args[2]), Integer.parseInt(args[3]),
+                Integer.parseInt(args[4]));
+        Bukkit.getRegionScheduler().execute(this, at, () -> {
+            if (!(at.getBlock().getState(false) instanceof Container container)) {
+                log("container query=" + query + " block=" + at.getBlock().getType().name() + " slots=none");
+                return;
+            }
+            Inventory inventory = container.getInventory();
+            List<String> slots = new ArrayList<>();
+            for (int slot = 0; slot < inventory.getSize(); slot++) {
+                ItemStack item = inventory.getItem(slot);
+                if (item != null && !item.getType().isAir()) {
+                    slots.add(slot + ":" + item.getType().name() + ":" + item.getAmount());
+                }
+            }
+            log("container query=" + query + " block=" + at.getBlock().getType().name()
+                    + " slots=" + (slots.isEmpty() ? "empty" : String.join(",", slots)));
+        });
+    }
+
+    /** Arms, or with {@code off} disarms, the one-shot replacement of the next loot generated. */
+    private void loot(String[] args) {
+        if (args.length == 2) {
+            nextLoot.set(null);
+            log("loot armed=none");
+            return;
+        }
+        Material material = Material.matchMaterial(args[1]);
+        if (material == null) {
+            log("loot armed=unknown-material");
+            return;
+        }
+        nextLoot.set(new ItemStack(material, Integer.parseInt(args[2])));
+        log("loot armed=" + material.name() + ":" + args[2]);
+    }
+
+    /** Sets or clears the {@code NPC} metadata an NPC plugin such as Citizens puts on its players. */
+    private void npc(String name, boolean on) {
+        Player player = Bukkit.getPlayerExact(name);
+        if (player == null) {
+            log("npc player=" + name + " offline");
+            return;
+        }
+        Runnable gone = () -> log("npc player=" + name + " offline");
+        if (player.getScheduler().run(this, task -> {
+            if (on) {
+                player.setMetadata("NPC", new FixedMetadataValue(this, true));
+            } else {
+                player.removeMetadata("NPC", this);
+            }
+            log("npc player=" + name + " npc=" + player.hasMetadata("NPC"));
+        }, gone) == null) {
+            gone.run();
+        }
     }
 
     /**
@@ -239,6 +372,55 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                 + " enabled=" + (target != null && target.isEnabled()));
     }
 
+    /** Replaces generated loot when {@code loot} armed it. LOWEST, so every other plugin sees it. */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void armLoot(LootGenerateEvent event) {
+        ItemStack loot = nextLoot.getAndSet(null);
+        if (loot != null) {
+            event.setLoot(List.of(loot.clone()));
+        }
+    }
+
+    /**
+     * Disables the drops of the armed player's next break. HIGH, so AntiSpeedrun's HIGHEST and
+     * MONITOR handlers see the break as one that drops nothing.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void armNoDrops(BlockBreakEvent event) {
+        String name = event.getPlayer().getName();
+        String armed = noDrops.get();
+        // compareAndSet compares references, so it is given the armed string itself.
+        if (name.equals(armed) && noDrops.compareAndSet(armed, null)) {
+            event.setDropItems(false);
+            log("nodrops player=" + name + " block=" + event.getBlock().getType().name());
+        }
+    }
+
+    /** The same for a vault's dispensed loot. */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void armDispensed(BlockDispenseLootEvent event) {
+        ItemStack loot = nextLoot.getAndSet(null);
+        if (loot != null) {
+            event.setDispensedLoot(List.of(loot.clone()));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onLoot(LootGenerateEvent event) {
+        log("loot-generate entity=" + (event.getEntity() == null ? "none" : event.getEntity().getName())
+                + " table=" + event.getLootTable().getKey() + " plugin=" + event.isPlugin()
+                + " holder=" + (event.getInventoryHolder() == null ? "none"
+                        : event.getInventoryHolder().getClass().getSimpleName())
+                + " items=" + items(event.getLoot()) + " cancelled=" + event.isCancelled());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onDispensed(BlockDispenseLootEvent event) {
+        log("loot-dispense player=" + (event.getPlayer() == null ? "none" : event.getPlayer().getName())
+                + " block=" + event.getBlock().getType().name()
+                + " items=" + items(event.getDispensedLoot()) + " cancelled=" + event.isCancelled());
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
@@ -336,6 +518,16 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
 
     private void log(String line) {
         getLogger().info("ASRPROBE " + line);
+    }
+
+    private static String items(List<ItemStack> items) {
+        List<String> names = new ArrayList<>();
+        for (ItemStack item : items) {
+            if (item != null && !item.getType().isAir()) {
+                names.add(item.getType().name() + ":" + item.getAmount());
+            }
+        }
+        return names.isEmpty() ? "none" : String.join(",", names);
     }
 
     private static String worldOf(Location location) {
