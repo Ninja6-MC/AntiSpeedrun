@@ -48,6 +48,7 @@ import com.ninja6.antispeedrun.listeners.TemplateDuplicationListener;
 import com.ninja6.antispeedrun.listeners.TrimSmithingListener;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
 import com.ninja6.antispeedrun.progression.IdleReminderEngine;
+import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
 import com.ninja6.antispeedrun.progression.ProgressionListener;
 import com.ninja6.antispeedrun.progression.ProgressionManager;
@@ -209,13 +210,30 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
             return;
         }
 
+        // The personal credit record (#213), read synchronously before the lookup below answers
+        // from it, so nothing earned in an earlier run reads as missing on the first gate check.
+        this.personalCredits = new PersonalCreditStore(
+                getLogger(),
+                creditFile,
+                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
+        if (!personalCredits.loadNow()) {
+            getLogger().warning("Starting with no personal credits recorded. The unreadable file "
+                    + "has been left in place and will be preserved under a .corrupt name before "
+                    + "the next credit is written.");
+        }
+
         this.playerState = new PlayerStateRegistry();
         // The announced-milestone record lives in each player's PDC, so it needs nothing but this
         // plugin instance and can be built here, ahead of the file-backed stores below. Without it
         // a gate cleared by require-account-age-days while the player was offline is never
         // announced to them at all -- see ProgressionManager#announceUnlocksClearedWhileAway (#84).
+        // Every gate reads advancements through this one lookup, so the personal-credit decorator
+        // (#215) is the whole of the change to what the six possession-triggered keys mean.
         this.progression = new ProgressionManager(
-                getLogger(), new BukkitAdvancementLookup(getLogger()), playerState,
+                getLogger(),
+                new PersonalCreditAdvancementLookup(new BukkitAdvancementLookup(getLogger()),
+                        personalCredits, this::configuration),
+                playerState,
                 new PlayerAnnouncedUnlockStore(this));
         this.progressionListener = new ProgressionListener(this, progression);
         getServer().getPluginManager().registerEvents(progressionListener, this);
@@ -314,16 +332,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
 
         // The personal credit recorder (#213). Always registered: what counts is the lookup's
         // decision, and loot credits carry their source so that decision can change at any time.
-        // The record is read synchronously first, so nothing earned in an earlier run is missed.
-        this.personalCredits = new PersonalCreditStore(
-                getLogger(),
-                creditFile,
-                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
-        if (!personalCredits.loadNow()) {
-            getLogger().warning("Starting with no personal credits recorded. The unreadable file "
-                    + "has been left in place and will be preserved under a .corrupt name before "
-                    + "the next credit is written.");
-        }
+        // The store itself was loaded above, before the lookup that reads it.
         getServer().getPluginManager().registerEvents(
                 new PersonalCreditListener(personalCredits, placedBlocks), this);
         // The furnace loader stamp and smelted-iron credit (#214), kept in each furnace's TileState.

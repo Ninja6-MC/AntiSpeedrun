@@ -92,7 +92,8 @@ class BundleGateTest {
         PluginConfig off = new PluginConfig(base.profile(), base.dimensionGates(),
                 new PluginConfig.ItemProgression(items.enabled(), items.dropRecallEnabled(),
                         items.gateDispensers(), false, items.feedbackCooldownSeconds(),
-                        items.rejectionMessage(), items.gatedItems()),
+                        items.rejectionMessage(), items.gatedItems(), items.requirePersonalCredit(),
+                        items.countStructureLoot()),
                 base.trimProgression(), base.idleReminder(), base.progressCard(),
                 base.journeyBook(), base.bossScaling(), base.antiCheese(),
                 base.villagerProgression(), List.of());

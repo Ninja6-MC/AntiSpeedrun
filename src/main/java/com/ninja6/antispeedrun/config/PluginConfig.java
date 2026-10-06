@@ -190,18 +190,24 @@ public record PluginConfig(
                 "idle-reminder", "progress-card", "journey-book", "boss-scaling", "anti-cheese",
                 "villager-progression");
 
-        return new PluginConfig(
-                r.enumValue("profile", Profile.class, Profile.SMP_STANDARD),
-                parseDimensionGates(r.child("dimension-gates")),
-                parseItemProgression(r.child("item-progression")),
-                parseTrimProgression(r.child("trim-progression")),
-                parseIdleReminder(r.child("idle-reminder")),
-                parseProgressCard(r.child("progress-card")),
-                parseJourneyBook(r.child("journey-book")),
-                parseBossScaling(r.child("boss-scaling")),
-                parseAntiCheese(r.child("anti-cheese")),
-                parseVillagerProgression(r.child("villager-progression")),
-                warnings);
+        Profile profile = r.enumValue("profile", Profile.class, Profile.SMP_STANDARD);
+        DimensionGates dimensionGates = parseDimensionGates(r.child("dimension-gates"));
+        ItemProgression itemProgression = parseItemProgression(r.child("item-progression"));
+        TrimProgression trimProgression = parseTrimProgression(r.child("trim-progression"));
+        IdleReminder idleReminder = parseIdleReminder(r.child("idle-reminder"));
+        ProgressCard progressCard = parseProgressCard(r.child("progress-card"));
+        JourneyBook journeyBook = parseJourneyBook(r.child("journey-book"));
+        BossScaling bossScaling = parseBossScaling(r.child("boss-scaling"));
+        AntiCheese antiCheese = parseAntiCheese(r.child("anti-cheese"));
+        VillagerProgression villagerProgression =
+                parseVillagerProgression(r.child("villager-progression"));
+        // Reads three sections, so it runs once all of them are parsed.
+        warnings.addAll(PossessionAdvancements.uncreditedWarnings(
+                dimensionGates, itemProgression, villagerProgression));
+
+        return new PluginConfig(profile, dimensionGates, itemProgression, trimProgression,
+                idleReminder, progressCard, journeyBook, bossScaling, antiCheese,
+                villagerProgression, warnings);
     }
 
     /**
@@ -269,7 +275,8 @@ public record PluginConfig(
 
     private static ItemProgression parseItemProgression(ConfigReader r) throws ConfigLoadException {
         r.expect("enabled", "drop-recall-enabled", "gate-dispensers", "gate-nested-bundles",
-                "feedback-cooldown-seconds", "rejection-message", "gated-items");
+                "feedback-cooldown-seconds", "rejection-message", "require-personal-credit",
+                "count-structure-loot", "gated-items");
 
         // Read before the tiers, and handed to each of them: item-progression.enabled: false gates
         // no item at all, so a key a tier names under it is not gating this server would fail to
@@ -303,7 +310,9 @@ public record PluginConfig(
                 // Not r.string, for the same reason as a dimension gate's rejection-message:
                 // ItemProgressionListener deserialises it as MiniMessage on a region thread.
                 r.miniMessage("rejection-message", DEFAULT_ITEM_REJECTION),
-                parsed);
+                parsed,
+                r.bool("require-personal-credit", true),
+                r.bool("count-structure-loot", true));
     }
 
     /**
@@ -593,6 +602,13 @@ public record PluginConfig(
      *                                the tie-break input Task 4.2.1 needs for its
      *                                most-restrictive-wins precedence rule, and no
      *                                {@code java.util.HashMap} holds cross-thread state
+     * @param requirePersonalCredit   the six possession-triggered gate advancements are answered
+     *                                from the player's own recorded actions instead of the vanilla
+     *                                advancement (#210). Every gate that requires one reads it,
+     *                                dimension gates included, whatever {@code enabled} says;
+     *                                default {@code true}
+     * @param countStructureLoot      loot the player generated may stand in for finding iron or a
+     *                                diamond, never for smelting or crafting; default {@code true}
      */
     public record ItemProgression(
             boolean enabled,
@@ -601,7 +617,9 @@ public record PluginConfig(
             boolean gateNestedBundles,
             int feedbackCooldownSeconds,
             String rejectionMessage,
-            List<ItemTier> gatedItems) {
+            List<ItemTier> gatedItems,
+            boolean requirePersonalCredit,
+            boolean countStructureLoot) {
         public ItemProgression {
             Objects.requireNonNull(rejectionMessage, "rejectionMessage");
             gatedItems = List.copyOf(gatedItems);

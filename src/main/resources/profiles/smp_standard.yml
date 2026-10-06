@@ -50,6 +50,17 @@ item-progression:
   gate-nested-bundles: true           # Prevent extracting/spraying locked items from Bundles
   feedback-cooldown-seconds: 3        # Cooldown between action bar warning messages
   rejection-message: "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}"
+  # Vanilla completes story/mine_stone, story/smelt_iron, story/iron_tools, story/upgrade_tools,
+  # story/mine_diamond and nether/obtain_blaze_rod as soon as the player HOLDS the item, so a
+  # gift or a chest withdrawal opens the gate. While this is on, those six are answered from
+  # what the player did themselves instead: mined, smelted, crafted or killed. It applies to
+  # every gate that requires one of them, the dimension gates included, even while enabled
+  # above is false. /advancement grant and revoke no longer change them. Nothing carries over
+  # from vanilla advancements already earned. See docs/provenance-model.md.
+  require-personal-credit: true
+  # Loot the player generates themselves (a structure chest they open first, a trial vault) may
+  # stand in for mining iron or diamonds, never for smelting or crafting. Takes effect on reload.
+  count-structure-loot: true
   gated-items:
     iron-tier:
       # Match modes: PREFIX ("IRON_*"), SUFFIX ("*_IRON_ORE"), CONTAINS ("*_IRON_*").
