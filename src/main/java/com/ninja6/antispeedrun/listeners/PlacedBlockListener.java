@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import org.bukkit.ExplosionResult;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
@@ -96,15 +97,31 @@ public final class PlacedBlockListener implements Listener {
         }
     }
 
-    /** Explosions remove blocks without a break event; clearing them keeps the entries honest. */
+    /**
+     * Explosions remove blocks without a break event; clearing them keeps the entries honest.
+     *
+     * <p>Only an explosion that destroys what it lists may clear anything. A wind charge lists the
+     * blocks its rays reach with {@link ExplosionResult#TRIGGER_BLOCK} and leaves them standing, and
+     * {@code mobGriefing} off turns a creeper into {@link ExplosionResult#KEEP}; clearing on either
+     * would let a placed ore be mined for credit.
+     */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityExplode(EntityExplodeEvent event) {
-        clearDestroyed(event.getLocation().getWorld(), event.blockList());
+        if (destroysBlocks(event.getExplosionResult())) {
+            clearDestroyed(event.getLocation().getWorld(), event.blockList());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockExplode(BlockExplodeEvent event) {
-        clearDestroyed(event.getBlock().getWorld(), event.blockList());
+        if (destroysBlocks(event.getExplosionResult())) {
+            clearDestroyed(event.getBlock().getWorld(), event.blockList());
+        }
+    }
+
+    /** Whether an explosion with {@code result} removes the blocks it lists. */
+    static boolean destroysBlocks(ExplosionResult result) {
+        return result == ExplosionResult.DESTROY || result == ExplosionResult.DESTROY_WITH_DECAY;
     }
 
     private void clearDestroyed(World world, List<Block> destroyed) {
