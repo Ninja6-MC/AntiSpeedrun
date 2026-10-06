@@ -34,6 +34,7 @@ import com.ninja6.antispeedrun.gating.MaterialGates;
 import com.ninja6.antispeedrun.listeners.AntiCheeseListener;
 import com.ninja6.antispeedrun.listeners.BossCombatListener;
 import com.ninja6.antispeedrun.listeners.EyeThrowListener;
+import com.ninja6.antispeedrun.listeners.FurnaceLoaderListener;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
 import com.ninja6.antispeedrun.listeners.NaturalTrimLootListener;
@@ -325,6 +326,8 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         }
         getServer().getPluginManager().registerEvents(
                 new PersonalCreditListener(personalCredits, placedBlocks), this);
+        // The furnace loader stamp and smelted-iron credit (#214), kept in each furnace's TileState.
+        getServer().getPluginManager().registerEvents(new FurnaceLoaderListener(this, personalCredits), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");

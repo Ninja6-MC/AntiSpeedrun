@@ -110,7 +110,7 @@ Four keys exist. Any key not listed here does not exist.
 | :--- | :--- | :--- | :--- | :--- |
 | `antispeedrun:drop-owner` | **`Item` entity** | Dies on stack merge, on pickup, and on the ~5 minute despawn | UUID of the dropping player | Death and manual-drop recall (§4) |
 | `n6_asr_secondary_dragon` | `EnderDragon` entity | Entity lifetime | — | Marks a plugin-spawned scaling dragon (Epic 6; unrelated to items) |
-| `antispeedrun:furnace-loader` | **`TileState`** of a furnace or blast furnace | Block lifetime | UUID of the player who hand-loaded it, plus a remaining count | Smelting credit (see the Amendment); value `[uuid, remaining]` |
+| `antispeedrun:furnace-loader` | **`TileState`** of a furnace or blast furnace | Block lifetime | UUID of the player who hand-loaded it, plus a remaining count | Smelting credit (see the Amendment); value `[uuid, remaining]` as a `LONG_ARRAY` `[mostSigBits, leastSigBits, remaining]`, removed once `remaining` reaches 0 |
 | `antispeedrun:placed-blocks` | **Chunk** PDC | Chunk lifetime | — | Registry of player-placed blocks, so mining them earns no credit (see the Amendment) |
 
 UUIDs are stored as `PersistentDataType.LONG_ARRAY` holding `[mostSigBits, leastSigBits]`
@@ -214,7 +214,10 @@ state about what the player did, not per-item state about where an item came fro
   placed-block registry, with a pickaxe that drops it; or, with `count-structure-loot` on,
   generates loot containing raw iron or an iron ingot.
 * **Smelted iron:** an iron ingot finishes smelting in a furnace or blast furnace whose
-  loader stamp names the player.
+  loader stamp names the player. Hand-loading iron-bearing input stamps the furnace for the
+  count inserted, added to the player's own stamp or replacing another player's; each iron
+  ingot spends one. The count never exceeds the iron left in the input slot, so iron the
+  loader takes back out stops counting and cannot be replaced by someone else's.
 
 Credits are recorded only for real players. Entities that only look like players, such as NPC
 plugins like Citizens that mark them with `NPC` metadata, earn nothing.
