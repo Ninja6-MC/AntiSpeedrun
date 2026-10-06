@@ -104,12 +104,14 @@ If early-treasure retention matters more than this analysis assumes, the correct
 
 ## The PDC key register (authoritative)
 
-Two keys survive. Any key not listed here does not exist.
+Four keys exist. Any key not listed here does not exist.
 
 | Key | Container | Lifetime | Owner | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
 | `antispeedrun:drop-owner` | **`Item` entity** | Dies on stack merge, on pickup, and on the ~5 minute despawn | UUID of the dropping player | Death and manual-drop recall (§4) |
 | `n6_asr_secondary_dragon` | `EnderDragon` entity | Entity lifetime | — | Marks a plugin-spawned scaling dragon (Epic 6; unrelated to items) |
+| `antispeedrun:furnace-loader` | **`TileState`** of a furnace or blast furnace | Block lifetime | UUID of the player who hand-loaded it, plus a remaining count | Smelting credit (see the Amendment); value `[uuid, remaining]` |
+| `antispeedrun:placed-blocks` | **Chunk** PDC | Chunk lifetime | — | Registry of player-placed blocks, so mining them earns no credit (see the Amendment) |
 
 UUIDs are stored as `PersistentDataType.LONG_ARRAY` holding `[mostSigBits, leastSigBits]`
 (16 bytes), never as `STRING` (36 bytes).
@@ -118,6 +120,9 @@ Earlier revisions of this record called the first key `n6_asr_dropper`. Bukkit a
 namespaces every key under the plugin, so the name carries no hand-rolled prefix and the key
 on disk is `antispeedrun:drop-owner` — the convention `BypassStore` set with
 `bypass-expires-at`. The row above is the name that exists.
+
+The two newer keys are block-level, not item-level. The exact on-disk names and the
+registry's encoding are fixed by #212 and #214 and amended here if they differ.
 
 **No ItemStack ever carries a plugin tag.** This is the invariant that makes laundering
 structurally impossible: there is no per-item entitlement to forge, transfer, or inherit.
@@ -163,6 +168,163 @@ is the feature here:
 - it cannot be stockpiled, because despawn destroys it;
 - it cannot be diluted into a stack, because merging destroys it;
 - it privileges exactly one player, for at most five minutes.
+
+---
+
+## Amendment: personal-action credit for the possession-triggered prerequisites
+
+> **Issue:** [#211](https://github.com/Ninja6-MC/AntiSpeedrun/issues/211), part of epic
+> [#210](https://github.com/Ninja6-MC/AntiSpeedrun/issues/210)
+
+The "Already unlocked?" table above is a no-false-lock argument: each prerequisite sits
+upstream of the tier's items in natural play. It never asked whether the prerequisite can be
+obtained without doing the action, and it can. Six of the gate advancements fire vanilla's
+`inventory_changed` trigger, so holding the item completes them, however it arrived:
+
+| Advancement | Vanilla fires on | Gates (shipped config) |
+| :--- | :--- | :--- |
+| `story/mine_stone` | holding a `#stone_tool_materials` item | iron tier |
+| `story/smelt_iron` | holding an iron ingot | Nether gate |
+| `story/iron_tools` | holding an iron pickaxe | diamond tier |
+| `story/mine_diamond` | holding a diamond | netherite tier, End gate |
+| `nether/obtain_blaze_rod` | holding a blaze rod | end tier, netherite tier, End gate |
+| `story/upgrade_tools` | holding a stone pickaxe | Nether gate (hardcore profile only) |
+
+Cobblestone is ungated and each gift unlocks the gate on the next: cobblestone, an iron ingot
+(the Nether opens), an iron pickaxe, a diamond. Chest and shulker withdrawals work the same
+way. This amendment replaces those six with credits for the player's own mining, smelting,
+crafting and combat. It does not reintroduce per-item provenance: no `ItemStack` carries a
+plugin tag, and the invariant in the PDC key register still holds. Credits are per-player
+state about what the player did, not per-item state about where an item came from.
+
+### Credit definitions
+
+| Key | Credit is recorded when |
+| :--- | :--- |
+| `story/mine_stone` | The player breaks a stone, deepslate, blackstone or cobbled-form block that is not in the placed-block registry, with a pickaxe, and the block drops items. |
+| `story/smelt_iron` | Both sub-credits below are recorded, in either order. |
+| `story/iron_tools` | The player crafts an iron pickaxe in a crafting grid. A Crafter block does not count. |
+| `story/upgrade_tools` | The player crafts a stone pickaxe (any `#stone_tool_materials` head) in a crafting grid. A Crafter block does not count. Only the hardcore profile's Nether gate reads it. |
+| `story/mine_diamond` | The player breaks diamond ore or deepslate diamond ore that is not in the placed-block registry; or, with `count-structure-loot` on, the player generates loot containing a diamond. |
+| `nether/obtain_blaze_rod` | The player is the killer of a blaze. |
+
+`story/smelt_iron` has two sub-credits:
+
+* **Mined iron:** the player breaks iron ore or deepslate iron ore that is not in the
+  placed-block registry, with a pickaxe that drops it; or, with `count-structure-loot` on,
+  generates loot containing raw iron or an iron ingot.
+* **Smelted iron:** an iron ingot finishes smelting in a furnace or blast furnace whose
+  loader stamp names the player.
+
+Credits are recorded only for real players. Entities that only look like players, such as NPC
+plugins like Citizens that mark them with `NPC` metadata, earn nothing.
+
+### Structure loot setting
+
+`item-progression.count-structure-loot` (default `true`). Loot may replace *finding* an item,
+never *smelting* or *crafting* it. With the setting on:
+
+* the mined-iron sub-credit of `smelt_iron` is also earned when the player generates loot
+  containing raw iron or an iron ingot; the smelted-iron sub-credit is still required;
+* `mine_diamond` is also earned when the player generates loot containing a diamond;
+* only iron and diamonds have a loot path. Every other credit ignores loot, so looted stone (a
+  village mason chest holds some) earns nothing and a looted iron or stone pickaxe does not
+  replace crafting.
+
+With the setting off, loot never earns or completes a credit.
+
+"The player generates loot" means `LootGenerateEvent` names the player as its entity with
+`isPlugin()` false (structure chests, barrels and chest minecarts the player opens for the
+first time), or `BlockDispenseLootEvent` names the player (trial vaults). A container
+generated by someone else, or by a hopper (no entity), credits nobody. Loot a friend opens and
+hands over does not count; a friend guiding the player to an unopened chest does.
+
+Two cases are expected to credit nobody but are not yet verified, and this record does not
+guess:
+
+* **Breaking an unopened loot container.** Expected to generate loot with no entity. Pending
+  probe in [#218](https://github.com/Ninja6-MC/AntiSpeedrun/issues/218); the result is
+  recorded here when it lands.
+* **Archaeology brushing** (desert-pyramid suspicious sand, and other suspicious blocks).
+  Whether the brushed loot is covered by either event is unknown. Pending probe in #218; the
+  result is recorded here when it lands.
+
+### The re-derived "Already unlocked?" table
+
+Each credit sits upstream of the items of the tier it gates, in natural play.
+
+| Credit | Gates | Items it protects | Natural play reaches the credit first because |
+| :--- | :--- | :--- | :--- |
+| `mine_stone` | iron | iron tools, armor and blocks | Mining stone with a pickaxe is how a player gets cobblestone for the stone tools, and iron ore needs a stone pickaxe. The player has mined stone before iron exists. |
+| `smelt_iron` (mined and smelted) | Nether gate | Nether entry | Iron ore must be mined and smelted to make the iron pickaxe and bucket that precede the portal. Both sub-credits are earned while making ingots. |
+| `iron_tools` | diamond | diamond items | Diamond ore needs an iron pickaxe, and the player crafts it. |
+| `upgrade_tools` | Nether gate (hardcore) | Nether entry | A stone pickaxe is crafted before an iron one. |
+| `mine_diamond` | netherite, End | netherite and End-tier items | Netherite needs diamond gear, and diamond ore is mined (or, with the setting on, found in loot) before it. |
+| `obtain_blaze_rod` | end, netherite, End | netherite items, end-tier items (Eye of Ender) | A blaze rod comes only from a blaze, and a player in the fortress kills it. Blaze powder, which the Eye of Ender needs, cannot precede it. |
+
+**Re-verify this table whenever the credits or tier prerequisites are retuned.**
+
+### Deliberate new false locks
+
+These players are locked out by design. They would previously have passed because holding the
+item completed the advancement.
+
+* A player whose diamonds come only from villager trades or friends (or from loot, with the
+  setting off), and who never mines diamond ore, is locked out of netherite and the End.
+* A player whose iron comes only from friends, iron golems, zombie drops or crafted nuggets
+  (or from loot, with the setting off), and who never mines iron ore, is locked out of the
+  Nether.
+* A player who only hopper-feeds furnaces never earns the Nether. The loader stamp names the
+  player who hand-loads a furnace, and hopper input does not.
+* A player whose iron pickaxe comes only from loot (village toolsmith or weaponsmith chests),
+  a toolsmith trade or a friend, and who never crafts one, cannot pick up diamonds. Loot never
+  replaces crafting, so this holds even with `count-structure-loot` on.
+* The same for a stone pickaxe on the hardcore Nether gate: a player who never crafts one,
+  however they obtained it, cannot enter the Nether.
+* A player whose blaze rods come only from friends, trades or loot, and who never kills a
+  blaze, never opens the end tier, netherite or the End. This is the intended effect of
+  blocking gifts, recorded here because vanilla completed the advancement on holding the rod.
+
+### Accepted residuals
+
+* A helper-built cobblestone generator lets the recipient mine stone that was never placed.
+* Blocks placed before the plugin version that adds the placed-block registry are not in it,
+  so mining them earns credit.
+* A helper weakens a blaze and the recipient lands the kill.
+* Hopper-only furnace input credits nobody. Hopper-collected output still credits the stamped
+  loader.
+* Per-player loot plugins (Lootin and similar) fill containers through the API, so their loot
+  is `isPlugin()` and never counts. A server using one relies on mining.
+
+### Lookup semantics
+
+The decorator over `AdvancementLookup` answers the protected keys from recorded credits.
+Every tier and dimension gate already reads through that single lookup, so gating code is
+unchanged.
+
+* With the toggle on, a protected key is EARNED only when its credit is recorded. The vanilla
+  advancement is ignored, so `/advancement grant` and `/advancement revoke` neither unlock nor
+  relock.
+* UNRESOLVABLE passes through unchanged.
+* Every other key passes through.
+
+There is no upgrade migration. On an existing server every player earns the credits again, or
+an admin grants them, so updating relocks every player's iron, Nether, diamond, netherite and
+End gates at once. The release notes and the CHANGELOG entry must warn about it.
+
+### The recorder always runs
+
+The recorder runs regardless of the toggle and of the structure loot setting. Loot-sourced
+credits are stored with their source, so switching the setting changes the result immediately
+without re-inferring anything.
+
+### Every other gate advancement was checked
+
+Besides the six protected keys, shipped config and profiles gate on `story/enter_the_nether`,
+`nether/find_fortress` (including the early eye-throw gate), `story/enchant_item` and
+`story/cure_zombie_villager`. Each needs the player to be somewhere or to do something, so
+none can be gifted. Trim gating is separate and tracked in
+[#221](https://github.com/Ninja6-MC/AntiSpeedrun/issues/221).
 
 ---
 
