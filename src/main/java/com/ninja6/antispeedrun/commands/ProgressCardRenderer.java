@@ -27,9 +27,10 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *
  * The {@code ➔ NEXT STEP:} line and the per-row detail both come from
  * {@link IdleReminderRules#nextStep(List, ItemProgression)} and
- * {@link IdleReminderRules#outstanding} rather than from a second copy of that logic living here. A card and an idle reminder that disagreed about
- * what a player owes a gate would be a real bug, and the ordinary way that happens is a second
- * implementation written because the first returned the wrong shape. So the shape moved instead.
+ * {@link IdleReminderRules#outstanding} rather than from a second copy of that logic living
+ * here. A card and an idle reminder that disagreed about what a player owes a gate would be a
+ * real bug, and the ordinary way that happens is a second implementation written because the
+ * first returned the wrong shape. So the shape moved instead.
  *
  * <h2>Two styles, because Bedrock's font is not Java's — finding R-21</h2>
  *
@@ -95,9 +96,9 @@ public final class ProgressCardRenderer {
      *
      * <p>A milestone that is outstanding but has nothing actionable — every remaining requirement
      * waived because this server cannot resolve it — still gets a row, with no detail. That case
-     * is the one {@link IdleReminderRules#nextStep(List, ItemProgression)} deliberately says nothing about, because
-     * a reminder with a blank next step is a nag with no content. A card is different: leaving the
-     * milestone out entirely would tell the player it does not exist.
+     * is the one {@link IdleReminderRules#nextStep(List, ItemProgression)} deliberately says
+     * nothing about, because a reminder with a blank next step is a nag with no content. A card
+     * is different: leaving the milestone out entirely would tell the player it does not exist.
      */
     public static List<Row> rows(List<MilestoneProgress> progress, ItemProgression items) {
         Objects.requireNonNull(progress, "progress");
