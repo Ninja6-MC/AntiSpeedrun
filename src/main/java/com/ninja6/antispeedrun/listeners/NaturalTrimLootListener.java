@@ -16,7 +16,6 @@ import org.bukkit.inventory.ItemStack;
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.listeners.NaturalTrimLootRules.Looter;
-import com.ninja6.antispeedrun.progression.EligibilityResult;
 import com.ninja6.antispeedrun.progression.Milestone;
 import com.ninja6.antispeedrun.progression.TrimProgressionManager;
 import com.ninja6.antispeedrun.storage.ExploredStructureStore;
@@ -35,12 +34,13 @@ import com.ninja6.antispeedrun.storage.ExploredStructureStore;
  * <ul>
  *   <li><strong>A player owned by this region</strong> — the usual case, since a player opens or
  *       breaks a container within reach of it. Evaluated live through
- *       {@link TrimProgressionManager}, and the answer recorded in {@link ExploredStructureStore}.
+ *       {@link TrimProgressionManager}, which records the answer in {@link ExploredStructureStore}.
  *       The item bypass ({@code antispeedrun.bypass.items} or a {@code /asr bypass} grant) waives
  *       the lock.</li>
  *   <li><strong>A player owned by another region</strong> — judged from
- *       {@link ExploredStructureStore}, as a Crafter's owner is, because their advancements cannot
- *       be read from here. Bypasses are not read either.</li>
+ *       {@link ExploredStructureStore} through {@link TrimProgressionManager#recorded}, as a
+ *       Crafter's owner is, because their advancements cannot be read from here. Bypasses are not
+ *       read either.</li>
  *   <li><strong>No player</strong> — a hopper or hopper minecart pulling from an unopened
  *       container, or a non-player breaking one. Gated templates are refused, the same rule as a
  *       Crafter with no recorded owner.</li>
@@ -61,12 +61,9 @@ public final class NaturalTrimLootListener implements Listener {
 
     private final TrimProgressionManager trims;
 
-    private final ExploredStructureStore explored;
-
     public NaturalTrimLootListener(AntiSpeedrunPlugin plugin, ExploredStructureStore explored) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        this.explored = Objects.requireNonNull(explored, "explored");
-        this.trims = new TrimProgressionManager(plugin.progression());
+        this.trims = new TrimProgressionManager(plugin.progression(), explored);
     }
 
     /** Removes the gated templates the looter has not earned from freshly generated loot. */
@@ -93,13 +90,9 @@ public final class NaturalTrimLootListener implements Listener {
             looter = Looter.RECORDED;
         }
         UUID id = player == null ? null : player.getUniqueId();
-        Predicate<Milestone> live = milestone -> {
-            EligibilityResult outcome = trims.evaluate(player, config, milestone);
-            explored.record(id, milestone.id(), outcome.eligible());
-            return outcome.eligible();
-        };
-        NaturalTrimLootRules.strip(event.getLoot(), ItemStack::getType,
-                NaturalTrimLootRules.earned(looter, id, live, explored::hasExplored));
+        Predicate<Milestone> live = milestone -> trims.evaluate(player, config, milestone).eligible();
+        NaturalTrimLootRules.strip(event.getLoot(), ItemStack::getType, NaturalTrimLootRules.earned(
+                looter, id, live, (who, milestone) -> trims.recorded(who, config, milestone)));
     }
 
     private boolean waived(Player player) {

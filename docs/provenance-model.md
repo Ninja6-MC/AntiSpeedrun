@@ -341,8 +341,44 @@ without re-inferring anything.
 Besides the six protected keys, shipped config and profiles gate on `story/enter_the_nether`,
 `nether/find_fortress` (including the early eye-throw gate), `story/enchant_item` and
 `story/cure_zombie_villager`. Each needs the player to be somewhere or to do something, so
-none can be gifted. Trim gating is separate and tracked in
-[#221](https://github.com/Ninja6-MC/AntiSpeedrun/issues/221).
+none can be gifted. Trim gating is separate; see the next section.
+
+### Trim structures: the Ancient City
+
+[#221](https://github.com/Ninja6-MC/AntiSpeedrun/issues/221) applied the same test to the
+three trim structures. `nether/find_bastion` and `end/find_end_city` are location triggers:
+vanilla grants them only to a player standing inside a piece of the structure, so they stay
+the requirement. The Ancient City had no such advancement and was proven by
+`adventure/avoid_vibration` (Sneak 100), which is earned by sneaking past any Sculk Sensor,
+including one a friend picks up with Silk Touch and places in the player's base. A
+real-server probe reproduced that on Paper and Folia before the change.
+
+The plugin now records the Ancient City itself, from the player's position, as vanilla's
+location trigger does for the other two:
+
+* Each online player is looked at every 40 ticks, on their own scheduler, which is the
+  region thread that owns them under Folia.
+* Only a player in an overworld, below y 0 (Ancient City pieces end at about y -10), not in
+  spectator mode and not yet recorded costs a structure lookup.
+* The lookup is Paper's structure API: the Ancient Cities the player's chunk references
+  (`World#getStructures`), then their pieces' bounding boxes, both corners included. A
+  player whose block is inside a piece is recorded as `trim:ancient_city` in
+  `explored-structures.yml`. The API and its bounding boxes are the same code from Paper
+  1.21.4 to 26.2, and a probe enters a generated city on each end of that range.
+* `adventure/avoid_vibration` is no longer read for trims at all.
+
+Structure loot follows [Structure loot setting](#structure-loot-setting): a player who
+generates an Ancient City chest's loot (`chests/ancient_city` or `chests/ancient_city_ice_box`)
+is recorded as `trim:ancient_city/loot` whatever the setting says, and the record counts as
+the Ancient City only while `count-structure-loot` is on. As everywhere else, plugin loot and
+NPC players are not recorded.
+
+Unlike the personal credits, existing records are kept. Earlier versions wrote
+`trim:ancient_city` from Sneak 100 whenever a player's exploration was evaluated, and that
+record cannot tell a real visit from a gifted sensor; dropping it would relock every player
+who did reach a city, to close a gap that needs a helper with Silk Touch. A player who has
+Sneak 100 but no record relocks until they enter a city. An administrator can remove an entry
+by hand.
 
 ---
 

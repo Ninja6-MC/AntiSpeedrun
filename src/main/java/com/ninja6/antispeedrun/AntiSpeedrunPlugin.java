@@ -31,6 +31,7 @@ import com.ninja6.antispeedrun.config.UnenforceableGateException;
 import com.ninja6.antispeedrun.gating.GateCollisionException;
 import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.gating.MaterialGates;
+import com.ninja6.antispeedrun.listeners.AncientCityListener;
 import com.ninja6.antispeedrun.listeners.AntiCheeseListener;
 import com.ninja6.antispeedrun.listeners.BossCombatListener;
 import com.ninja6.antispeedrun.listeners.EyeThrowListener;
@@ -288,8 +289,24 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // only holds a compiled table once applyConfiguration() above has run. Both are in place
         // by this line.
         getServer().getPluginManager().registerEvents(new ItemProgressionListener(this), this);
+
+        // Which trim structures each player has explored (#18). Read before any trim lock exists,
+        // so a Crafter whose owner is offline works from the first tick, and so the Ancient City,
+        // which only this record proves (#221), is known to every lock at once.
+        ExploredStructureStore exploredStructures = new ExploredStructureStore(
+                getLogger(),
+                exploredFile,
+                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
+        if (!exploredStructures.loadNow()) {
+            getLogger().warning("Starting with no explored structures recorded. Crafters refuse gated "
+                    + "templates until their owners are primed or next join, and Ancient City trims "
+                    + "stay locked until each player next enters an Ancient City.");
+        }
         // The trim smithing and wearing locks (#19): read bypasses() like the item gate.
-        getServer().getPluginManager().registerEvents(new TrimSmithingListener(this), this);
+        getServer().getPluginManager().registerEvents(new TrimSmithingListener(this, exploredStructures), this);
+        // The Ancient City exploration record (#221).
+        AncientCityListener ancientCities = new AncientCityListener(this, exploredStructures, getLogger());
+        getServer().getPluginManager().registerEvents(ancientCities, this);
 
         // The early Eye of Ender rule (#7). After the stores for the same reason as the two gates
         // above: it reads bypasses() and dimensionUnlocks() on every refused throw.
@@ -317,16 +334,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new BossCombatListener(this, reinforcedFights, portalLocks, refusedArrivals), this);
 
-        // The template duplication lock (#18). Its record of explored structures is read before the
-        // listener exists, so a Crafter whose owner is offline works from the first tick.
-        ExploredStructureStore exploredStructures = new ExploredStructureStore(
-                getLogger(),
-                exploredFile,
-                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
-        if (!exploredStructures.loadNow()) {
-            getLogger().warning("Starting with no explored structures recorded. Crafters refuse gated "
-                    + "templates until their owners are primed or next join.");
-        }
+        // The template duplication lock (#18), on the record loaded above.
         this.templateDuplicationListener = new TemplateDuplicationListener(this, exploredStructures);
         getServer().getPluginManager().registerEvents(templateDuplicationListener, this);
         // The natural loot lock (#198) shares that record for a looter another region owns.
@@ -390,6 +398,11 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // this listener, so without priming here their first advancement would announce every gate
         // they had already cleared.
         primeOnlinePlayers(configuration());
+        // The same players have no join event to start the Ancient City watch either. Once only:
+        // primeOnlinePlayers also runs on every reload, and a second watch would double the work.
+        for (Player player : getServer().getOnlinePlayers()) {
+            ancientCities.track(player);
+        }
 
         getLogger().info("AntiSpeedrun enabled successfully.");
     }

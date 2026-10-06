@@ -54,11 +54,13 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  *
  * <p>The owner is judged from {@link ExploredStructureStore}, never live. A Crafter fires on its
  * block's region whether or not its owner is online, and even an online owner is usually owned by a
- * different region thread, where their advancements cannot be read. The record is refreshed from the
- * owner's own context whenever their exploration is known to be current: on join, on earning one of
- * the structure advancements, on placing a Crafter, on every template craft they attempt by hand,
- * and when online players are primed after startup or reload. A player who explored a structure
- * before this lock existed is therefore recorded when online priming or their next join runs.
+ * different region thread, where their advancements cannot be read. For the Bastion and the End
+ * City the record is refreshed from the owner's own context whenever their exploration is known to
+ * be current: on join, on earning one of the structure advancements, on placing a Crafter, on every
+ * template craft they attempt by hand, and when online players are primed after startup or reload.
+ * A player who explored one of those before this lock existed is therefore recorded when online
+ * priming or their next join runs. The Ancient City is recorded only by {@link AncientCityListener},
+ * and is read here exactly as everywhere else.
  *
  * <p>Bypasses do not carry over to a Crafter. A permission cannot be read for an offline player, so
  * a Crafter works for exactly the owners who have explored the structure.
@@ -75,8 +77,6 @@ public final class TemplateDuplicationListener implements Listener {
 
     private final TrimProgressionManager trims;
 
-    private final ExploredStructureStore explored;
-
     /** The PDC key a Crafter's owner is stamped under. */
     private final NamespacedKey ownerKey;
 
@@ -85,8 +85,7 @@ public final class TemplateDuplicationListener implements Listener {
 
     public TemplateDuplicationListener(AntiSpeedrunPlugin plugin, ExploredStructureStore explored) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        this.explored = Objects.requireNonNull(explored, "explored");
-        this.trims = new TrimProgressionManager(plugin.progression());
+        this.trims = new TrimProgressionManager(plugin.progression(), explored);
         this.ownerKey = new NamespacedKey(plugin, "crafter-owner");
         this.lastFeedback = plugin.playerState().register("template-duplication-feedback");
     }
@@ -136,7 +135,6 @@ public final class TemplateDuplicationListener implements Listener {
             return Optional.empty();
         }
         EligibilityResult outcome = trims.evaluate(player, config, gate.get());
-        explored.record(player.getUniqueId(), gate.get().id(), outcome.eligible());
         return outcome.eligible() ? Optional.empty() : gate;
     }
 
@@ -194,7 +192,7 @@ public final class TemplateDuplicationListener implements Listener {
             return;
         }
         TemplateDuplicationRules.CrafterVerdict verdict = TemplateDuplicationRules.crafter(
-                owner(event.getBlock()), gate.get(), explored::hasExplored);
+                owner(event.getBlock()), gate.get(), (who, milestone) -> trims.recorded(who, config, milestone));
         if (verdict != TemplateDuplicationRules.CrafterVerdict.ALLOW) {
             event.setCancelled(true);
         }
@@ -245,8 +243,8 @@ public final class TemplateDuplicationListener implements Listener {
             return;
         }
         for (Milestone structure : TrimProgressionManager.STRUCTURES) {
-            explored.record(player.getUniqueId(), structure.id(),
-                    trims.evaluate(player, config, structure).eligible());
+            // Records the answer for each structure an advancement proves.
+            trims.evaluate(player, config, structure);
         }
     }
 }
