@@ -499,16 +499,21 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
         }
         reply(sender, (grant ? "<green>Granted " : "<yellow>Revoked ") + creditList(changed)
                 + (grant ? " to " : " from ") + "<white>" + name
-                + "<gray>. Gates read the change from now on; it survives a restart.");
+                + "<gray>. It is stored in personal-credits.yml and survives a restart.");
     }
 
     /**
-     * Where the cached view of {@code player}'s credits is refreshed after a grant or revoke.
+     * Drops {@code player}'s cached progression snapshot after a grant or revoke.
      *
-     * <p>Gates read the store directly today, so there is nothing to refresh yet. The cache in #216
-     * hooks in here; every changing path of {@code credit} already calls it.
+     * <p>Every tier and dimension gate reads through {@code ProgressionManager}, which serves a
+     * cached snapshot that only an advancement or a reload otherwise drops; a credit change fires
+     * neither, so without this an online player would keep the old answer until the entry expired.
+     * The invalidation is a remove on a thread-safe map, legal from this async task and harmless for
+     * an offline player or one in another region. #216 adds its refresh here; every changing path of
+     * {@code credit} already calls it.
      */
     private void refreshCachedCredits(UUID player) {
+        plugin.progression().invalidate(player);
     }
 
     /**
