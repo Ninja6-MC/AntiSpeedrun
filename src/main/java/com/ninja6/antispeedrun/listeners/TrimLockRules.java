@@ -140,20 +140,11 @@ public final class TrimLockRules {
         return EquipSource.NONE;
     }
 
-    /**
-     * What the player has to go and do, in their words rather than the advancement's.
-     *
-     * <p>The Ancient City is proven by Sneak 100, which no player would guess from the structure's
-     * name, so its line says how.
-     */
+    /** What the player has to go and do, in their words rather than the advancement's. */
     public static String requirement(Milestone milestone) {
         Objects.requireNonNull(milestone, "milestone");
         String name = milestone.displayName();
-        String line = "Explore " + article(name) + " " + name;
-        if (milestone.equals(TrimProgressionManager.ANCIENT_CITY)) {
-            line += " and sneak past a Sculk Sensor or Warden";
-        }
-        return line;
+        return "Explore " + article(name) + " " + name;
     }
 
     /**

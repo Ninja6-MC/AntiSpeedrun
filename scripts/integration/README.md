@@ -60,6 +60,18 @@ for the first time, a trial vault unlocked with a key, suspicious sand brushed),
 | `credit_blaze` | Gifted blaze rods earn no `obtain-blaze-rod`; killing a blaze does. |
 | `credit_npc` | The player carrying `NPC` metadata, as an NPC plugin sets it, mines natural stone and earns nothing; without it, the same break earns `mine-stone`. |
 
+`trims.py` covers the structure trim unlocks (#221). The verdict is the natural loot lock,
+switched on for the run: an unopened chest whose loot the probe plugin replaces with one gated
+template keeps it only for a player who has explored the template's structure. The overworld's
+one biome is the Deep Dark and its one structure set the Ancient Cities, so cities generate far
+below every fixture; the probe finds one from the world seed with vanilla's placement rule and
+`/asrprobe structure` confirms it through Paper's structure API:
+
+| Probe | What it does |
+| :--- | :--- |
+| `trim_ancient_city` | Sneaking past a Sculk Sensor set down in the player's box earns `adventure/avoid_vibration` and does not unlock Silence; nor does that advancement granted by command (Ward). Standing at Deep Dark depth under a city, outside its pieces, does not. Opening an Ancient City chest first unlocks them while `count-structure-loot` is on, and stops counting once it is off. `/asrprobe enter` then moves the player into the city's largest piece, which unlocks Silence and Ward; what the structure API reported is noted in `results.json`. |
+| `trim_bastion_end_city` | Without `nether/find_bastion` and `end/find_end_city`, Snout and Spire are removed; each advancement unlocks its own templates (with the netherite upgrade for the Bastion) and not the other's. |
+
 `anti_cheese.py` covers the three section 7 boss rules (#197), each switched on alone through
 `config.yml` and `/asr reload`:
 
@@ -69,7 +81,7 @@ for the first time, a trial vault unlocked with a key, suspicious sand brushed),
 | `cap-single-hit-boss-damage` | With the cap off and on: a Sharpness 255 sword hit on a Wither and on the dragon's head and body parts, an 8-TNT-minecart stack, and a Mace smash from about 25 blocks. With the cap on, `/kill` on both bosses. On Folia the TNT stack also shows whether the per-tick budget (#203) holds when the stack lands in one region tick. |
 | `block-bed-anchor-boss-damage` | With the rule off and on: a bed (in the Nether) and a charged Respawn Anchor (in the Overworld) detonated beside a Wither and a dragon, checking the reported damage type is `BAD_RESPAWN_POINT`. With the rule on, a TNT control beside each boss. |
 
-The gate probes run first, then the credit probes. The probing player is never an operator except where `operator`
+The gate probes run first, then the credit probes, then the trim probes. The probing player is never an operator except where `operator`
 and `teleports` make it one for a case, and never holds a bypass node; a check asserts it. For
 the anti-cheese probes it is given every advancement, so the dimension and item gates stay out
 of the way. It always has Resistance V, so explosions beside it do not end the run.
@@ -83,9 +95,10 @@ of the way. It always has Resistance V, so explosions beside it do not end the r
 | `probes.py` | What every probe module shares: results, `KNOWN_ISSUES`, and the console helpers. |
 | `gates.py` | The dimension and item gate probes. |
 | `credits.py` | The personal-credit probes. |
+| `trims.py` | The trim structure probes. |
 | `anti_cheese.py` | The section 7 probes. |
 | `client/` | The scripted player: a [mineflayer](https://github.com/PrismarineJS/mineflayer) client that takes one JSON request per line from `run.py`. |
-| `src/probe/` (repository root) | `AntiSpeedrunProbe`, a test-only plugin that logs one `ASRPROBE` line per boss damage event, crystal click, pickup attempt, container click, trade selection, portal event, world change and loot generation, and answers the harness's console queries (`/asrprobe`), a player's personal credits among them. Apart from the plugin teleports `teleports` asks of it, announced through `expectTeleport` for one of them, the one-shot loot replacement and the `NPC` metadata the credit probes ask of it, it changes nothing. Never install it on a real server. |
+| `src/probe/` (repository root) | `AntiSpeedrunProbe`, a test-only plugin that logs one `ASRPROBE` line per boss damage event, crystal click, pickup attempt, container click, trade selection, portal event, world change and loot generation, and answers the harness's console queries (`/asrprobe`), a player's personal credits and advancements, explored trim structures and what the structure API reports among them. Apart from the plugin teleports `teleports` and the trim probes' `enter` ask of it, announced through `expectTeleport` for one of them, the one-shot loot replacement and the `NPC` metadata the credit probes ask of it, it changes nothing. Never install it on a real server. |
 
 ## Running it
 
@@ -169,3 +182,17 @@ Server behaviours that already cost a cycle:
   block and throws; pass `ms` to the client's `dig`, which then sends the dig packets itself;
 * mineflayer's view of a crafting grid can fall behind the server's, on Folia above all, and a
   craft stops short; the client's `craft` closes the table and tries again.
+* a player crouching on the ground makes no vibration at all, so walking past a Sculk Sensor
+  while sneaking earns `adventure/avoid_vibration` only when the player also jumps; the
+  client's `walk` takes `sneak` and `jump`;
+* from 1.21.3 mineflayer reports sneaking only in `player_input`, which servers before 1.21.6
+  ignore, so the server never sees the player sneak; `walk` also sends the older
+  `entity_action` there;
+* the world spawn can land inside an Ancient City, so a player may be recorded as having
+  explored one on joining; the trim probes clear the record with `/asrprobe explored ... clear`
+  first and check after each negative case that nothing recorded it, and `--seed` repeats a
+  run's world;
+* the probe's Ancient City is placed by vanilla's random spread rule for the
+  `minecraft:ancient_cities` set (spacing 24, separation 8, salt 20083232) from the seed
+  `/seed` reports, which `trims.city_chunk` reproduces, so the probe enters a generated city.
+

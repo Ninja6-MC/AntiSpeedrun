@@ -187,9 +187,9 @@ class TrimLockRulesTest {
     class Feedback {
 
         @Test
-        @DisplayName("the Ancient City line says how it is proven")
+        @DisplayName("the Ancient City line asks for the structure itself, not Sneak 100 (#221)")
         void ancientCity() {
-            assertEquals("Explore an Ancient City and sneak past a Sculk Sensor or Warden",
+            assertEquals("Explore an Ancient City",
                     TrimLockRules.requirement(TrimProgressionManager.ANCIENT_CITY));
         }
 
