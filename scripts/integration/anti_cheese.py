@@ -128,6 +128,10 @@ class AntiCheeseProbes(Probes):
                      f"effect give {self.player} minecraft:saturation infinite 0 true",
                      f"effect give {self.player} minecraft:regeneration infinite 4 true"):
             self.run(line)
+        # The six possession-triggered keys are answered from personal credits (#215). The
+        # command applies asynchronously, so wait for its reply.
+        self.server.query(f"asr credit grant {self.player} all", r"Granted |already held ",
+                          timeout=15)
         time.sleep(2)
 
     # ------------------------------------------------------------------ crystal

@@ -206,6 +206,8 @@ class PluginConfigTest {
             assertTrue(items.gateDispensers());
             assertTrue(items.gateNestedBundles());
             assertEquals(3, items.feedbackCooldownSeconds());
+            assertTrue(items.requirePersonalCredit());
+            assertTrue(items.countStructureLoot());
 
             assertEquals(List.of("iron-tier", "diamond-tier", "nether-tier", "end-tier",
                             "netherite-tier"),
@@ -260,6 +262,10 @@ class PluginConfigTest {
             assertEquals(d.itemProgression().feedbackCooldownSeconds(),
                     s.itemProgression().feedbackCooldownSeconds());
             assertEquals(d.itemProgression().rejectionMessage(), s.itemProgression().rejectionMessage());
+            assertEquals(d.itemProgression().requirePersonalCredit(),
+                    s.itemProgression().requirePersonalCredit());
+            assertEquals(d.itemProgression().countStructureLoot(),
+                    s.itemProgression().countStructureLoot());
             assertTrue(d.itemProgression().gatedItems().isEmpty());
         }
     }

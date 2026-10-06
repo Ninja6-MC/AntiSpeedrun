@@ -72,7 +72,8 @@ class JourneyBookPagesTest {
         ItemProgression items = base.itemProgression();
         ItemProgression replaced = new ItemProgression(items.enabled(), items.dropRecallEnabled(),
                 items.gateDispensers(), items.gateNestedBundles(), items.feedbackCooldownSeconds(),
-                items.rejectionMessage(), tiers);
+                items.rejectionMessage(), tiers, items.requirePersonalCredit(),
+                items.countStructureLoot());
         return with(base, base.dimensionGates(), replaced, base.villagerProgression(), base.journeyBook());
     }
 

@@ -15,8 +15,10 @@ any other server version before claiming a rule works there.
 ## What it covers
 
 `gates.py` covers the dimension and item gates (#58). Each case sets the player's progression
-itself (every advancement revoked, then only what the case needs granted, then `/asr reload`
-so no cached evaluation survives), and each refusal has a control that must succeed:
+itself (every advancement and personal credit revoked, then only what the case needs granted,
+with `/asr credit grant` beside `/advancement grant` for a key answered from credits, then
+`/asr reload` so no cached evaluation survives), and each refusal has a control that must
+succeed:
 
 | Probe | What it does |
 | :--- | :--- |

@@ -210,7 +210,21 @@ so that progression is advancement-driven by default.
 | `gate-nested-bundles` | `true` | Refuse extracting locked items from bundles. |
 | `feedback-cooldown-seconds` | `3` | Minimum `0`. Throttle between refusal messages. |
 | `rejection-message` | A built-in message | MiniMessage with `{ITEM}` and `{REQUIREMENT}` placeholders. |
+| `require-personal-credit` | `true` | Answer the six possession-triggered advancements from personal credits. Applies to every gate, dimension gates included, whatever `enabled` says. |
+| `count-structure-loot` | `true` | Loot the player generates may stand in for mining iron or diamonds, never for smelting or crafting. |
 | `gated-items` | none | A map of tier id to tier. There is no code default: with none declared, no item is gated. |
+
+Vanilla completes `story/mine_stone`, `story/smelt_iron`, `story/iron_tools`,
+`story/upgrade_tools`, `story/mine_diamond` and `nether/obtain_blaze_rod` as soon as the
+player holds the item, however it arrived. While `require-personal-credit` is on, a gate
+on one of them is satisfied only by the player's own mining, smelting, crafting or blaze
+kill, recorded in `personal-credits.yml`; the vanilla advancement is ignored, so
+`/advancement grant` and `revoke` change nothing. A key the server cannot resolve is
+still waived. The credit definitions are the Amendment of
+[`provenance-model.md`](provenance-model.md). With it on, a switched-on gate that requires
+any other advancement vanilla completes on possession, such as `story/obtain_armor` or
+`end/elytra`, is reported as a warning at load, since a gift still satisfies it. Both
+settings take effect on `/asr reload`.
 
 Each tier under `gated-items` takes:
 

@@ -303,7 +303,7 @@ item completed the advancement.
 
 The decorator over `AdvancementLookup` answers the protected keys from recorded credits.
 Every tier and dimension gate already reads through that single lookup, so gating code is
-unchanged.
+unchanged. The toggle is `item-progression.require-personal-credit` (default `true`).
 
 * With the toggle on, a protected key is EARNED only when its credit is recorded. The vanilla
   advancement is ignored, so `/advancement grant` and `/advancement revoke` neither unlock nor
