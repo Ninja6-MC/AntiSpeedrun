@@ -93,7 +93,8 @@ public final class ProgressCommand implements CommandExecutor, TabCompleter {
         // needs nothing done; there is no state to unwind and nobody to apologise to.
         player.getScheduler().run(plugin, task -> {
             List<MilestoneProgress> progress = progressOf(player, config);
-            for (String line : ProgressCardRenderer.card(player.getName(), progress, style)) {
+            for (String line : ProgressCardRenderer.card(player.getName(), progress, style,
+                    config.itemProgression())) {
                 player.sendMessage(MINI.deserialize(line));
             }
             fallbackHints(player, progress);

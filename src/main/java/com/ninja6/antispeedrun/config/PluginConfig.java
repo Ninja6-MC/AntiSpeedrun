@@ -106,11 +106,11 @@ public record PluginConfig(
     // ---------------------------------------------------------------------------------------
 
     private static final String DEFAULT_NETHER_REJECTION =
-            "<red>🔒 The Nether is locked! Requires <yellow>Iron Gear<red> "
-                    + "(Smelt an iron ingot). Type <gold>/progress";
+            "<red>🔒 The Nether is locked! <yellow>Mine iron ore<red> and smelt it in a furnace "
+                    + "<yellow>you loaded yourself<red>. Type <gold>/progress";
     private static final String DEFAULT_END_REJECTION =
-            "<red>🔒 The End is sealed! Complete survival progression first. "
-                    + "Type <gold>/progress";
+            "<red>🔒 The End is sealed! <yellow>Mine diamond ore<red>, find a <yellow>Nether "
+                    + "Fortress<red> and <yellow>kill a Blaze<red> yourself first. Type <gold>/progress";
     private static final String DEFAULT_ITEM_REJECTION =
             "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}";
     private static final String DEFAULT_EARLY_EYE_REJECTION =

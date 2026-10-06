@@ -267,7 +267,8 @@ public final class IdleReminderEngine {
         // poll, are both IdleReminderRules#advance's -- they are decisions about when the cooldown
         // is earned, not wiring, and they are unit-tested there without a Bukkit type in sight.
         IdleReminderRules.State next = IdleReminderRules.advance(previous, where, now, settings,
-                () -> IdleReminderRules.nextStep(progressOf(player, config)),
+                () -> IdleReminderRules.nextStep(progressOf(player, config),
+                        config.itemProgression()),
                 step -> deliver(player, settings, step),
                 (stage, thrown) -> reportFailure(player, stage, thrown, now));
         tracked.put(id, next);

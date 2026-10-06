@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import com.ninja6.antispeedrun.config.CreditedActions;
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.PluginConfig.ItemTier;
 import com.ninja6.antispeedrun.progression.Milestone;
@@ -46,6 +47,10 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * printing {@code minecraft:story/smelt_iron}. A key in any other namespace is shown as the key:
  * its translation key is whatever its datapack chose, and guessing one would print a raw
  * translation key instead of anything readable.
+ *
+ * <p>While {@code require-personal-credit} is on, the six credited advancements are written as the
+ * action that earns them instead (#216), and the Dimensions section notes that loot counts only
+ * from a chest the reader opens first whenever {@code count-structure-loot} lets loot count at all.
  */
 public final class JourneyBookPages {
 
@@ -196,12 +201,16 @@ public final class JourneyBookPages {
         for (Milestone gate : gates) {
             section.add(Paragraph.text(BODY, ""));
             section.add(Paragraph.text("<dark_blue><bold>", gate.displayName()));
-            section.addAll(requirement(gate.requirement()));
+            section.addAll(requirement(gate.requirement(), config.itemProgression()));
         }
         if (gates.size() == 1) {
             String open = gates.get(0).id().equals(Milestone.NETHER_ID) ? "The End" : "The Nether";
             section.add(Paragraph.text(BODY, ""));
             section.add(Paragraph.text(NOTE, open + " is not gated."));
+        }
+        if (CreditedActions.lootCounts(config.itemProgression())) {
+            section.add(Paragraph.text(BODY, ""));
+            section.add(Paragraph.text(NOTE, CreditedActions.LOOT_NOTE));
         }
         return section;
     }
@@ -221,7 +230,7 @@ public final class JourneyBookPages {
             if (!tier.hint().isBlank()) {
                 section.add(Paragraph.text(BODY, tier.hint()));
             } else {
-                section.addAll(requirement(MilestoneRequirement.of(tier)));
+                section.addAll(requirement(MilestoneRequirement.of(tier), items));
             }
         }
         return Optional.of(section);
@@ -271,15 +280,22 @@ public final class JourneyBookPages {
     // Requirement lines
     // -----------------------------------------------------------------------------------------
 
-    /** One line per requirement; "Open from the start" when there is none. */
-    static List<Paragraph> requirement(MilestoneRequirement requirement) {
+    /**
+     * One line per requirement; "Open from the start" when there is none. A credited advancement is
+     * written as the action that earns it while credits are on ({@link CreditedActions}), since its
+     * vanilla title names an item a gift no longer stands in for.
+     */
+    static List<Paragraph> requirement(MilestoneRequirement requirement,
+                                       PluginConfig.ItemProgression items) {
         List<Paragraph> lines = new ArrayList<>();
         if (requirement.isEmpty()) {
             lines.add(Paragraph.text(BODY, "Open from the start."));
             return lines;
         }
         for (String key : requirement.advancements()) {
-            lines.add(advancement(key));
+            lines.add(CreditedActions.sentence(key, items)
+                    .map(action -> Paragraph.text(BODY, "- " + action))
+                    .orElseGet(() -> advancement(key)));
         }
         if (requirement.playtimeHours() > 0.0D) {
             lines.add(Paragraph.text(BODY, "- Play " + hours(requirement.playtimeHours())));

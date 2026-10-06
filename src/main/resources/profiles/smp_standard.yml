@@ -26,7 +26,7 @@ dimension-gates:
     require-playtime-hours: 0          # Default 0 (Advancement-driven). Set >0 for time gating.
     require-advancements:
       - "minecraft:story/smelt_iron"
-    rejection-message: "<red>🔒 The Nether is locked! Requires <yellow>Iron Gear<red> (Smelt an iron ingot). Type <gold>/progress"
+    rejection-message: "<red>🔒 The Nether is locked! <yellow>Mine iron ore<red> and smelt it in a furnace <yellow>you loaded yourself<red>. Type <gold>/progress"
 
   the_end:
     enabled: true
@@ -36,7 +36,7 @@ dimension-gates:
       - "minecraft:story/mine_diamond"
       - "minecraft:nether/obtain_blaze_rod"
       - "minecraft:nether/find_fortress"
-    rejection-message: "<red>🔒 The End is sealed! Complete survival progression first. Type <gold>/progress"
+    rejection-message: "<red>🔒 The End is sealed! <yellow>Mine diamond ore<red>, find a <yellow>Nether Fortress<red> and <yellow>kill a Blaze<red> yourself first. Type <gold>/progress"
 
 # 2. Anti-Boosting & Item Progression Gating (Minecraft Tag & Pattern Resolution)
 item-progression:
@@ -91,7 +91,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/mine_stone"
       require-playtime-hours: 0
-      hint: "Mine Stone with a wooden pickaxe (Stone Age)"
+      hint: "Mine natural stone with a pickaxe yourself (Stone Age)"
 
     diamond-tier:
       match-patterns:
@@ -105,7 +105,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/iron_tools"
       require-playtime-hours: 0
-      hint: "Craft an Iron Pickaxe"
+      hint: "Craft an Iron Pickaxe yourself"
 
     nether-tier:
       items:
@@ -139,7 +139,7 @@ item-progression:
         - "minecraft:nether/find_fortress"
       require-playtime-hours: 0          # Was 20.0 - contradicted the advancement-driven End gate above.
       require-account-age-days: 0        # Was 7 - see the getFirstPlayed caveat in section 2.1.
-      hint: "Unlock The End Gate"
+      hint: "Kill a Blaze yourself in a Nether Fortress"
 
     netherite-tier:
       # Precedence: a Material matching two tiers resolves MOST-RESTRICTIVE-WINS - the tier
@@ -160,7 +160,7 @@ item-progression:
       require-advancements:
         - "minecraft:story/mine_diamond"
         - "minecraft:nether/obtain_blaze_rod"
-      hint: "Mine Diamonds & Explore the Nether"
+      hint: "Mine diamond ore and kill a Blaze yourself"
 
 # 3. Armor Trim & Smithing Template Progression
 trim-progression:

@@ -36,6 +36,9 @@ import com.ninja6.antispeedrun.progression.IdleReminderRules.State;
  */
 class IdleReminderRulesTest {
 
+    private static final PluginConfig.ItemProgression ITEMS =
+            PluginConfig.defaults().itemProgression();
+
     private static final UUID OVERWORLD = UUID.nameUUIDFromBytes("overworld".getBytes());
     private static final UUID NETHER = UUID.nameUUIDFromBytes("nether".getBytes());
 
@@ -552,30 +555,30 @@ class IdleReminderRulesTest {
         @DisplayName("a player who has cleared everything is told nothing")
         void nothingOutstanding() {
             assertEquals(Optional.empty(),
-                    IdleReminderRules.nextStep(List.of(cleared("a"), cleared("b"))));
+                    IdleReminderRules.nextStep(List.of(cleared("a"), cleared("b")), ITEMS));
         }
 
         @Test
         @DisplayName("the first outstanding milestone in configured order wins")
         void firstOutstandingWins() {
             EligibilityResult missing = new EligibilityResult(
-                    false, List.of("minecraft:story/smelt_iron"), List.of(), 0.0D, 0, false);
+                    false, List.of("minecraft:story/enchant_item"), List.of(), 0.0D, 0, false);
 
-            assertEquals(Optional.of("The Nether - earn minecraft:story/smelt_iron"),
+            assertEquals(Optional.of("The Nether - earn minecraft:story/enchant_item"),
                     IdleReminderRules.nextStep(
-                            List.of(cleared("a"), outstanding("The Nether", missing))));
+                            List.of(cleared("a"), outstanding("The Nether", missing)), ITEMS));
         }
 
         @Test
         @DisplayName("several missing advancements are listed")
         void severalAdvancements() {
             EligibilityResult missing = new EligibilityResult(
-                    false, List.of("minecraft:story/smelt_iron", "minecraft:nether/root"),
+                    false, List.of("minecraft:story/enchant_item", "minecraft:nether/root"),
                     List.of(), 0.0D, 0, false);
 
             assertEquals(Optional.of(
-                            "The End - earn minecraft:story/smelt_iron, minecraft:nether/root"),
-                    IdleReminderRules.nextStep(List.of(outstanding("The End", missing))));
+                            "The End - earn minecraft:story/enchant_item, minecraft:nether/root"),
+                    IdleReminderRules.nextStep(List.of(outstanding("The End", missing)), ITEMS));
         }
 
         @Test
@@ -585,7 +588,7 @@ class IdleReminderRulesTest {
                     new EligibilityResult(false, List.of(), List.of(), 0.25D, 0, false);
 
             assertEquals(Optional.of("The Nether - 15 minutes more playtime"),
-                    IdleReminderRules.nextStep(List.of(outstanding("The Nether", missing))));
+                    IdleReminderRules.nextStep(List.of(outstanding("The Nether", missing)), ITEMS));
         }
 
         @Test
@@ -595,7 +598,7 @@ class IdleReminderRulesTest {
                     new EligibilityResult(false, List.of(), List.of(), 2.5D, 0, false);
 
             assertEquals(Optional.of("The Nether - 2.5 hours more playtime"),
-                    IdleReminderRules.nextStep(List.of(outstanding("The Nether", missing))));
+                    IdleReminderRules.nextStep(List.of(outstanding("The Nether", missing)), ITEMS));
         }
 
         @Test
@@ -603,21 +606,65 @@ class IdleReminderRulesTest {
         void tenureIsPluralised() {
             assertEquals(Optional.of("The End - 1 more day on this server"),
                     IdleReminderRules.nextStep(List.of(outstanding("The End",
-                            new EligibilityResult(false, List.of(), List.of(), 0.0D, 1, false)))));
+                            new EligibilityResult(false, List.of(), List.of(), 0.0D, 1, false))), ITEMS));
             assertEquals(Optional.of("The End - 3 more days on this server"),
                     IdleReminderRules.nextStep(List.of(outstanding("The End",
-                            new EligibilityResult(false, List.of(), List.of(), 0.0D, 3, false)))));
+                            new EligibilityResult(false, List.of(), List.of(), 0.0D, 3, false))), ITEMS));
         }
 
         @Test
         @DisplayName("an advancement and a duration are both named")
         void bothKinds() {
             EligibilityResult missing = new EligibilityResult(
-                    false, List.of("minecraft:story/smelt_iron"), List.of(), 3.0D, 2, false);
+                    false, List.of("minecraft:story/enchant_item"), List.of(), 3.0D, 2, false);
 
-            assertEquals(Optional.of("The Nether - earn minecraft:story/smelt_iron and "
+            assertEquals(Optional.of("The Nether - earn minecraft:story/enchant_item and "
                             + "3.0 hours more playtime and 2 more days on this server"),
-                    IdleReminderRules.nextStep(List.of(outstanding("The Nether", missing))));
+                    IdleReminderRules.nextStep(List.of(outstanding("The Nether", missing)), ITEMS));
+        }
+
+        @Test
+        @DisplayName("a credited advancement is named by the action that earns it")
+        void creditedAdvancementNamesTheAction() {
+            EligibilityResult missing = new EligibilityResult(false,
+                    List.of("minecraft:story/mine_diamond", "minecraft:nether/find_fortress",
+                            "minecraft:nether/obtain_blaze_rod"),
+                    List.of(), 0.0D, 0, false);
+
+            assertEquals(Optional.of("The End - mine diamond ore (or loot a diamond from a chest "
+                            + "you open first) and kill a blaze yourself and earn "
+                            + "minecraft:nether/find_fortress"),
+                    IdleReminderRules.nextStep(List.of(outstanding("The End", missing)), ITEMS));
+        }
+
+        @Test
+        @DisplayName("with structure loot off, the loot alternative is not offered")
+        void lootOffDropsTheLootAlternative() {
+            EligibilityResult missing = new EligibilityResult(
+                    false, List.of("minecraft:story/smelt_iron"), List.of(), 0.0D, 0, false);
+
+            assertEquals(Optional.of("The Nether - mine iron ore and smelt iron in a furnace you "
+                            + "loaded yourself"),
+                    IdleReminderRules.nextStep(List.of(outstanding("The Nether", missing)),
+                            items(true, false)));
+        }
+
+        @Test
+        @DisplayName("with personal credit off, every advancement is named as before")
+        void creditsOffNamesTheAdvancement() {
+            EligibilityResult missing = new EligibilityResult(
+                    false, List.of("minecraft:story/smelt_iron"), List.of(), 0.0D, 0, false);
+
+            assertEquals(Optional.of("The Nether - earn minecraft:story/smelt_iron"),
+                    IdleReminderRules.nextStep(List.of(outstanding("The Nether", missing)),
+                            items(false, true)));
+        }
+
+        private static PluginConfig.ItemProgression items(boolean credit, boolean loot) {
+            PluginConfig.ItemProgression i = ITEMS;
+            return new PluginConfig.ItemProgression(i.enabled(), i.dropRecallEnabled(),
+                    i.gateDispensers(), i.gateNestedBundles(), i.feedbackCooldownSeconds(),
+                    i.rejectionMessage(), i.gatedItems(), credit, loot);
         }
 
         @Test
@@ -627,7 +674,7 @@ class IdleReminderRulesTest {
                     false, List.of(), List.of("minecraft:story/smelt_iron"), 0.0D, 0, false);
 
             assertEquals(Optional.empty(),
-                    IdleReminderRules.nextStep(List.of(outstanding("The Nether", unactionable))));
+                    IdleReminderRules.nextStep(List.of(outstanding("The Nether", unactionable)), ITEMS));
         }
     }
 }

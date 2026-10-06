@@ -2,6 +2,7 @@ package com.ninja6.antispeedrun.progression;
 
 import java.util.Objects;
 
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -30,7 +31,8 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  *   <li>{@code PlayerAdvancementDoneEvent} — the only moment a player's advancement set changes.
  *       Invalidates the cached snapshot and announces any gate that has just opened. Both happen on
  *       the player's own region thread, which is where the event fires, so no cross-region work is
- *       involved.</li>
+ *       involved. A personal credit opens a protected gate by the same {@link #refreshUnlocks},
+ *       through {@link CreditRefresh}.</li>
  *   <li>{@code PlayerQuitEvent} — cancels the watch, then drops every per-player map entry. Finding
  *       R-08: without this the maps grow for the lifetime of the server.</li>
  * </ul>
@@ -106,10 +108,22 @@ public final class ProgressionListener implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onAdvancementDone(PlayerAdvancementDoneEvent event) {
+        refreshUnlocks(event.getPlayer());
+    }
+
+    /**
+     * What an earned advancement does, for any change to what a player has earned: invalidate,
+     * announce whatever has just opened, refresh the watch. {@link CreditRefresh} calls it when a
+     * personal credit is recorded or revoked (#216), which is the moment a protected gate opens now
+     * that a held item no longer completes it.
+     *
+     * <p>Evaluates, so it must run on the player's own region thread.
+     */
+    public void refreshUnlocks(Player player) {
         PluginConfig config = plugin.configuration();
-        progression.invalidate(event.getPlayer().getUniqueId());
-        progression.announceNewUnlocks(event.getPlayer(), config);
-        watch.refresh(event.getPlayer(), config);
+        progression.invalidate(player.getUniqueId());
+        progression.announceNewUnlocks(player, config);
+        watch.refresh(player, config);
     }
 
     /**

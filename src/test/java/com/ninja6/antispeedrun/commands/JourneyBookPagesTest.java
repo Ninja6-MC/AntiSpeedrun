@@ -18,6 +18,7 @@ import org.yaml.snakeyaml.Yaml;
 import com.ninja6.antispeedrun.commands.JourneyBookPages.Paragraph;
 import com.ninja6.antispeedrun.config.ConfigLoadException;
 import com.ninja6.antispeedrun.config.MapConfigSection;
+import com.ninja6.antispeedrun.config.CreditedActions;
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.PluginConfig.DimensionGate;
 import com.ninja6.antispeedrun.config.PluginConfig.DimensionGates;
@@ -41,6 +42,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * and how it is laid out onto pages a written book can show.
  */
 class JourneyBookPagesTest {
+
+    private static final PluginConfig.ItemProgression ITEMS =
+            PluginConfig.defaults().itemProgression();
 
     private static final MiniMessage MINI = MiniMessage.miniMessage();
 
@@ -117,11 +121,21 @@ class JourneyBookPagesTest {
             assertTrue(text.contains("The Nether"));
             assertTrue(text.contains("The End"));
             assertTrue(text.contains(
-                    "<lang_or:advancements.story.smelt_iron.title:'minecraft:story/smelt_iron'>"));
-            assertTrue(text.contains(
                     "<lang_or:advancements.nether.find_fortress.title:'minecraft:nether/find_fortress'>"));
-            assertFalse(text.contains("- minecraft:story/smelt_iron"),
+            assertFalse(text.contains("- minecraft:nether/find_fortress"),
                     "a vanilla key is shown by its title, not printed as a key");
+        }
+
+        @Test
+        @DisplayName("a credited advancement is written as the action, with the loot note")
+        void creditedAdvancementsNameTheAction() {
+            String text = book(shipped());
+            assertTrue(text.contains("- Mine iron ore (or loot iron from a chest you open first) "
+                    + "and smelt iron in a furnace you loaded yourself"));
+            assertTrue(text.contains("- Kill a blaze yourself"));
+            assertFalse(text.contains("story.smelt_iron.title"),
+                    "the vanilla title names a held item, which no longer counts");
+            assertTrue(text.contains(CreditedActions.LOOT_NOTE));
         }
 
         @Test
@@ -150,7 +164,7 @@ class JourneyBookPagesTest {
             String text = book(shipped());
             assertTrue(text.contains("Iron Tier"));
             assertTrue(text.contains("Netherite Tier"));
-            assertTrue(text.contains("Mine Stone with a wooden pickaxe (Stone Age)"));
+            assertTrue(text.contains("Mine natural stone with a pickaxe yourself (Stone Age)"));
         }
 
         @Test
@@ -280,7 +294,7 @@ class JourneyBookPagesTest {
         @Test
         @DisplayName("a requirement with nothing in it is open from the start")
         void emptyRequirement() {
-            List<Paragraph> lines = JourneyBookPages.requirement(MilestoneRequirement.none());
+            List<Paragraph> lines = JourneyBookPages.requirement(MilestoneRequirement.none(), ITEMS);
             assertEquals(1, lines.size());
             assertEquals("Open from the start.", lines.get(0).plain());
         }
@@ -289,13 +303,13 @@ class JourneyBookPagesTest {
         @DisplayName("playtime reads in minutes below an hour and in hours above")
         void playtime() {
             assertEquals("- Play 30 minutes", JourneyBookPages.requirement(
-                    new MilestoneRequirement(List.of(), 0.5D, 0)).get(0).plain());
+                    new MilestoneRequirement(List.of(), 0.5D, 0), ITEMS).get(0).plain());
             assertEquals("- Play 1 hour", JourneyBookPages.requirement(
-                    new MilestoneRequirement(List.of(), 1.0D, 0)).get(0).plain());
+                    new MilestoneRequirement(List.of(), 1.0D, 0), ITEMS).get(0).plain());
             assertEquals("- Play 1.5 hours", JourneyBookPages.requirement(
-                    new MilestoneRequirement(List.of(), 1.5D, 0)).get(0).plain());
+                    new MilestoneRequirement(List.of(), 1.5D, 0), ITEMS).get(0).plain());
             assertEquals("- 1 day on this server", JourneyBookPages.requirement(
-                    new MilestoneRequirement(List.of(), 0.0D, 1)).get(0).plain());
+                    new MilestoneRequirement(List.of(), 0.0D, 1), ITEMS).get(0).plain());
         }
 
         @Test

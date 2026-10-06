@@ -23,6 +23,7 @@ succeed:
 | Probe | What it does |
 | :--- | :--- |
 | `portals` | An ineligible player walks into a Nether portal (stays in the Overworld and is told why); an eligible one reaches the Nether. |
+| `credit_unlock` | With no reload or rejoin, `/asr credit grant` of the Nether credit announces the Nether to the online player and lets them through the portal; revoking it refuses them again (#216). |
 | `vehicles` | The same, riding a boat steered into the portal. |
 | `operator` | An operator holds no bypass node, is refused at the portal and cannot pick up a diamond. |
 | `bypass` | `/asr bypass` lets an ineligible player through the portal and pick up a diamond; revoked, and once a 5-second grant expires, both are refused again. |

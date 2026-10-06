@@ -25,6 +25,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class MendingTradeRulesTest {
 
+    private static final PluginConfig.ItemProgression ITEMS =
+            PluginConfig.defaults().itemProgression();
+
     /** A configuration identical to the shipped defaults but for section 8, with no hint. */
     private static PluginConfig withVillager(boolean gated, String advancement) {
         return withVillager(gated, advancement, "");
@@ -88,7 +91,7 @@ class MendingTradeRulesTest {
             String line = ItemGateRules.rejection(
                     config.itemProgression().rejectionMessage(),
                     ItemGateRules.friendlyName("ENCHANTED_BOOK"),
-                    ItemGateRules.requirementText(config.villagerProgression().hint(), result));
+                    ItemGateRules.requirementText(config.villagerProgression().hint(), result, ITEMS));
 
             assertTrue(line.contains("Cure a Zombie Villager (Zombie Doctor)"), line);
             assertFalse(line.contains("{REQUIREMENT}"), line);
@@ -106,7 +109,7 @@ class MendingTradeRulesTest {
                     List.of("minecraft:story/cure_zombie_villager"), List.of(), 0.0D, 0, false);
 
             assertEquals("minecraft:story/cure_zombie_villager",
-                    ItemGateRules.requirementText(config.villagerProgression().hint(), result));
+                    ItemGateRules.requirementText(config.villagerProgression().hint(), result, ITEMS));
         }
 
         @Test
@@ -258,7 +261,7 @@ class MendingTradeRulesTest {
             EligibilityResult blocked = new EligibilityResult(false,
                     List.of("minecraft:story/cure_zombie_villager"), List.of(), 0.0D, 0, false);
 
-            assertEquals("minecraft:story/cure_zombie_villager", ItemGateRules.outstanding(blocked));
+            assertEquals("minecraft:story/cure_zombie_villager", ItemGateRules.outstanding(blocked, ITEMS));
         }
 
         /**
@@ -272,7 +275,7 @@ class MendingTradeRulesTest {
             EligibilityResult waived = new EligibilityResult(false, List.of(),
                     List.of("minecraft:story/cure_zombie_villager"), 0.0D, 0, false);
 
-            assertEquals("further progression", ItemGateRules.outstanding(waived));
+            assertEquals("further progression", ItemGateRules.outstanding(waived, ITEMS));
         }
     }
 

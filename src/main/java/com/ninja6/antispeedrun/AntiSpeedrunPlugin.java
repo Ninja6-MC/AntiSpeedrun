@@ -47,6 +47,7 @@ import com.ninja6.antispeedrun.listeners.RefusedArrivals;
 import com.ninja6.antispeedrun.listeners.TemplateDuplicationListener;
 import com.ninja6.antispeedrun.listeners.TrimSmithingListener;
 import com.ninja6.antispeedrun.progression.BukkitAdvancementLookup;
+import com.ninja6.antispeedrun.progression.CreditRefresh;
 import com.ninja6.antispeedrun.progression.IdleReminderEngine;
 import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
 import com.ninja6.antispeedrun.progression.PlayerStateRegistry;
@@ -148,6 +149,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     /** The personal-action credits each player has earned (#213), keyed by UUID. */
     private volatile PersonalCreditStore personalCredits;
 
+    /** The credit-changed path (#216). Null before {@code onEnable} assigns it. */
+    private volatile CreditRefresh creditRefresh;
+
     /** The dimension gate, kept for {@link #expectTeleport}. */
     private volatile ProgressionGateListener dimensionGate;
 
@@ -237,6 +241,10 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 new PlayerAnnouncedUnlockStore(this));
         this.progressionListener = new ProgressionListener(this, progression);
         getServer().getPluginManager().registerEvents(progressionListener, this);
+        // A recorded or revoked credit opens or closes a protected gate the way an advancement used
+        // to (#216): the recorder, the furnace loader and /asr credit all refresh through this.
+        this.creditRefresh = new CreditRefresh(CreditRefresh.bukkit(this),
+                progression::invalidate, progressionListener::refreshUnlocks);
 
         // The idle reminder (#4). It needs nothing but progression and the live snapshot -- no store,
         // and no file -- so it is built here beside the listener that drives it rather than after the
@@ -334,9 +342,10 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // decision, and loot credits carry their source so that decision can change at any time.
         // The store itself was loaded above, before the lookup that reads it.
         getServer().getPluginManager().registerEvents(
-                new PersonalCreditListener(personalCredits, placedBlocks), this);
+                new PersonalCreditListener(personalCredits, placedBlocks, creditRefresh), this);
         // The furnace loader stamp and smelted-iron credit (#214), kept in each furnace's TileState.
-        getServer().getPluginManager().registerEvents(new FurnaceLoaderListener(this, personalCredits), this);
+        getServer().getPluginManager().registerEvents(
+                new FurnaceLoaderListener(this, personalCredits, creditRefresh), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
@@ -450,6 +459,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     public PersonalCreditStore personalCredits() {
         return personalCredits;
+    }
+
+    /**
+     * The one path a personal credit change takes to the player's gates (#216). Null before
+     * {@code onEnable} has assigned it, on the same terms as {@link #progression()}.
+     */
+    public CreditRefresh creditRefresh() {
+        return creditRefresh;
     }
 
     /**

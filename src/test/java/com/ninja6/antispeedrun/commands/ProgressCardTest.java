@@ -8,6 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.commands.ProgressCardRenderer.Row;
 import com.ninja6.antispeedrun.commands.ProgressCardRenderer.Status;
 import com.ninja6.antispeedrun.commands.ProgressCardRenderer.Style;
@@ -37,6 +38,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the set {@link ProgressCardRenderer#withinBedrockGlyphs} defines.
  */
 class ProgressCardTest {
+
+    private static final PluginConfig.ItemProgression ITEMS =
+            PluginConfig.defaults().itemProgression();
 
     private static final MiniMessage MINI = MiniMessage.miniMessage();
     private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
@@ -79,7 +83,7 @@ class ProgressCardTest {
         @Test
         @DisplayName("a cleared milestone is complete and has nothing outstanding")
         void clearedMilestone() {
-            List<Row> rows = ProgressCardRenderer.rows(List.of(cleared("The Nether")));
+            List<Row> rows = ProgressCardRenderer.rows(List.of(cleared("The Nether")), ITEMS);
 
             assertEquals(List.of(new Row(Status.COMPLETE, "The Nether", Optional.empty())), rows);
         }
@@ -90,7 +94,7 @@ class ProgressCardTest {
             List<Row> rows = ProgressCardRenderer.rows(List.of(
                     cleared("The Nether"),
                     missingAdvancement("The End", "minecraft:story/smelt_iron"),
-                    missingAdvancement("Beyond", "minecraft:end/root")));
+                    missingAdvancement("Beyond", "minecraft:end/root")), ITEMS);
 
             assertEquals(Status.COMPLETE, rows.get(0).status());
             assertEquals(Status.IN_PROGRESS, rows.get(1).status(),
@@ -105,13 +109,13 @@ class ProgressCardTest {
             // IdleReminderRules#nextStep deliberately says nothing about this case -- a reminder
             // with a blank next step is a nag with no content. A card is different: dropping the
             // row would tell the player the gate does not exist.
-            List<Row> rows = ProgressCardRenderer.rows(List.of(waivedOnly("The End")));
+            List<Row> rows = ProgressCardRenderer.rows(List.of(waivedOnly("The End")), ITEMS);
 
             assertEquals(1, rows.size());
             assertEquals(Status.IN_PROGRESS, rows.get(0).status());
             assertEquals(Optional.empty(), rows.get(0).detail());
             assertTrue(plain(ProgressCardRenderer.card("Steve", List.of(waivedOnly("The End")),
-                    Style.FULL)).contains("cannot check"));
+                    Style.FULL, ITEMS)).contains("cannot check"));
         }
     }
 
@@ -126,9 +130,9 @@ class ProgressCardTest {
                     cleared("The Nether"),
                     missingAdvancement("The End", "minecraft:story/smelt_iron"));
 
-            String step = IdleReminderRules.nextStep(progress).orElseThrow();
+            String step = IdleReminderRules.nextStep(progress, ITEMS).orElseThrow();
 
-            assertTrue(plain(ProgressCardRenderer.card("Steve", progress, Style.FULL))
+            assertTrue(plain(ProgressCardRenderer.card("Steve", progress, Style.FULL, ITEMS))
                             .contains("NEXT STEP: " + step),
                     "the card's next step must be the string the idle reminder would say; a "
                             + "second implementation here is how the two silently diverge");
@@ -139,7 +143,7 @@ class ProgressCardTest {
         void arrowAndHighlight() {
             List<MilestoneProgress> progress =
                     List.of(missingAdvancement("The End", "minecraft:story/smelt_iron"));
-            List<String> lines = ProgressCardRenderer.card("Steve", progress, Style.FULL);
+            List<String> lines = ProgressCardRenderer.card("Steve", progress, Style.FULL, ITEMS);
             String last = lines.get(lines.size() - 1);
 
             assertTrue(last.startsWith("<gold>"), "the highlight colour #3 names is gold");
@@ -150,7 +154,7 @@ class ProgressCardTest {
         @DisplayName("a player who has cleared everything is congratulated, not handed a blank line")
         void everythingCleared() {
             String card = plain(ProgressCardRenderer.card("Steve",
-                    List.of(cleared("The Nether"), cleared("The End")), Style.FULL));
+                    List.of(cleared("The Nether"), cleared("The End")), Style.FULL, ITEMS));
 
             assertFalse(card.contains("NEXT STEP"));
             assertTrue(card.contains("Every gate on this server is open to you."));
@@ -159,7 +163,7 @@ class ProgressCardTest {
         @Test
         @DisplayName("a server with no gate enabled says so rather than rendering an empty card")
         void noGates() {
-            String card = plain(ProgressCardRenderer.card("Steve", List.of(), Style.FULL));
+            String card = plain(ProgressCardRenderer.card("Steve", List.of(), Style.FULL, ITEMS));
 
             assertTrue(card.contains("No dimension gate is enabled"));
         }
@@ -181,7 +185,7 @@ class ProgressCardTest {
             // character-set assertion rather than "renders cleanly", which nothing in CI can check.
             // Rendered to plain text first, so this is asserted about what the player sees and not
             // about the MiniMessage source -- a mark hidden inside a tag would pass the latter.
-            for (String line : ProgressCardRenderer.card("Steve", EVERY_STATUS, Style.SIMPLE)) {
+            for (String line : ProgressCardRenderer.card("Steve", EVERY_STATUS, Style.SIMPLE, ITEMS)) {
                 String text = PLAIN.serialize(MINI.deserialize(line));
                 assertTrue(ProgressCardRenderer.withinBedrockGlyphs(text),
                         "the simple card must stay inside the Bedrock glyph set, but rendered \""
@@ -197,7 +201,7 @@ class ProgressCardTest {
                     List.of(cleared("The Nether")),
                     List.of(waivedOnly("The End")));
             for (List<MilestoneProgress> progress : shapes) {
-                for (String line : ProgressCardRenderer.card("Steve", progress, Style.SIMPLE)) {
+                for (String line : ProgressCardRenderer.card("Steve", progress, Style.SIMPLE, ITEMS)) {
                     assertTrue(ProgressCardRenderer.withinBedrockGlyphs(
                                     PLAIN.serialize(MINI.deserialize(line))),
                             "a simple card over " + progress + " left the glyph set");
@@ -211,7 +215,7 @@ class ProgressCardTest {
             // A negative control. If the marks were ever quietly replaced with ASCII the test
             // above would keep passing while SIMPLE stopped being a distinct mode at all.
             boolean anyOutside = false;
-            for (String line : ProgressCardRenderer.card("Steve", EVERY_STATUS, Style.FULL)) {
+            for (String line : ProgressCardRenderer.card("Steve", EVERY_STATUS, Style.FULL, ITEMS)) {
                 anyOutside |= !ProgressCardRenderer.withinBedrockGlyphs(
                         PLAIN.serialize(MINI.deserialize(line)));
             }
@@ -225,7 +229,7 @@ class ProgressCardTest {
             // config.yml is reproduced verbatim, simple card or not; what SIMPLE guarantees is
             // that the card adds nothing of its own outside the set.
             List<MilestoneProgress> exotic = List.of(cleared("Le Néant ✦"));
-            String text = plain(ProgressCardRenderer.card("Steve", exotic, Style.SIMPLE));
+            String text = plain(ProgressCardRenderer.card("Steve", exotic, Style.SIMPLE, ITEMS));
 
             assertTrue(text.contains("Le Néant ✦"));
             assertFalse(ProgressCardRenderer.withinBedrockGlyphs(text));
@@ -235,7 +239,7 @@ class ProgressCardTest {
         @DisplayName("a display name containing markup is escaped, not parsed")
         void configuredTextIsNotMarkup() {
             String card = plain(ProgressCardRenderer.card("Steve",
-                    List.of(cleared("<red>not a tag")), Style.FULL));
+                    List.of(cleared("<red>not a tag")), Style.FULL, ITEMS));
 
             assertTrue(card.contains("<red>not a tag"),
                     "a display name from config.yml must reach the player as text");

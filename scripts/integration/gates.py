@@ -38,6 +38,7 @@ CREDITED = {
 # Every reply /asr credit gives once it has run.
 CREDIT_REPLY = r"Granted |Revoked |already held |held none of |No player named"
 LOCKED_NETHER = "Nether is locked"
+NETHER_OPEN = "The Nether is now open"
 LOCKED_ITEM = "cannot pick up"
 
 # The overworld box every gate fixture lives in, and a small one in the Nether to land in.
@@ -251,6 +252,24 @@ class GateProbes(Probes):
         self.portal_case(rule, "an ineligible player walking into a Nether portal", False)
         self.progression(NETHER_GATE)
         self.portal_case(rule, "control: an eligible player walking into a Nether portal", True)
+
+    def credit_unlock(self):
+        rule = "dimension gate: credit-driven unlock"
+        # No reload and no rejoin between the credit and the walk: the credit itself has to drop
+        # the cached evaluation and announce the gate (#216).
+        self.progression()
+        self.credit("grant", CREDITED[NETHER_GATE])
+        deadline = time.monotonic() + 5
+        told, lines = self.heard(NETHER_OPEN)
+        while not told and time.monotonic() < deadline:
+            time.sleep(0.5)
+            told, more = self.heard(NETHER_OPEN)
+            lines = lines + more
+        self.results.check(rule, "a granted credit announces the Nether at once", told,
+                           f"heard {lines[-3:] if lines else []}")
+        self.portal_case(rule, "the same player, with no reload or rejoin, walking into the portal", True)
+        self.credit("revoke", CREDITED[NETHER_GATE])
+        self.portal_case(rule, "the same player once the credit is revoked", False)
 
     def vehicles(self):
         rule = "dimension gate: boat transit"
@@ -580,7 +599,7 @@ class GateProbes(Probes):
         self.run(f"execute in {OVERWORLD} run kill @e[type=minecraft:item]")
 
 
-PROBES = ("portals", "vehicles", "operator", "bypass", "teleports", "pickups", "containers",
+PROBES = ("portals", "credit_unlock", "vehicles", "operator", "bypass", "teleports", "pickups", "containers",
           "container_break", "merchant", "recall", "reload_active")
 
 
