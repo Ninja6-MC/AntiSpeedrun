@@ -256,11 +256,11 @@ Each credit sits upstream of the items of the tier it gates, in natural play.
 | Credit | Gates | Items it protects | Natural play reaches the credit first because |
 | :--- | :--- | :--- | :--- |
 | `mine_stone` | iron | iron tools, armor and blocks | Mining stone with a pickaxe is how a player gets cobblestone for the stone tools, and iron ore needs a stone pickaxe. The player has mined stone before iron exists. |
-| `smelt_iron` (mined and smelted) | Nether gate | Nether-tier items | Iron ore must be mined and smelted to make the iron pickaxe and bucket that precede the portal. Both sub-credits are earned while making ingots. |
+| `smelt_iron` (mined and smelted) | Nether gate | Nether entry | Iron ore must be mined and smelted to make the iron pickaxe and bucket that precede the portal. Both sub-credits are earned while making ingots. |
 | `iron_tools` | diamond | diamond items | Diamond ore needs an iron pickaxe, and the player crafts it. |
-| `upgrade_tools` | Nether gate (hardcore) | Nether-tier items | A stone pickaxe is crafted before an iron one. |
+| `upgrade_tools` | Nether gate (hardcore) | Nether entry | A stone pickaxe is crafted before an iron one. |
 | `mine_diamond` | netherite, End | netherite and End-tier items | Netherite needs diamond gear, and diamond ore is mined (or, with the setting on, found in loot) before it. |
-| `obtain_blaze_rod` | end, netherite, End | end-tier items | A blaze rod comes only from a blaze, and a player in the fortress kills it. Blaze powder, the end tier's tool, cannot precede it. |
+| `obtain_blaze_rod` | end, netherite, End | netherite items, end-tier items (Eye of Ender) | A blaze rod comes only from a blaze, and a player in the fortress kills it. Blaze powder, which the Eye of Ender needs, cannot precede it. |
 
 **Re-verify this table whenever the credits or tier prerequisites are retuned.**
 
@@ -276,6 +276,14 @@ item completed the advancement.
   Nether.
 * A player who only hopper-feeds furnaces never earns the Nether. The loader stamp names the
   player who hand-loads a furnace, and hopper input does not.
+* A player whose iron pickaxe comes only from loot (village toolsmith or weaponsmith chests),
+  a toolsmith trade or a friend, and who never crafts one, cannot pick up diamonds. Loot never
+  replaces crafting, so this holds even with `count-structure-loot` on.
+* The same for a stone pickaxe on the hardcore Nether gate: a player who never crafts one,
+  however they obtained it, cannot enter the Nether.
+* A player whose blaze rods come only from friends, trades or loot, and who never kills a
+  blaze, never opens the end tier, netherite or the End. This is the intended effect of
+  blocking gifts, recorded here because vanilla completed the advancement on holding the rod.
 
 ### Accepted residuals
 
