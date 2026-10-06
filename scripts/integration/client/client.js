@@ -92,6 +92,13 @@ const ops = {
     return { count: itemCount(item) }
   },
 
+  // Every item the inventory holds, as { name: count }.
+  async inventory () {
+    const items = {}
+    for (const item of bot.inventory.items()) items[item.name] = (items[item.name] || 0) + item.count
+    return { items }
+  },
+
   // Holds the named item, or an empty hand when item is null.
   async hold ({ item }) {
     if (item) {

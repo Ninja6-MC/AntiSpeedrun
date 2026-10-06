@@ -253,9 +253,10 @@ Two cases were probed on Paper 26.2, Paper 1.21.11 and Folia 26.2
 * **Breaking an unopened loot container.** The loot is generated as the chest breaks, with
   `LootGenerateEvent` naming no entity, and spills on the ground. Nobody is credited, even when
   it holds a diamond.
-* **Archaeology brushing** (desert-pyramid suspicious sand). Brushing it to the end fires no
-  `LootGenerateEvent` and no `BlockDispenseLootEvent`, so whatever it yields, a diamond
-  included, earns nothing.
+* **Archaeology brushing** (desert-pyramid suspicious sand). Brushing it to the end rolls the
+  loot table (the probe brushed out its ordinary items, a pottery sherd or TNT, never the
+  diamond a loot event would have yielded) but fires no `LootGenerateEvent` and no
+  `BlockDispenseLootEvent`, so whatever it yields, a diamond included, earns nothing.
 
 ### The re-derived "Already unlocked?" table
 

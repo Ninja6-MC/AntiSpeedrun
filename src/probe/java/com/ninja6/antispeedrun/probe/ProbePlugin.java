@@ -39,6 +39,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDispenseLootEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityPortalEvent;
@@ -75,7 +76,8 @@ import org.bukkit.plugin.java.JavaPlugin;
  * does rather than observes: a plugin teleport, which the deliberate-teleport contract (#135) is
  * about. Two more act rather than observe, for the personal-credit probes: {@code loot} replaces
  * the contents of the next loot the server generates, so a vanilla chest, vault or suspicious
- * block yields a known item through the server's own path, and {@code npc} sets the {@code NPC}
+ * block yields a known item through the server's own path, {@code nodrops} disables the drops of a
+ * player's next block break, as a protection plugin may, and {@code npc} sets the {@code NPC}
  * metadata an NPC plugin would.
  */
 public final class ProbePlugin extends JavaPlugin implements Listener {
@@ -90,6 +92,9 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
 
     /** What the next generated or dispensed loot is replaced with, once; null when not armed. */
     private final AtomicReference<ItemStack> nextLoot = new AtomicReference<>();
+
+    /** The player whose next block break has its drops disabled, once; null when not armed. */
+    private final AtomicReference<String> noDrops = new AtomicReference<>();
 
     @Override
     public void onEnable() {
@@ -117,6 +122,9 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             container(args);
         } else if ((args.length == 3 || args.length == 2 && args[1].equals("off")) && args[0].equals("loot")) {
             loot(args);
+        } else if (args.length == 2 && args[0].equals("nodrops")) {
+            noDrops.set(args[1]);
+            log("nodrops armed=" + args[1]);
         } else if (args.length == 3 && args[0].equals("npc") && (args[2].equals("on") || args[2].equals("off"))) {
             npc(args[1], args[2].equals("on"));
         } else {
@@ -124,7 +132,7 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                     + "| teleport <player> <world> <x> <y> <z> [expect] "
                     + "| near|remove <dimension> <x> <y> <z> <radius> <entity-type> <item-or-any> <query> "
                     + "| credits <player> <query> | container <dimension> <x> <y> <z> <query> "
-                    + "| loot <material> <count> | loot off | npc <player> on|off");
+                    + "| loot <material> <count> | loot off | nodrops <player> | npc <player> on|off");
         }
         return true;
     }
@@ -370,6 +378,21 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         ItemStack loot = nextLoot.getAndSet(null);
         if (loot != null) {
             event.setLoot(List.of(loot.clone()));
+        }
+    }
+
+    /**
+     * Disables the drops of the armed player's next break. HIGH, so AntiSpeedrun's HIGHEST and
+     * MONITOR handlers see the break as one that drops nothing.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void armNoDrops(BlockBreakEvent event) {
+        String name = event.getPlayer().getName();
+        String armed = noDrops.get();
+        // compareAndSet compares references, so it is given the armed string itself.
+        if (name.equals(armed) && noDrops.compareAndSet(armed, null)) {
+            event.setDropItems(false);
+            log("nodrops player=" + name + " block=" + event.getBlock().getType().name());
         }
     }
 

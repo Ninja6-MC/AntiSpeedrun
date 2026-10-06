@@ -545,6 +545,19 @@ class CreditProbes(Probes):
         self.expect(f"{label}: breaking natural diamond ore in creative mode earns nothing", "mine-diamond", False,
                     detail=f"block left {left}")
 
+        # A break whose drops another plugin disabled, as a protection plugin may.
+        self.baseline(IRON_TIER, DIAMOND_TIER)
+        self.server.query(f"asrprobe nodrops {self.player}", r"ASRPROBE nodrops armed=\S+")
+        mark = self.server.mark()
+        left = self.mine("diamond_ore", "iron_pickaxe")
+        disabled = self.server.lines_since(mark, r"ASRPROBE nodrops player=")
+        if left == "diamond_ore" or not disabled:
+            raise ProbeError(f"the drops-disabled break did not happen: block left {left}, {disabled}")
+        time.sleep(1)
+        dropped = self.near(OVERWORLD, DIG[0] + 0.5, DIG[1], DIG[2] + 0.5, 3, "item", "diamond") + self.count("diamond")
+        self.expect(f"{label}: breaking natural diamond ore with an iron pickaxe while drops are disabled earns "
+                    "nothing", "mine-diamond", False, detail=f"block left {left}, diamonds yielded {dropped}")
+
         self.baseline(IRON_TIER, DIAMOND_TIER)
         self.tidy()
         self.run(f"give {self.player} minecraft:diamond 3")
@@ -635,7 +648,9 @@ class CreditProbes(Probes):
         self.client.request("dig", x=CHEST[0], y=CHEST[1], z=CHEST[2], timeout=30)
         time.sleep(1)
         events = self.loot_lines(mark)
-        spilled = self.near(OVERWORLD, CHEST[0] + 0.5, CHEST[1], CHEST[2] + 0.5, 3, "item", "diamond")
+        # Counted on the ground and in the inventory: the player may already have picked it up.
+        spilled = (self.near(OVERWORLD, CHEST[0] + 0.5, CHEST[1], CHEST[2] + 0.5, 3, "item", "diamond")
+                   + self.count("diamond"))
         self.expect(f"{label}: breaking an unopened chest that holds a diamond earns nothing", "mine-diamond",
                     False, detail=f"loot events {events}, diamonds spilled {spilled}")
         self.results.note(f"breaking an unopened loot chest: loot events {events}, diamonds spilled {spilled}")
@@ -648,6 +663,7 @@ class CreditProbes(Probes):
         time.sleep(0.5)
         self.client.request("hold", item="brush")
         self.tp(OVERWORLD, SAND[0] + 0.5, CY, SAND[2] + 1.6, 180, 50)
+        before = self.client.request("inventory")["items"]
         self.arm("diamond")
         mark = self.server.mark()
         brushed = self.client.request("brush", x=SAND[0], y=SAND[1], z=SAND[2], face="up", ms=9000, timeout=20)
@@ -656,9 +672,18 @@ class CreditProbes(Probes):
         events = self.loot_lines(mark)
         if brushed["block"] == "suspicious_sand":
             raise ProbeError(f"the brushing never finished: loot events {events}")
+        # The roll is seen apart from the event: what was brushed out lies on the ground or, the
+        # player standing beside it, is in the inventory. The armed diamond is consumed only by a
+        # loot event, so a brushed item other than a diamond came from the table with none fired.
         found = self.near(OVERWORLD, SAND[0] + 0.5, SAND[1], SAND[2] + 0.5, 3, "item")
+        after = self.client.request("inventory")["items"]
+        gained = {name: count - before.get(name, 0) for name, count in after.items() if count > before.get(name, 0)}
+        pickups = [line.split("ASRPROBE ", 1)[1] for line in self.server.lines_since(mark, r"ASRPROBE pickup ")]
+        if not found and not gained:
+            raise ProbeError(f"brushing yielded nothing, so the loot table never rolled: loot events {events}")
         named = [event for event in events if event["entity"] == self.player]
-        detail = f"block left {brushed['block']}, loot events {events}, items brushed out {found}"
+        detail = (f"block left {brushed['block']}, loot events {events}, items on the ground {found}, "
+                  f"gained in the inventory {gained}, pickups {pickups}")
         self.results.check(RULE, f"{label}: brushing desert-pyramid suspicious sand fires no loot event naming "
                                  "the player", not named, detail)
         self.expect(f"{label}: brushing desert-pyramid suspicious sand earns nothing", "mine-diamond", False,
