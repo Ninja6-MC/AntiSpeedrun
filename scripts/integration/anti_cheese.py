@@ -122,14 +122,16 @@ class AntiCheeseProbes(Probes):
                      # The End gate and the item gates are not under test; finished progression
                      # keeps them out of the way. Advancements are not a bypass.
                      f"advancement grant {self.player} everything",
-                     # The six possession-triggered keys are answered from credits (#215).
-                     f"asr credit grant {self.player} all",
                      f"clear {self.player}",
                      f"effect give {self.player} minecraft:resistance infinite 4 true",
                      f"effect give {self.player} minecraft:fire_resistance infinite 0 true",
                      f"effect give {self.player} minecraft:saturation infinite 0 true",
                      f"effect give {self.player} minecraft:regeneration infinite 4 true"):
             self.run(line)
+        # The six possession-triggered keys are answered from personal credits (#215). The
+        # command applies asynchronously, so wait for its reply.
+        self.server.query(f"asr credit grant {self.player} all", r"Granted |already held ",
+                          timeout=15)
         time.sleep(2)
 
     # ------------------------------------------------------------------ crystal

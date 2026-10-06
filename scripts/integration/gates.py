@@ -35,6 +35,8 @@ CREDITED = {
     "minecraft:story/mine_diamond": "mine-diamond",
     "minecraft:nether/obtain_blaze_rod": "obtain-blaze-rod",
 }
+# Every reply /asr credit gives once it has run.
+CREDIT_REPLY = r"Granted |Revoked |already held |held none of |No player named"
 LOCKED_NETHER = "Nether is locked"
 LOCKED_ITEM = "cannot pick up"
 
@@ -95,17 +97,25 @@ class GateProbes(Probes):
         beside the advancement; the advancement grant is kept for every other key.
         """
         self.run(f"advancement revoke {self.player} everything")
-        self.run(f"asr credit revoke {self.player} all")
+        self.credit("revoke", "all")
         for key in advancements:
             self.run(f"advancement grant {self.player} only {key}")
             if key in CREDITED:
-                self.run(f"asr credit grant {self.player} {CREDITED[key]}")
+                self.credit("grant", CREDITED[key])
         # A revoke fires no event, so the plugin's progression cache only forgets on a reload.
         self.reload()
         self.client.request("messages")
 
     def environment(self):
         return self.where()["environment"]
+
+    def credit(self, action, credit):
+        """Runs /asr credit and waits for its reply: the command applies on the AsyncScheduler, so
+        a revoke and a grant sent back to back could otherwise land in either order."""
+        reply = self.server.query(f"asr credit {action} {self.player} {credit}",
+                                  CREDIT_REPLY, timeout=15)
+        if reply.group(0) == "No player named":
+            raise ProbeError(f"/asr credit {action} could not resolve {self.player}")
 
     def heard(self, text):
         lines = self.client.request("messages")["lines"]
