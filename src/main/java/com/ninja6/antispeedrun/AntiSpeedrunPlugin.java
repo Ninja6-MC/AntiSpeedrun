@@ -38,6 +38,7 @@ import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
 import com.ninja6.antispeedrun.listeners.NaturalTrimLootListener;
 import com.ninja6.antispeedrun.listeners.OuterEndBoundaryListener;
+import com.ninja6.antispeedrun.listeners.PersonalCreditListener;
 import com.ninja6.antispeedrun.listeners.PlacedBlockListener;
 import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
@@ -55,6 +56,7 @@ import com.ninja6.antispeedrun.storage.ConfigMigrator;
 import com.ninja6.antispeedrun.storage.DimensionUnlockStore;
 import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
+import com.ninja6.antispeedrun.storage.PersonalCreditStore;
 import com.ninja6.antispeedrun.storage.PlacedBlockRegistry;
 import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
 import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
@@ -141,6 +143,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
     /** Player-placed credit-relevant blocks, held in each chunk's container (#212). */
     private volatile PlacedBlockRegistry placedBlocks;
 
+    /** The personal-action credits each player has earned (#213), keyed by UUID. */
+    private volatile PersonalCreditStore personalCredits;
+
     /** The dimension gate, kept for {@link #expectTeleport}. */
     private volatile ProgressionGateListener dimensionGate;
 
@@ -191,13 +196,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
 
         // The plugin-written state files (#194), stamped with state-version before any store reads
         // them. Every file is checked before any is stamped, so one from a newer build stops
-        // startup with all four untouched, as a newer config.yml does above, and before anything
+        // startup with all of them untouched, as a newer config.yml does above, and before anything
         // is registered.
         VersionedStateFile unlockFile = stateFile("state.yml");
         VersionedStateFile fightFile = stateFile("dragon-fights.yml");
         VersionedStateFile portalLockFile = stateFile("portal-locks.yml");
         VersionedStateFile exploredFile = stateFile("explored-structures.yml");
-        if (!migrateStateFiles(List.of(unlockFile, fightFile, portalLockFile, exploredFile))) {
+        VersionedStateFile creditFile = stateFile("personal-credits.yml");
+        if (!migrateStateFiles(List.of(unlockFile, fightFile, portalLockFile, exploredFile, creditFile))) {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -305,6 +311,21 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         this.placedBlocks = new PlacedBlockRegistry(this);
         getServer().getPluginManager().registerEvents(new PlacedBlockListener(placedBlocks), this);
 
+        // The personal credit recorder (#213). Always registered: what counts is the lookup's
+        // decision, and loot credits carry their source so that decision can change at any time.
+        // The record is read synchronously first, so nothing earned in an earlier run is missed.
+        this.personalCredits = new PersonalCreditStore(
+                getLogger(),
+                creditFile,
+                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
+        if (!personalCredits.loadNow()) {
+            getLogger().warning("Starting with no personal credits recorded. The unreadable file "
+                    + "has been left in place and will be preserved under a .corrupt name before "
+                    + "the next credit is written.");
+        }
+        getServer().getPluginManager().registerEvents(
+                new PersonalCreditListener(personalCredits, placedBlocks), this);
+
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
         if (antispeedrun == null) {
@@ -409,6 +430,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     public PlacedBlockRegistry placedBlocks() {
         return placedBlocks;
+    }
+
+    /**
+     * The personal-action credits each player has earned (#213). Keyed by UUID; reading and
+     * recording are legal from any thread, for online and offline players alike.
+     */
+    public PersonalCreditStore personalCredits() {
+        return personalCredits;
     }
 
     /**

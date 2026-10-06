@@ -304,8 +304,9 @@ To recover, fix or restore the file while the server is stopped and start again.
 
 ### 6.3 State file versions
 
-`state.yml`, `dragon-fights.yml`, `portal-locks.yml` and `explored-structures.yml`
-each start with `state-version: 1`, written by the plugin. Do not edit or remove it.
+`state.yml`, `dragon-fights.yml`, `portal-locks.yml`, `explored-structures.yml` and
+`personal-credits.yml` each start with `state-version: 1`, written by the plugin. Do not
+edit or remove it.
 
 - A file with no `state-version` was written by 0.2.0 or earlier, whose format is
   version 1. On start the plugin adds the key, logs `Marked <file> as state-version 1`,
