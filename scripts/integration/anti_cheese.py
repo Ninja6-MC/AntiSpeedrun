@@ -181,6 +181,13 @@ class AntiCheeseProbes(Probes):
 
         def place(target, stand):
             self.tp(END, stand[0] + 0.5, py + 1, stand[1] + 0.5)
+            # Vanilla refuses a crystal, with no event and nothing consumed, while any entity is
+            # in the two blocks above the target. Endermen wander over the exit portal and fall
+            # into it, so clear them, and anything they or an earlier probe dropped, first.
+            for kind in ("enderman", "item", "experience_orb"):
+                cleared = self.near(END, target[0] + 0.5, target[1] + 2, target[2] + 0.5, 4, kind, remove=True)
+                if cleared:
+                    self.results.note(f"Removed {cleared} {kind} beside {target} before placing a crystal.")
             before = self.count("end_crystal")
             mark = self.server.mark()
             self.client.request("use_block", x=target[0], y=target[1], z=target[2], face="up")
