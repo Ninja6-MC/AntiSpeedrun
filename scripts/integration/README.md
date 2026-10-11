@@ -180,8 +180,12 @@ Server behaviours that already cost a cycle:
   order; wait for each reply, as `GateProbes.credit` and `CreditProbes.credit` do;
 * through ViaVersion, mineflayer cannot work out how long an enchanted tool takes to break a
   block and throws; pass `ms` to the client's `dig`, which then sends the dig packets itself;
-* mineflayer's view of a crafting grid can fall behind the server's, on Folia above all, and a
-  craft stops short; the client's `craft` closes the table and tries again.
+* mineflayer's own craft chooses each click from its model of the window, and a full resync
+  answering an earlier click arrives late and rolls that model back, so the rest land on a
+  grid the server does not have; the client's `craft` plans every click once from a synced
+  window and, after each, syncs until the server's copy shows the click landed;
+* a Crafter ejects what it makes within pickup reach of a player standing beside it; count
+  what it made on the ground and in the inventory, and poll rather than wait a fixed time;
 * a player crouching on the ground makes no vibration at all, so walking past a Sculk Sensor
   while sneaking earns `adventure/avoid_vibration` only when the player also jumps; the
   client's `walk` takes `sneak` and `jump`;

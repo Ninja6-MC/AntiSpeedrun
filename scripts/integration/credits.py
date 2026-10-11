@@ -235,6 +235,32 @@ class CreditProbes(Probes):
     def park_helper(self):
         self.tp(OVERWORLD, *PARK, player=HELPER)
 
+    def wait_count(self, item, count, timeout=10):
+        """Waits until the scripted player's inventory shows count of item: a /give reaches the
+        client a moment after the console reports it."""
+        deadline = time.monotonic() + timeout
+        while True:
+            held = self.count(item)
+            if held >= count:
+                return held
+            if time.monotonic() >= deadline:
+                raise ProbeError(f"the player's inventory never showed {count} {item}, only {held}")
+            time.sleep(0.25)
+
+    def craft(self, item, **ingredients):
+        """The player crafts one item in a fresh crafting table from the ingredients given.
+        Returns how many the inventory holds after."""
+        self.setblock(TABLE, "crafting_table")
+        for name, count in ingredients.items():
+            self.run(f"give {self.player} minecraft:{name} {count}")
+        for name, count in ingredients.items():
+            self.wait_count(name, count)
+        self.stand(TABLE)
+        try:
+            return self.client.request("craft", item=item, table=list(TABLE), timeout=30)["count"]
+        except ProbeError as error:
+            raise ProbeError(f"the player could not craft {item.replace('_', ' ')}: {error}") from error
+
     # ------------------------------------------------------------------ setup
 
     def prepare(self):
@@ -432,14 +458,7 @@ class CreditProbes(Probes):
     def _iron_pickaxe(self, label):
         self.baseline(IRON_TIER)
         self.tidy()
-        self.setblock(TABLE, "crafting_table")
-        self.run(f"give {self.player} minecraft:iron_ingot 3")
-        self.run(f"give {self.player} minecraft:stick 2")
-        time.sleep(0.5)
-        self.stand(TABLE)
-        crafted = self.client.request("craft", item="iron_pickaxe", table=list(TABLE), timeout=30)["count"]
-        if crafted < 1:
-            raise ProbeError("the player could not craft an iron pickaxe")
+        crafted = self.craft("iron_pickaxe", iron_ingot=3, stick=2)
         self.expect(f"{label}: crafting one in a crafting table earns it", "iron-tools", True, "action",
                     detail=f"iron pickaxes in inventory {crafted}")
 
@@ -472,13 +491,33 @@ class CreditProbes(Probes):
                                '{Slot:2b,id:"minecraft:iron_ingot",count:1},{Slot:4b,id:"minecraft:stick",count:1},'
                                '{Slot:7b,id:"minecraft:stick",count:1}]}')
         self.stand(CRAFTER)
+        loaded = self.contents(*CRAFTER)
+        if sorted(loaded) != [0, 1, 2, 4, 7]:
+            raise ProbeError(f"the Crafter was not loaded with the recipe: {loaded}")
+        deadline = time.monotonic() + 5
+        while self.count("iron_pickaxe"):
+            if time.monotonic() >= deadline:
+                raise ProbeError("the player still holds an iron pickaxe from before the Crafter case")
+            time.sleep(0.25)
         self.setblock((x + 1, y, z), "redstone_block")
-        time.sleep(2)
-        made = self.near(OVERWORLD, x + 0.5, y + 1, z + 0.5, 3, "item", "iron_pickaxe")
-        if made < 1:
-            raise ProbeError(f"the Crafter made no iron pickaxe: {self.contents(*CRAFTER)}")
+        # The Crafter crafts four ticks after the pulse and ejects the pickaxe upwards. The player
+        # stands two blocks away, within reach of where it lands, and may pick it up: the
+        # inventory was cleared, so any iron pickaxe in it is the Crafter's.
+        deadline = time.monotonic() + 10
+        while True:
+            ground = self.near(OVERWORLD, x + 0.5, y + 1, z + 0.5, 4, "item", "iron_pickaxe")
+            held = self.count("iron_pickaxe")
+            if ground + held >= 1:
+                break
+            if time.monotonic() >= deadline:
+                raise ProbeError(f"the Crafter made no iron pickaxe within 10s of the pulse: Crafter holds "
+                                 f"{self.contents(*CRAFTER)}, none on the ground or in the inventory")
+            time.sleep(0.25)
+        left = self.contents(*CRAFTER)
+        if left:
+            raise ProbeError(f"the Crafter still holds {left} after making the pickaxe")
         self.expect(f"{label}: one a Crafter block makes earns nothing", "iron-tools", False,
-                    detail=f"pickaxes the Crafter ejected {made}")
+                    detail=f"the Crafter's pickaxe seen {ground} on the ground, {held} in the inventory")
         self.setblock((x + 1, y, z), "air")
         self.setblock(CRAFTER, "air")
 
@@ -488,14 +527,7 @@ class CreditProbes(Probes):
         label = "stone pickaxe (upgrade-tools, hardcore Nether gate)"
         self.baseline()
         self.tidy()
-        self.setblock(TABLE, "crafting_table")
-        self.run(f"give {self.player} minecraft:cobblestone 3")
-        self.run(f"give {self.player} minecraft:stick 2")
-        time.sleep(0.5)
-        self.stand(TABLE)
-        crafted = self.client.request("craft", item="stone_pickaxe", table=list(TABLE), timeout=30)["count"]
-        if crafted < 1:
-            raise ProbeError("the player could not craft a stone pickaxe")
+        crafted = self.craft("stone_pickaxe", cobblestone=3, stick=2)
         self.expect(f"{label}: crafting one in a crafting table earns it", "upgrade-tools", True, "action",
                     detail=f"stone pickaxes in inventory {crafted}")
         self.baseline()
