@@ -1,6 +1,7 @@
 package com.ninja6.antispeedrun.probe;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -11,15 +12,20 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import com.destroystokyo.paper.event.entity.EntityRemoveFromWorldEvent;
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
+import com.ninja6.antispeedrun.progression.TrimProgressionManager;
 import com.ninja6.antispeedrun.storage.CreditSource;
+import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 import com.ninja6.antispeedrun.storage.PersonalCredit;
 import com.ninja6.antispeedrun.storage.PersonalCreditStore;
+import io.papermc.paper.registry.RegistryAccess;
+import io.papermc.paper.registry.RegistryKey;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
+import org.bukkit.advancement.Advancement;
 import org.bukkit.block.Block;
 import org.bukkit.block.Container;
 import org.bukkit.command.Command;
@@ -54,12 +60,16 @@ import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.server.ServerLoadEvent;
 import org.bukkit.event.world.LootGenerateEvent;
+import org.bukkit.generator.structure.GeneratedStructure;
+import org.bukkit.generator.structure.Structure;
+import org.bukkit.generator.structure.StructurePiece;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.MerchantRecipe;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.BoundingBox;
 
 /**
  * The integration harness's observer (scripts/integration/README.md). It changes nothing it was
@@ -78,11 +88,18 @@ import org.bukkit.plugin.java.JavaPlugin;
  * the contents of the next loot the server generates, so a vanilla chest, vault or suspicious
  * block yields a known item through the server's own path, {@code nodrops} disables the drops of a
  * player's next block break, as a protection plugin may, and {@code npc} sets the {@code NPC}
- * metadata an NPC plugin would.
+ * metadata an NPC plugin would. For the trim probes, {@code structure} reports what the structure
+ * API returns for a chunk, {@code enter} moves a player into a piece of a generated structure and
+ * {@code explored} reads or clears the trim structures recorded for a player.
  */
 public final class ProbePlugin extends JavaPlugin implements Listener {
 
     private static final String BYPASS = "antispeedrun.bypass.anticheese";
+
+    /** Every id AntiSpeedrun's explored-structure store can hold. */
+    private static final List<String> EXPLORED_IDS = List.of(
+            TrimProgressionManager.ANCIENT_CITY.id(), TrimProgressionManager.ANCIENT_CITY_LOOT_ID,
+            TrimProgressionManager.BASTION.id(), TrimProgressionManager.END_CITY.id());
 
     /** The scoreboard tag a probe gives every entity it summons and later asks about. */
     private static final String TAG = "asrp";
@@ -127,12 +144,24 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             log("nodrops armed=" + args[1]);
         } else if (args.length == 3 && args[0].equals("npc") && (args[2].equals("on") || args[2].equals("off"))) {
             npc(args[1], args[2].equals("on"));
+        } else if (args.length == 4 && args[0].equals("explored")
+                && (args[2].equals("show") || args[2].equals("clear"))) {
+            explored(args[1], args[2].equals("clear"), args[3]);
+        } else if (args.length == 4 && args[0].equals("advancement")) {
+            advancement(args[1], args[2], args[3]);
+        } else if (args.length == 6 && args[0].equals("structure")) {
+            structureAt(args);
+        } else if (args.length == 7 && args[0].equals("enter")) {
+            enter(args);
         } else {
             log("usage health <entity-type> <query> | where <player> <query> "
                     + "| teleport <player> <world> <x> <y> <z> [expect] "
                     + "| near|remove <dimension> <x> <y> <z> <radius> <entity-type> <item-or-any> <query> "
                     + "| credits <player> <query> | container <dimension> <x> <y> <z> <query> "
-                    + "| loot <material> <count> | loot off | nodrops <player> | npc <player> on|off");
+                    + "| loot <material> <count> | loot off | nodrops <player> | npc <player> on|off "
+                    + "| advancement <player> <key> <query> | explored <player> show|clear <query> "
+                    + "| structure <dimension> <structure> <x> <z> <query> "
+                    + "| enter <player> <dimension> <structure> <x> <z> <query>");
         }
         return true;
     }
@@ -251,6 +280,145 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         }
         nextLoot.set(new ItemStack(material, Integer.parseInt(args[2])));
         log("loot armed=" + material.name() + ":" + args[2]);
+    }
+
+    /**
+     * Logs the trim structures AntiSpeedrun's store has recorded for a player, after clearing
+     * every one of them first with {@code clear}, so a probe starts from a known record.
+     */
+    private void explored(String name, boolean clear, String query) {
+        if (!(Bukkit.getPluginManager().getPlugin("AntiSpeedrun") instanceof AntiSpeedrunPlugin target)) {
+            log("explored query=" + query + " no-antispeedrun");
+            return;
+        }
+        Player online = Bukkit.getPlayerExact(name);
+        OfflinePlayer player = online != null ? online : Bukkit.getOfflinePlayerIfCached(name);
+        if (player == null) {
+            log("explored query=" + query + " unknown-player");
+            return;
+        }
+        ExploredStructureStore store = target.exploredStructures();
+        UUID id = player.getUniqueId();
+        List<String> ids = new ArrayList<>();
+        for (String structure : EXPLORED_IDS) {
+            if (clear) {
+                store.record(id, structure, false);
+            }
+            if (store.hasExplored(id, structure)) {
+                ids.add(structure);
+            }
+        }
+        log("explored query=" + query + " ids=" + (ids.isEmpty() ? "none" : String.join(",", ids)));
+    }
+
+    /** Logs whether a player has completed an advancement, read on the thread that owns them. */
+    private void advancement(String name, String key, String query) {
+        Player player = Bukkit.getPlayerExact(name);
+        NamespacedKey id = NamespacedKey.fromString(key);
+        Advancement advancement = id == null ? null : Bukkit.getAdvancement(id);
+        if (player == null || advancement == null) {
+            log("advancement query=" + query + " unknown");
+            return;
+        }
+        Runnable gone = () -> log("advancement query=" + query + " unknown");
+        if (player.getScheduler().run(this, task -> log("advancement query=" + query + " key=" + id
+                + " done=" + player.getAdvancementProgress(advancement).isDone()), gone) == null) {
+            gone.run();
+        }
+    }
+
+    /**
+     * Logs what the structure API reports for one structure in the chunk at {@code x z}, read on
+     * the region that owns it.
+     */
+    private void structureAt(String[] args) {
+        String query = args[5];
+        NamespacedKey key = NamespacedKey.fromString(args[1]);
+        World world = key == null ? null : Bukkit.getWorld(key);
+        Structure structure = structure(args[2]);
+        if (world == null || structure == null) {
+            log("structure query=" + query + " unknown");
+            return;
+        }
+        int x = Integer.parseInt(args[3]);
+        int z = Integer.parseInt(args[4]);
+        Bukkit.getRegionScheduler().execute(this, new Location(world, x, 0, z), () -> log(
+                "structure query=" + query + " " + describe(world.getStructures(x >> 4, z >> 4, structure))));
+    }
+
+    /**
+     * Moves a player into a generated structure: to the centre of the largest piece of the
+     * structure the structure API finds in the chunk at {@code x z}. Logs what the API reported,
+     * the piece chosen and where the player was sent, so a run records how the API behaved there.
+     */
+    private void enter(String[] args) {
+        String query = args[6];
+        Player player = Bukkit.getPlayerExact(args[1]);
+        NamespacedKey key = NamespacedKey.fromString(args[2]);
+        World world = key == null ? null : Bukkit.getWorld(key);
+        Structure structure = structure(args[3]);
+        if (player == null || world == null || structure == null) {
+            log("enter query=" + query + " unknown");
+            return;
+        }
+        int x = Integer.parseInt(args[4]);
+        int z = Integer.parseInt(args[5]);
+        Bukkit.getRegionScheduler().execute(this, new Location(world, x, 0, z), () -> {
+            Collection<GeneratedStructure> found = world.getStructures(x >> 4, z >> 4, structure);
+            BoundingBox chosen = null;
+            for (GeneratedStructure generated : found) {
+                for (StructurePiece piece : generated.getPieces()) {
+                    BoundingBox box = piece.getBoundingBox();
+                    if (chosen == null || box.getVolume() > chosen.getVolume()) {
+                        chosen = box;
+                    }
+                }
+            }
+            String described = describe(found);
+            if (chosen == null) {
+                log("enter query=" + query + " " + described + " piece=none");
+                return;
+            }
+            Location to = new Location(world, Math.floor(chosen.getCenterX()) + 0.5,
+                    Math.floor(chosen.getCenterY()), Math.floor(chosen.getCenterZ()) + 0.5);
+            String piece = box(chosen);
+            player.teleportAsync(to, PlayerTeleportEvent.TeleportCause.PLUGIN).thenAccept(
+                    moved -> log("enter query=" + query + " " + described + " piece=" + piece
+                            + " to=" + to.getBlockX() + "," + to.getBlockY() + "," + to.getBlockZ()
+                            + " result=" + moved));
+        });
+    }
+
+    private static Structure structure(String key) {
+        NamespacedKey id = NamespacedKey.fromString(key);
+        return id == null ? null : RegistryAccess.registryAccess().getRegistry(RegistryKey.STRUCTURE).get(id);
+    }
+
+    /**
+     * How many structures were found, how many pieces they have, the first one's bounds and the
+     * lowest block any piece covers.
+     */
+    private static String describe(Collection<GeneratedStructure> found) {
+        int pieces = 0;
+        Integer lowest = null;
+        String bounds = "none";
+        for (GeneratedStructure generated : found) {
+            for (StructurePiece piece : generated.getPieces()) {
+                pieces++;
+                int minY = (int) piece.getBoundingBox().getMinY();
+                lowest = lowest == null ? minY : Math.min(lowest, minY);
+            }
+            if (bounds.equals("none")) {
+                bounds = box(generated.getBoundingBox());
+            }
+        }
+        return "structures=" + found.size() + " pieces=" + pieces + " bounds=" + bounds
+                + " lowest=" + (lowest == null ? "none" : lowest);
+    }
+
+    private static String box(BoundingBox box) {
+        return (int) box.getMinX() + "," + (int) box.getMinY() + "," + (int) box.getMinZ() + ".."
+                + (int) box.getMaxX() + "," + (int) box.getMaxY() + "," + (int) box.getMaxZ();
     }
 
     /** Sets or clears the {@code NPC} metadata an NPC plugin such as Citizens puts on its players. */

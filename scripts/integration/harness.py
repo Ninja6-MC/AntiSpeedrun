@@ -82,10 +82,13 @@ class Server:
             "server-port": self.port,
             "online-mode": "false",
             "enforce-secure-profile": "false",
-            # A flat overworld, so no probe depends on terrain.
+            # A flat overworld, so no probe depends on terrain. Its one biome is the Deep Dark and
+            # its one structure set the Ancient Cities, which the trim probes enter (#221); every
+            # fixture sits far above them.
             "level-type": "minecraft\\:flat",
             "generator-settings": '{"layers":[{"block":"minecraft:bedrock","height":1},'
-                                  '{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}',
+                                  '{"block":"minecraft:stone","height":3}],"biome":"minecraft:deep_dark",'
+                                  '"structure_overrides":["minecraft:ancient_cities"]}',
             "spawn-protection": 0,
             "allow-flight": "true",
             "view-distance": 6,

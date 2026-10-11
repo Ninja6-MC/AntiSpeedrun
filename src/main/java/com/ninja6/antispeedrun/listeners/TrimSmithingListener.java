@@ -35,6 +35,7 @@ import com.ninja6.antispeedrun.progression.EligibilityResult;
 import com.ninja6.antispeedrun.progression.Milestone;
 import com.ninja6.antispeedrun.progression.PlayerStateMap;
 import com.ninja6.antispeedrun.progression.TrimProgressionManager;
+import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 
 import io.papermc.paper.registry.RegistryAccess;
 import io.papermc.paper.registry.RegistryKey;
@@ -79,9 +80,9 @@ public final class TrimSmithingListener implements Listener {
     /** When each player was last told about a refusal, per lock and structure. */
     private final PlayerStateMap<Map<String, Long>> lastFeedback;
 
-    public TrimSmithingListener(AntiSpeedrunPlugin plugin) {
+    public TrimSmithingListener(AntiSpeedrunPlugin plugin, ExploredStructureStore explored) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        this.trims = new TrimProgressionManager(plugin.progression());
+        this.trims = new TrimProgressionManager(plugin.progression(), explored);
         this.lastFeedback = plugin.playerState().register("trim-lock-feedback");
     }
 

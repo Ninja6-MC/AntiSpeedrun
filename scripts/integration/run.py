@@ -32,6 +32,7 @@ from harness import Client, ProbeError, Server  # noqa: E402
 import anti_cheese  # noqa: E402
 import credits  # noqa: E402
 import gates  # noqa: E402
+import trims  # noqa: E402
 from probes import Results  # noqa: E402
 
 USER_AGENT = "AntiSpeedrun-CI/1.0 (+https://github.com/Ninja6-MC/AntiSpeedrun)"
@@ -46,9 +47,9 @@ VIA = (
 )
 PLAYER = "AsrProbe"
 # The gate probes run first: they set the player's progression case by case. The credit probes
-# set the player's credits the same way, and the anti-cheese probes then grant every advancement
-# and credit once and leave them so.
-MODULES = (gates, credits, anti_cheese)
+# set the player's credits the same way, the trim probes its advancements, and the anti-cheese
+# probes then grant every advancement and credit once and leave them so.
+MODULES = (gates, credits, trims, anti_cheese)
 PROBES = tuple(name for module in MODULES for name in module.PROBES)
 SERVER_BUILD = re.compile(r"This server is running (?P<build>[^\r\n]+)")
 PLUGIN_VERSION = re.compile(r"Enabling AntiSpeedrun v(?P<version>\S+)")
@@ -104,6 +105,7 @@ def main(argv=None):
     parser.add_argument("--boot-timeout", type=int, default=300)
     parser.add_argument("--deadline", type=int, default=1500, help="seconds the whole run may take")
     parser.add_argument("--label", default="server")
+    parser.add_argument("--seed", help="the world seed, to repeat a run that depended on where things generated")
     parser.add_argument("--probe", action="append", choices=PROBES,
                         help="run only this probe; repeatable (default: all)")
     args = parser.parse_args(argv)
@@ -119,7 +121,8 @@ def main(argv=None):
     summary = {"label": args.label, "client_version": args.client_version, "via": args.via}
     plugins = [args.plugin_jar, args.probe_jar]
     server = Server(os.path.join(workdir, "server"), args.server_jar, plugins, java=args.java,
-                    memory=args.memory, port=args.port)
+                    memory=args.memory, port=args.port,
+                    properties={"level-seed": args.seed} if args.seed else None)
     client = Client("127.0.0.1", args.port, PLAYER, args.client_version,
                     os.path.join(workdir, "client.log"), node=args.node)
     expired = threading.Event()

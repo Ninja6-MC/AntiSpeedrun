@@ -291,13 +291,21 @@ affected. See [administration.md](administration.md#8-a-structure-chest-had-no-t
 
 The structure each lock requires is fixed, not configured:
 
-| Structure | Gates | Advancement |
+| Structure | Gates | Proven by |
 | :--- | :--- | :--- |
-| Ancient City | Silence and Ward trims | `minecraft:adventure/avoid_vibration` (vanilla has no Ancient City advancement) |
+| Ancient City | Silence and Ward trims | Standing inside one of its pieces; with `item-progression.count-structure-loot` on, also opening one of its chests first |
 | Bastion Remnant | Snout trim, netherite upgrade template | `minecraft:nether/find_bastion` |
 | End City | Spire trim | `minecraft:end/find_end_city` |
 
 Every other trim is ungated.
+
+The Bastion and End City advancements are location triggers: vanilla grants them only to a
+player inside the structure. Vanilla has no Ancient City advancement, so the plugin records
+it itself, in `explored-structures.yml`: about every 2 seconds it checks each player in an
+overworld below y 0 (not in spectator mode) against the pieces of any Ancient City around
+them. `adventure/avoid_vibration` (Sneak 100) no longer counts, because it is earned beside
+any Sculk Sensor, including one placed in a base. A player recorded as having explored an
+Ancient City keeps it; the record is never cleared by the plugin.
 
 ### 4.5 `idle-reminder`
 

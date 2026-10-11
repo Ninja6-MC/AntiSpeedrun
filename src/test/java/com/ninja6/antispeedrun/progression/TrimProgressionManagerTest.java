@@ -25,11 +25,29 @@ import org.junit.jupiter.api.Test;
 import com.ninja6.antispeedrun.config.ConfigLoadException;
 import com.ninja6.antispeedrun.config.MapConfigSection;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.storage.ExploredStructureStore;
+import com.ninja6.antispeedrun.storage.StateFile;
 
 /** Trim pattern and smithing template resolution to structure milestones (#36). */
 class TrimProgressionManagerTest {
 
     private static final long NOW = 1_000_000_000_000L;
+
+    private static final class InMemoryStateFile implements StateFile {
+        @Override
+        public Map<String, Object> load() {
+            return Map.of();
+        }
+
+        @Override
+        public void save(Map<String, Object> document) {
+        }
+
+        @Override
+        public Optional<String> quarantine() {
+            return Optional.empty();
+        }
+    }
 
     private static NamespacedKey pattern(String key) {
         return NamespacedKey.minecraft(key);
@@ -87,10 +105,12 @@ class TrimProgressionManagerTest {
         }
 
         @Test
-        @DisplayName("each structure requires exactly its advancement, and nothing else")
+        @DisplayName("the Bastion and End City require exactly their advancement; the Ancient City none")
         void requirements() {
-            assertEquals(List.of("minecraft:adventure/avoid_vibration"),
-                    TrimProgressionManager.ANCIENT_CITY.requirement().advancements());
+            assertTrue(TrimProgressionManager.ANCIENT_CITY.requirement().isEmpty());
+            assertTrue(TrimProgressionManager.provenByLocation(TrimProgressionManager.ANCIENT_CITY));
+            assertFalse(TrimProgressionManager.provenByLocation(TrimProgressionManager.BASTION));
+            assertFalse(TrimProgressionManager.provenByLocation(TrimProgressionManager.END_CITY));
             assertEquals(List.of("minecraft:nether/find_bastion"),
                     TrimProgressionManager.BASTION.requirement().advancements());
             assertEquals(List.of("minecraft:end/find_end_city"),
@@ -164,14 +184,22 @@ class TrimProgressionManagerTest {
     class Configuration {
 
         @Test
-        @DisplayName("the shipped defaults gate trims, so the capture queries all three structures")
+        @DisplayName("the shipped defaults gate trims, so the capture queries both structure advancements")
         void defaultsAreCaptured() {
             PluginConfig config = PluginConfig.defaults();
             assertTrue(TrimProgressionManager.isActive(config));
+            assertEquals(Set.of(TrimProgressionManager.BASTION_ADVANCEMENT,
+                    TrimProgressionManager.END_CITY_ADVANCEMENT), TrimProgressionManager.requiredAdvancements(config));
             assertTrue(Milestone.allRequiredAdvancements(config).containsAll(List.of(
-                    TrimProgressionManager.ANCIENT_CITY_ADVANCEMENT,
                     TrimProgressionManager.BASTION_ADVANCEMENT,
                     TrimProgressionManager.END_CITY_ADVANCEMENT)));
+        }
+
+        @Test
+        @DisplayName("Sneak 100 is no longer captured for trims (#221)")
+        void sneakIsNotCaptured() {
+            assertFalse(TrimProgressionManager.requiredAdvancements(PluginConfig.defaults())
+                    .contains("minecraft:adventure/avoid_vibration"));
         }
 
         @Test
@@ -205,7 +233,7 @@ class TrimProgressionManagerTest {
                     "block-unearned-smithing", false,
                     "block-wearing-unearned-trims", true));
             assertTrue(TrimProgressionManager.isActive(config));
-            assertEquals(3, TrimProgressionManager.requiredAdvancements(config).size());
+            assertEquals(2, TrimProgressionManager.requiredAdvancements(config).size());
         }
     }
 
@@ -215,6 +243,8 @@ class TrimProgressionManagerTest {
 
         private final Set<String> earned = new HashSet<>();
         private final List<String> lookedUp = new ArrayList<>();
+        private final ExploredStructureStore explored =
+                new ExploredStructureStore(Logger.getLogger("test"), new InMemoryStateFile(), Runnable::run);
 
         private TrimProgressionManager manager() {
             AdvancementLookup lookup = (player, key) -> {
@@ -222,16 +252,82 @@ class TrimProgressionManagerTest {
                 return earned.contains(key) ? AdvancementLookup.State.EARNED : AdvancementLookup.State.NOT_EARNED;
             };
             return new TrimProgressionManager(new ProgressionManager(Logger.getLogger("test"), lookup,
-                    new PlayerStateRegistry(), Duration.ofMinutes(1), () -> NOW));
+                    new PlayerStateRegistry(), Duration.ofMinutes(1), () -> NOW), explored);
+        }
+
+        private PluginConfig countLoot(boolean on) throws ConfigLoadException {
+            return PluginConfig.from(MapConfigSection.of(Map.of(
+                    "item-progression", Map.of("count-structure-loot", on))));
         }
 
         @Test
         @DisplayName("an unexplored structure refuses and names its advancement")
         void unexplored() {
             EligibilityResult result = manager().evaluate(onlinePlayer(UUID.randomUUID()),
+                    PluginConfig.defaults(), Material.SNOUT_ARMOR_TRIM_SMITHING_TEMPLATE);
+            assertFalse(result.eligible());
+            assertEquals(List.of(TrimProgressionManager.BASTION_ADVANCEMENT), result.missingAdvancements());
+        }
+
+        @Test
+        @DisplayName("Sneak 100 alone does not open the Ancient City, and no advancement is looked up (#221)")
+        void sneakAloneRefuses() {
+            earned.add("minecraft:adventure/avoid_vibration");
+            EligibilityResult result = manager().evaluate(onlinePlayer(UUID.randomUUID()),
                     PluginConfig.defaults(), Material.SILENCE_ARMOR_TRIM_SMITHING_TEMPLATE);
             assertFalse(result.eligible());
-            assertEquals(List.of(TrimProgressionManager.ANCIENT_CITY_ADVANCEMENT), result.missingAdvancements());
+            assertTrue(result.missingAdvancements().isEmpty());
+            assertTrue(lookedUp.isEmpty());
+        }
+
+        @Test
+        @DisplayName("an entered Ancient City opens Silence and Ward, live and from the record")
+        void enteredCity() {
+            UUID id = UUID.randomUUID();
+            explored.record(id, TrimProgressionManager.ANCIENT_CITY.id(), true);
+            TrimProgressionManager manager = manager();
+            Player player = onlinePlayer(id);
+            assertTrue(manager.evaluate(player, PluginConfig.defaults(),
+                    Material.SILENCE_ARMOR_TRIM_SMITHING_TEMPLATE).eligible());
+            assertTrue(manager.evaluate(player, PluginConfig.defaults(),
+                    Material.WARD_ARMOR_TRIM_SMITHING_TEMPLATE).eligible());
+            assertTrue(manager.recorded(id, PluginConfig.defaults(), TrimProgressionManager.ANCIENT_CITY.id()));
+        }
+
+        @Test
+        @DisplayName("Ancient City loot counts only while count-structure-loot is on, and is kept either way")
+        void cityLoot() throws ConfigLoadException {
+            UUID id = UUID.randomUUID();
+            explored.record(id, TrimProgressionManager.ANCIENT_CITY_LOOT_ID, true);
+            TrimProgressionManager manager = manager();
+            Player player = onlinePlayer(id);
+            assertTrue(manager.evaluate(player, countLoot(true), TrimProgressionManager.ANCIENT_CITY).eligible());
+            assertFalse(manager.evaluate(player, countLoot(false), TrimProgressionManager.ANCIENT_CITY).eligible());
+            assertFalse(manager.recorded(id, countLoot(false), TrimProgressionManager.ANCIENT_CITY.id()));
+            assertTrue(manager.recorded(id, countLoot(true), TrimProgressionManager.ANCIENT_CITY.id()));
+            assertFalse(manager.recorded(id, countLoot(true), TrimProgressionManager.BASTION.id()),
+                    "the loot record stands in for the Ancient City only");
+        }
+
+        @Test
+        @DisplayName("evaluating an advancement structure records the answer; the Ancient City record is left alone")
+        void recordsAdvancementStructures() {
+            UUID id = UUID.randomUUID();
+            earned.add(TrimProgressionManager.BASTION_ADVANCEMENT);
+            TrimProgressionManager manager = manager();
+            Player player = onlinePlayer(id);
+            for (Milestone structure : TrimProgressionManager.STRUCTURES) {
+                manager.evaluate(player, PluginConfig.defaults(), structure);
+            }
+            assertTrue(explored.hasExplored(id, TrimProgressionManager.BASTION.id()));
+            assertFalse(explored.hasExplored(id, TrimProgressionManager.END_CITY.id()));
+            assertFalse(explored.hasExplored(id, TrimProgressionManager.ANCIENT_CITY.id()));
+
+            explored.record(id, TrimProgressionManager.ANCIENT_CITY.id(), true);
+            for (Milestone structure : TrimProgressionManager.STRUCTURES) {
+                manager.evaluate(player, PluginConfig.defaults(), structure);
+            }
+            assertTrue(explored.hasExplored(id, TrimProgressionManager.ANCIENT_CITY.id()));
         }
 
         @Test

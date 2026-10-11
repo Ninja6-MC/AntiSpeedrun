@@ -57,6 +57,13 @@ function itemCount (name) {
   return bot.inventory.items().filter((item) => item.name === name).reduce((sum, item) => sum + item.count, 0)
 }
 
+// From 1.21.3 mineflayer reports sneaking only in player_input, but servers before 1.21.6 still
+// take it from entity_action's start and stop sneaking, so on those the server never sees it.
+function legacySneak (state) {
+  if (bot.registry.version['>=']('1.21.6')) return
+  bot._client.write('entity_action', { entityId: bot.entity.id, actionId: state ? 0 : 1, jumpBoost: 0 })
+}
+
 function nearest (name) {
   return bot.nearestEntity((entity) => entity.name === name)
 }
@@ -188,12 +195,22 @@ const ops = {
     return {}
   },
 
-  // Walks forward for ms milliseconds toward the point [x, y, z].
-  async walk ({ toward, ms }) {
+  // Walks forward for ms milliseconds toward the point [x, y, z], sneaking with sneak and jumping
+  // all the way with jump.
+  async walk ({ toward, ms, sneak, jump }) {
     await bot.lookAt(new Vec3(toward[0], toward[1], toward[2]), true)
+    if (sneak) {
+      bot.setControlState('sneak', true)
+      legacySneak(true)
+      await sleep(300)
+    }
     bot.setControlState('forward', true)
+    if (jump) bot.setControlState('jump', true)
     await sleep(ms)
     bot.setControlState('forward', false)
+    bot.setControlState('jump', false)
+    bot.setControlState('sneak', false)
+    if (sneak) legacySneak(false)
     await sleep(300)
     const p = bot.entity.position
     return { position: [p.x, p.y, p.z], dimension: bot.game.dimension }

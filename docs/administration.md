@@ -463,5 +463,10 @@ template is gone for everyone, not held back until the player qualifies.
   player opening the chest.
 - **Folia.** A player standing in another region from the chest is judged from
   `explored-structures.yml` instead of live, and bypasses are not read for them.
+- **Ancient City.** Only `explored-structures.yml` proves it, whoever is judged: the entry
+  `trim:ancient_city` (entering a city) or, while `count-structure-loot` is on,
+  `trim:ancient_city/loot` (opening a city chest first). Nothing in the game removes either.
+  To relock a player, stop the server and delete the entry from their list. Entries written
+  by earlier versions came from Sneak 100 and cannot be told apart from a real visit.
 - **Plugin loot.** Loot a plugin generates through the loot table API is not natural
   loot and is left alone.

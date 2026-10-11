@@ -8,7 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "integration"))
 import anti_cheese  # noqa: E402
 import gates  # noqa: E402
 import harness  # noqa: E402
+import credits  # noqa: E402
 import probes  # noqa: E402
+import trims  # noqa: E402
 
 CONFIG = """\
 anti-cheese:
@@ -157,9 +159,49 @@ class GateConfigTest(unittest.TestCase):
             gates.set_key(GATES_CONFIG, "item-progression", "gate-dispensers", "false")
 
 
+# Seeds two real servers reported to /seed, and the bounds /asrprobe structure then reported for
+# the Ancient City of trims.CITY_CELL: Paper 1.21.4 build 232 and Folia 26.2 build 7.
+CITIES = (
+    (5457511341097885765, (1911, 1813, 2156, 2054)),
+    (-5487481698590049538, (1956, 2021, 2207, 2265)),
+)
+
+
+class CityPlacementTest(unittest.TestCase):
+    def test_the_computed_start_chunk_lies_inside_the_city_the_server_generated(self):
+        for seed, (min_x, min_z, max_x, max_z) in CITIES:
+            chunk_x, chunk_z = trims.city_chunk(seed, *trims.CITY_CELL)
+            x, z = chunk_x * 16 + 8, chunk_z * 16 + 8
+            self.assertTrue(min_x <= x <= max_x and min_z <= z <= max_z, (seed, x, z))
+
+    def test_the_start_chunk_stays_inside_its_cell_short_of_the_separation(self):
+        for seed in (0, 1, -1, 2 ** 63 - 1, -(2 ** 63)):
+            chunk_x, chunk_z = trims.city_chunk(seed, 5, 5)
+            for chunk in (chunk_x, chunk_z):
+                self.assertGreaterEqual(chunk, 5 * trims.CITY_SPACING)
+                self.assertLess(chunk, 6 * trims.CITY_SPACING - trims.CITY_SEPARATION)
+
+    def test_java_random_matches_java_util_random(self):
+        # new java.util.Random(42).nextInt(16), nextInt(16), nextInt(10).
+        random = trims._LegacyRandom(42)
+        self.assertEqual([random.next_int(16), random.next_int(16), random.next_int(10)], [11, 0, 8])
+
+
+class StructureLineTest(unittest.TestCase):
+    def test_parses_a_structure_and_an_enter_line(self):
+        found = trims.FOUND.search("ASRPROBE structure query=s4 structures=1 pieces=83 "
+                                   "bounds=1911,-64,1813..2156,-10,2054 lowest=-52")
+        self.assertEqual((found["structures"], found["lowest"], found["result"]), ("1", "-52", None))
+        entered = trims.FOUND.search("ASRPROBE enter query=s8 structures=1 pieces=83 "
+                                     "bounds=1911,-64,1813..2156,-10,2054 lowest=-52 "
+                                     "piece=2012,-52,1932..2052,-22,1949 to=2032,-37,1940 result=true")
+        self.assertEqual((entered["piece"], entered["to"], entered["result"]),
+                         ("2012,-52,1932..2052,-22,1949", "2032,-37,1940", "true"))
+
+
 class ModuleTest(unittest.TestCase):
     def test_probe_names_are_unique_across_modules(self):
-        names = list(gates.PROBES) + list(anti_cheese.PROBES)
+        names = list(gates.PROBES) + list(credits.PROBES) + list(trims.PROBES) + list(anti_cheese.PROBES)
         self.assertEqual(len(names), len(set(names)))
 
     def test_the_results_class_is_shared(self):
