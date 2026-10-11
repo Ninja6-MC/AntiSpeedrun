@@ -57,6 +57,12 @@ function itemCount (name) {
   return bot.inventory.items().filter((item) => item.name === name).reduce((sum, item) => sum + item.count, 0)
 }
 
+function inventoryNames () {
+  const items = {}
+  for (const item of bot.inventory.items()) items[item.name] = (items[item.name] || 0) + item.count
+  return items
+}
+
 // From 1.21.3 mineflayer reports sneaking only in player_input, but servers before 1.21.6 still
 // take it from entity_action's start and stop sneaking, so on those the server never sees it.
 function legacySneak (state) {
@@ -101,9 +107,7 @@ const ops = {
 
   // Every item the inventory holds, as { name: count }.
   async inventory () {
-    const items = {}
-    for (const item of bot.inventory.items()) items[item.name] = (items[item.name] || 0) + item.count
-    return { items }
+    return { items: inventoryNames() }
   },
 
   // Holds the named item, or an empty hand when item is null.
@@ -342,31 +346,88 @@ const ops = {
     return { placed: bot.blockAt(reference.position.plus(FACES[face || 'up'])).name }
   },
 
-  // Crafts count of the named item in the crafting table at table [x, y, z], from what the
-  // inventory holds, by clicking the grid and the result slot as a player does. mineflayer's
-  // view of the grid can fall behind the server's, on Folia above all, and the craft then stops
-  // short; closing the table hands the grid back, so it tries again, up to three times.
-  async craft ({ item, count, table }) {
+  // Crafts one of the named item in the crafting table at table [x, y, z], from what the
+  // inventory holds, by clicking the grid and the result slot as a player does.
+  //
+  // mineflayer's own craft decides each click from its local model of the window, and takes any
+  // full resync the server sends as current. The server sends one in answer to a click whose
+  // state id is stale, after the clicks sent behind it, so it rolls the model back: the next
+  // click is chosen from a grid the server no longer has and the craft stops short. Here the
+  // clicks are planned once, from a synced window, and none depends on the model between them;
+  // after each one the window is synced again, until the server's own copy shows what the click
+  // should have done. An earlier resync arriving late only shows the state before the click, so
+  // it never passes for the click having landed.
+  async craft ({ item, table }) {
     const type = bot.registry.itemsByName[item]
     if (!type) throw new Error(`unknown item ${item}`)
-    const bench = table ? blockAt(table[0], table[1], table[2]) : null
-    const before = itemCount(item)
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const recipes = bot.recipesFor(type.id, null, 1, bench)
-      if (!recipes.length) throw new Error(`no recipe for ${item} from this inventory`)
-      try {
-        await bot.craft(recipes[0], count || 1, bench)
-      } catch (error) {
-        note('craft attempt', attempt, error.message)
+    if (!table) throw new Error('craft needs a crafting table')
+    const bench = blockAt(table[0], table[1], table[2])
+    const recipe = bot.recipesFor(type.id, null, 1, bench).find((candidate) => candidate.inShape)
+    if (!recipe) throw new Error(`no shaped recipe for ${item} from the inventory ${JSON.stringify(inventoryNames())}`)
+    const grid = await bot.openBlock(bench)
+    const name = (id) => bot.registry.items[id].name
+    const show = (stack) => stack ? `${stack.name} x${stack.count}` : 'nothing'
+    const cells = () => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((slot) => show(grid.slots[slot])).join(', ')
+    const own = () => grid.slots.slice(grid.inventoryStart, grid.inventoryEnd)
+    const held = (id) => own().filter((stack) => stack && stack.type === id).reduce((sum, stack) => sum + stack.count, 0)
+    // Syncs until the server's copy of the window satisfies done, or fails with what it showed.
+    const settle = async (what, done) => {
+      const deadline = Date.now() + 5000
+      for (let syncs = 1; ; syncs++) {
+        await Promise.race([bot._syncWindow(grid), sleep(2000)])
+        if (done()) {
+          if (syncs > 1) note('craft', what, 'settled after', syncs, 'syncs')
+          return
+        }
+        if (Date.now() > deadline) {
+          throw new Error(`${what}: the server shows ${show(grid.selectedItem)} on the cursor, result ` +
+            `${show(grid.slots[0])}, grid ${cells()}`)
+        }
       }
-      await sleep(800)
-      if (bot.currentWindow) {
-        bot.closeWindow(bot.currentWindow)
-        await sleep(800)
-      }
-      if (itemCount(item) > before) return { count: itemCount(item), attempts: attempt }
     }
-    return { count: itemCount(item), attempts: 3 }
+    const click = async (what, slot, button, mode, done) => {
+      await Promise.race([bot.clickWindow(slot, button, mode), sleep(2000)])
+      await settle(what, done)
+    }
+    try {
+      // The plan: per ingredient, the grid slots it goes to.
+      const plan = new Map()
+      recipe.inShape.forEach((row, y) => row.forEach((cell, x) => {
+        if (cell.id === -1) return
+        if (!plan.has(cell.id)) plan.set(cell.id, [])
+        plan.get(cell.id).push(1 + x + 3 * y)
+      }))
+      await settle('opening the table', () => !grid.selectedItem && grid.slots.slice(0, 10).every((stack) => !stack) &&
+        [...plan].every(([id, dests]) => held(id) >= dests.length))
+      const before = held(type.id)
+      for (const [id, dests] of plan) {
+        const source = grid.findInventoryItem(id, null)
+        if (!source || source.count < dests.length) {
+          throw new Error(`no stack of ${dests.length} ${name(id)} for grid slots ${dests}: ${show(source)}`)
+        }
+        const from = source.slot
+        const total = source.count
+        await click(`picking up ${name(id)} from slot ${from}`, from, 0, 0, () =>
+          !grid.slots[from] && grid.selectedItem && grid.selectedItem.type === id && grid.selectedItem.count === total)
+        for (const [placed, dest] of dests.entries()) {
+          const left = total - placed - 1
+          await click(`placing ${name(id)} in grid slot ${dest}`, dest, 1, 0, () =>
+            grid.slots[dest] && grid.slots[dest].type === id && grid.slots[dest].count === 1 &&
+            (left ? grid.selectedItem && grid.selectedItem.count === left : !grid.selectedItem))
+        }
+        if (total > dests.length) {
+          await click(`putting the rest of the ${name(id)} back in slot ${from}`, from, 0, 0, () =>
+            !grid.selectedItem && grid.slots[from] && grid.slots[from].type === id)
+        }
+      }
+      await settle(`the result slot showing ${item}`, () => grid.slots[0] && grid.slots[0].type === type.id)
+      // A shift-click on the result crafts as many as the grid covers, here one.
+      await click(`taking the ${item}`, 0, 0, 1, () => held(type.id) > before)
+      return { count: held(type.id) }
+    } finally {
+      // closeWindow copies the window's last synced player part into the inventory.
+      bot.closeWindow(grid)
+    }
   },
 
   // Uses the held item on the block at x, y, z and keeps using it for ms milliseconds, looking at
