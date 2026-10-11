@@ -14,8 +14,8 @@ series and where a build is published.
   follow published builds, not planned feature groups. Config and commands may
   change between development builds. `config.yml` carries a `config-version` and is migrated
   on start (the old file is backed up first), so testers no longer regenerate it. The state
-  files carry no format marker yet (#168 follow-up): keep a backup of `plugins/AntiSpeedrun/`
-  and `playerdata` between builds. Increment Z for compatible bug fixes between
+  files carry a `state-version` since 0.3.0 and player persistent data is not versioned: keep
+  a backup of `plugins/AntiSpeedrun/` and `playerdata` between builds. Increment Z for compatible bug fixes between
   feature-group releases, such as `v0.1.1`; `v0.2.0` remains Epics 6 and 7.
 * **Feature-complete** -- `v1.0.0-alpha.1` once every feature group has shipped. A new
   alpha (`alpha.2`, ...) is cut whenever the fixes since the last one include a major

@@ -30,8 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Updating relocks every player's iron, Nether, diamond, netherite and End gates, with no
   migration.** Gates now need personal-action credit (`item-progression.require-personal-credit`,
   default on), and nothing is carried over from advancements already earned. Players earn the
-  credits again by their own actions, or an admin runs `/asr credit grant <player> all` for
-  each player. Setting `require-personal-credit` to `false` restores the previous
+  credits again by their own actions, or an admin grants them with `/asr credit grant <player>
+  <credit>`. `all` opens every credited gate whether or not that player had reached it under
+  0.2.x; to restore only what a player had reached, grant individual credits (`mine-stone`,
+  `mined-iron`, `smelted-iron` or `smelt-iron` for both, `iron-tools`, `upgrade-tools`,
+  `mine-diamond`, `obtain-blaze-rod`). Setting `require-personal-credit` to `false` restores the previous
   advancement-based behaviour.
 - Ancient City trims (Silence and Ward) now unlock by entering an Ancient City. A player who
   has only the old Sneak 100 (`adventure/avoid_vibration`) advancement and no explored-city
