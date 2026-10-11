@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-12
+
 ### Added
 - `trim-progression.gate-natural-trim-chests` now acts: while it and `trim-progression.enabled` are on, a Silence, Ward, Snout or Spire trim template or a netherite upgrade template is removed from naturally generated chest and chest minecart loot when the player it is generated for has not explored its structure. Loot generated with no player (a hopper pulling from an unopened chest) never keeps one. The item bypass waives it; plugin-generated loot is not affected. Off by default; the `HARDCORE` profile turns it on.
 - `/asr credit <grant|revoke> <player> <credit|smelt-iron|all>` grants or revokes a personal-action credit, for online and offline players (by name the server has seen, or by UUID). Gated on the new `antispeedrun.admin.credit`, an op-default child of `antispeedrun.admin`.
@@ -23,6 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - On Folia the multi-dragon reinforcement window now opens when a player enters the End by portal or teleport. It listened for `PlayerChangedWorldEvent`, which Folia never fires, so a first fight there was reinforced only if a player logged in while already in the End. It now listens for the player being added to the End, which Paper and Folia both report. A player the dimension gate sends back out of the End does not open it.
 - `anti-cheese.cap-single-hit-boss-damage` now holds for hits landing in the same tick. A stack of TNT minecarts detonated together still removed 43.1 from the Wither and 35.2 from the dragon against a cap of 12, because each explosion was capped on its own; every hit a boss takes in one tick now shares one cap, and a hit beyond it is cancelled.
 - A multi-dragon fight no longer ends when a secondary dragon dies after the primary has been unloaded for a minute. Vanilla's dragon fight adopts any loaded Ender Dragon when its own has not ticked for 1,200 ticks, so a secondary's death ran the victory sequence (exit portal and egg) early. The plugin now checks once a second which dragon the fight tracks; an adopted secondary becomes the primary, and the dragon it replaced counts as a secondary at once, even while unloaded, and is tagged as one when its chunk loads. A WARNING is logged when it happens.
+
+### Upgrading from 0.2.x
+- **Updating relocks every player's iron, Nether, diamond, netherite and End gates, with no
+  migration.** Gates now need personal-action credit (`item-progression.require-personal-credit`,
+  default on), and nothing is carried over from advancements already earned. Players earn the
+  credits again by their own actions, or an admin runs `/asr credit grant <player> all` for
+  each player. Setting `require-personal-credit` to `false` restores the previous
+  advancement-based behaviour.
+- Ancient City trims (Silence and Ward) now unlock by entering an Ancient City. A player who
+  has only the old Sneak 100 (`adventure/avoid_vibration`) advancement and no explored-city
+  record relocks them until they enter one. Bastion and End City trims are unchanged.
+- The state files gain a `state-version` automatically on first start, with their data
+  unchanged. Back up `plugins/AntiSpeedrun/` and `playerdata` before upgrading.
 
 ## [0.2.0] - 2026-10-05
 
