@@ -5,8 +5,10 @@ import copy
 import hashlib
 import importlib.util
 import io
+import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from test_release_candidate import write_jar
 
@@ -313,6 +315,117 @@ class PromoteTest(unittest.TestCase):
         api.publish = publish_then_cdn_serves_other_bytes
         with self.assertRaisesRegex(gh.PromotionError, "SHA-256"):
             self.promote(api)
+
+
+class GitHubApiTest(unittest.TestCase):
+    """The gh api calls themselves, with gh faked at the subprocess boundary."""
+
+    REPO = "Ninja6-MC/AntiSpeedrun"
+
+    @staticmethod
+    def response(status, body=b"", headers=()):
+        reason = {200: "OK", 204: "No Content", 403: "Forbidden", 404: "Not Found"}.get(status, "")
+        head = "".join(f"{name}: {value}\r\n" for name, value in
+                       (("Content-Type", "application/json; charset=utf-8"), *headers))
+        return f"HTTP/2.0 {status} {reason}\n{head}\r\n".encode() + body
+
+    def run_gh(self, stdout, returncode=0, stderr=b""):
+        """Patch gh for one block; the returned list collects each command it was given."""
+        calls = []
+
+        def fake_run(command, input=None, capture_output=False):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+        patcher = mock.patch.object(gh.subprocess, "run", fake_run)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return calls
+
+    def test_forbidden_create_names_the_call_status_body_and_wanted_permission(self):
+        body = (b'{"message":"Resource not accessible by integration",'
+                b'"documentation_url":"https://docs.github.com/rest/releases/releases#create-a-release","status":"403"}')
+        self.run_gh(self.response(403, body, (("X-Accepted-GitHub-Permissions", "contents=write"),)),
+                    returncode=1, stderr=b"gh: Resource not accessible by integration (HTTP 403)\n")
+        with self.assertRaises(gh.PromotionError) as raised:
+            gh.GitHubApi(self.REPO).create_draft("v0.3.1", "AntiSpeedrun v0.3.1", NOTES, False, SHA)
+        message = str(raised.exception)
+        self.assertIn(f"POST repos/{self.REPO}/releases failed with HTTP 403", message)
+        self.assertIn('"message":"Resource not accessible by integration"', message)
+        self.assertIn("X-Accepted-GitHub-Permissions: contents=write", message)
+        self.assertIn("gh: Resource not accessible by integration (HTTP 403)", message)
+        self.assertNotIn("\n", message)
+
+    def test_failure_without_the_permission_header_omits_it(self):
+        self.run_gh(self.response(500, b'{"message":"Server Error"}'), returncode=1)
+        with self.assertRaises(gh.PromotionError) as raised:
+            gh.GitHubApi(self.REPO).delete_asset(7)
+        message = str(raised.exception)
+        self.assertEqual(message, f'DELETE repos/{self.REPO}/releases/assets/7 failed with HTTP 500: '
+                                  '{"message":"Server Error"}')
+
+    def test_long_failure_body_is_truncated(self):
+        self.run_gh(self.response(502, b"x" * (gh.BODY_LIMIT + 500)), returncode=1)
+        with self.assertRaises(gh.PromotionError) as raised:
+            gh.GitHubApi(self.REPO).release(9)
+        message = str(raised.exception)
+        self.assertIn("x" * gh.BODY_LIMIT + f"... ({gh.BODY_LIMIT + 500} characters)", message)
+        self.assertNotIn("x" * (gh.BODY_LIMIT + 1), message)
+
+    def test_failure_before_any_response_reports_gh(self):
+        self.run_gh(b"", returncode=4, stderr=b"To get started with GitHub CLI, please run:  gh auth login\n")
+        with self.assertRaisesRegex(gh.PromotionError,
+                                    f"^GET repos/{self.REPO}/releases/3 failed: To get started with GitHub CLI"):
+            gh.GitHubApi(self.REPO).release(3)
+
+    def test_success_returns_the_body_without_headers(self):
+        calls = self.run_gh(self.response(200, b'{"id": 5, "draft": true}'))
+        self.assertEqual(gh.GitHubApi(self.REPO).release(5), {"id": 5, "draft": True})
+        self.assertEqual(calls, [("gh", "api", "--include", "-X", "GET", f"repos/{self.REPO}/releases/5")])
+
+    def test_binary_download_keeps_every_byte(self):
+        data = b"PK\x03\x04\r\n\r\nHTTP/2.0 200 OK\n\x00\xff"
+        self.run_gh(self.response(200, data))
+        self.assertEqual(gh.GitHubApi(self.REPO).download_asset(11), data)
+
+    def test_no_content_is_empty(self):
+        self.run_gh(self.response(204))
+        self.assertEqual(gh.GitHubApi(self.REPO).delete_asset(7), None)
+
+    def test_paginated_filter_output_joins_every_page(self):
+        pages = (self.response(200, b'{"id":1,"tag_name":"v0.3.1","prerelease":false}\n')
+                 + b"\n" + self.response(200, b'{"id":2,"tag_name":"v0.2.0","prerelease":true}\n'))
+        calls = self.run_gh(pages)
+        self.assertEqual(gh.GitHubApi(self.REPO).published_releases(),
+                         [{"id": 1, "tag_name": "v0.3.1", "prerelease": False},
+                          {"id": 2, "tag_name": "v0.2.0", "prerelease": True}])
+        self.assertIn("--paginate", calls[0])
+
+    def test_failed_later_page_reports_that_page(self):
+        pages = (self.response(200, b'{"id":1,"tag_name":"v0.3.1"}\n') + b"\n"
+                 + self.response(403, b'{"message":"rate limited"}'))
+        self.run_gh(pages, returncode=1)
+        with self.assertRaisesRegex(gh.PromotionError, 'HTTP 403: {"message":"rate limited"}$'):
+            gh.GitHubApi(self.REPO).releases("v0.3.1")
+
+    def test_latest_id_reads_the_filtered_id(self):
+        self.run_gh(self.response(200, b"403212406\n"))
+        self.assertEqual(gh.GitHubApi(self.REPO).latest_id(), 403212406)
+
+    def test_no_latest_release_is_none(self):
+        self.run_gh(self.response(404, b'{"message":"Not Found"}'), returncode=1,
+                    stderr=b"gh: Not Found (HTTP 404)\n")
+        self.assertIsNone(gh.GitHubApi(self.REPO).latest_id())
+
+    def test_other_latest_failure_stops(self):
+        self.run_gh(self.response(403, b'{"message":"Forbidden"}'), returncode=1)
+        with self.assertRaisesRegex(gh.PromotionError, "releases/latest failed with HTTP 403"):
+            gh.GitHubApi(self.REPO).latest_id()
+
+    def test_a_404_elsewhere_still_stops(self):
+        self.run_gh(self.response(404, b'{"message":"Not Found"}'), returncode=1)
+        with self.assertRaisesRegex(gh.PromotionError, "HTTP 404"):
+            gh.GitHubApi(self.REPO).tag_commit("v0.3.1")
 
 
 class DigestTest(unittest.TestCase):

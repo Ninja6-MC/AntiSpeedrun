@@ -7,10 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-12
+
+0.3.0 was tagged but never published, so 0.3.1 is the first release after 0.2.0 and also
+ships every change listed under [0.3.0](https://github.com/Ninja6-MC/AntiSpeedrun/blob/main/CHANGELOG.md#030---2026-10-12).
+Its upgrade notes are repeated below; read them before updating from 0.2.x.
+
 ### Changed
 - Paper 26.3 is now supported: CI and the release candidate boot the built jar on Paper 26.3 build 175, and Modrinth and Hangar listings name 26.3. Folia has no 26.3 build yet, so Folia support still ends at 26.2. The gameplay probes do not run on 26.3 yet, because no scripted client can stay joined to it through ViaVersion.
 
+### Fixed
+- A failed GitHub API call during release publication now names the method, endpoint, HTTP status, response body and the permission GitHub asked for, instead of only gh's one-line error.
+
+### Upgrading from 0.2.x
+- **Updating relocks every player's iron, Nether, diamond, netherite and End gates, with no
+  migration.** Gates now need personal-action credit (`item-progression.require-personal-credit`,
+  default on), and nothing is carried over from advancements already earned. Players earn the
+  credits again by their own actions, or an admin grants them with `/asr credit grant <player>
+  <credit>`. `all` opens every credited gate whether or not that player had reached it under
+  0.2.x; to restore only what a player had reached, grant individual credits (`mine-stone`,
+  `mined-iron`, `smelted-iron` or `smelt-iron` for both, `iron-tools`, `upgrade-tools`,
+  `mine-diamond`, `obtain-blaze-rod`). Setting `require-personal-credit` to `false` restores the previous
+  advancement-based behaviour.
+- Ancient City trims (Silence and Ward) now unlock by entering an Ancient City. A player who
+  has only the old Sneak 100 (`adventure/avoid_vibration`) advancement and no explored-city
+  record relocks them until they enter one. Bastion and End City trims are unchanged.
+- The state files gain a `state-version` automatically on first start, with their data
+  unchanged. Back up `plugins/AntiSpeedrun/` and `playerdata` before upgrading.
+
 ## [0.3.0] - 2026-10-12
+
+Tagged but not published; these changes first ship in 0.3.1.
 
 ### Added
 - `trim-progression.gate-natural-trim-chests` now acts: while it and `trim-progression.enabled` are on, a Silence, Ward, Snout or Spire trim template or a netherite upgrade template is removed from naturally generated chest and chest minecart loot when the player it is generated for has not explored its structure. Loot generated with no player (a hopper pulling from an unopened chest) never keeps one. The item bypass waives it; plugin-generated loot is not affected. Off by default; the `HARDCORE` profile turns it on.
