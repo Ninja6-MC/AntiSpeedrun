@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -43,24 +44,83 @@ class PromotionError(ValueError):
     pass
 
 
+# A failed call's response body is cut to this many characters in the error.
+BODY_LIMIT = 1000
+
+_HEAD_END = re.compile(rb"\r?\n\r?\n")
+_NEXT_PAGE = re.compile(rb"\n(?=HTTP/\d)")
+
+
+def split_responses(output, paginate=False):
+    """The (status, headers, body) of each response `gh api --include` printed.
+
+    gh writes the status line and the response headers before the body: once, or before
+    every page with --paginate. Only response headers are printed, never the request's
+    Authorization header.
+    """
+    responses = []
+    rest = output.lstrip(b"\r\n")
+    while rest.startswith(b"HTTP/"):
+        end = _HEAD_END.search(rest)
+        head, rest = (rest[:end.start()], rest[end.end():]) if end else (rest, b"")
+        lines = head.decode("latin-1").splitlines()
+        status = lines[0].split(None, 2)[1:2]
+        headers = {}
+        for line in lines[1:]:
+            name, _, value = line.partition(":")
+            headers[name.strip().lower()] = value.strip()
+        body = rest
+        if paginate and (page_end := _NEXT_PAGE.search(rest)):
+            body, rest = rest[:page_end.end()], rest[page_end.end():]
+        else:
+            rest = b""
+        responses.append((int(status[0]) if status and status[0].isdigit() else None, headers, body))
+    return responses
+
+
+def describe_failure(method, endpoint, responses, stderr):
+    """What a failed call asked for and everything GitHub said about refusing it."""
+    if not responses:
+        return f"{method} {endpoint} failed: {stderr or 'gh api printed no response'}"
+    status, headers, body = responses[-1]
+    text = " ".join(body.decode(errors="replace").split())
+    if len(text) > BODY_LIMIT:
+        text = f"{text[:BODY_LIMIT]}... ({len(text)} characters)"
+    message = f"{method} {endpoint} failed with HTTP {status}: {text or '(empty body)'}"
+    permissions = headers.get("x-accepted-github-permissions")
+    if permissions:
+        message += f"; X-Accepted-GitHub-Permissions: {permissions}"
+    return f"{message} [{stderr}]" if stderr else message
+
+
 class GitHubApi:
     """The handful of REST calls promotion makes, through the authenticated gh CLI."""
 
     def __init__(self, repository):
         self.repository = repository
 
-    def _gh(self, *args, stdin=None):
-        process = subprocess.run(("gh", "api", *args), input=stdin, capture_output=True)
-        if process.returncode:
-            raise PromotionError(f"gh api {args[0]} failed: {process.stderr.decode(errors='replace').strip()}")
-        return process.stdout
+    def _gh(self, method, endpoint, *options, stdin=None, missing_ok=False):
+        """The body of one call, or of every page; None for a 404 when `missing_ok`.
 
-    def _json(self, *args, stdin=None):
-        return json.loads(self._gh(*args, stdin=stdin) or b"null")
+        Calls run with --include so a failure can name GitHub's status, body and the
+        permission it wanted, which gh's own one-line error leaves out.
+        """
+        process = subprocess.run(("gh", "api", "--include", "-X", method, endpoint, *options),
+                                 input=stdin, capture_output=True)
+        responses = split_responses(process.stdout, paginate="--paginate" in options)
+        if process.returncode:
+            if missing_ok and responses and responses[-1][0] == 404:
+                return None
+            stderr = " ".join(process.stderr.decode(errors="replace").split())
+            raise PromotionError(describe_failure(method, endpoint, responses, stderr))
+        return b"".join(body for _, _, body in responses) if responses else process.stdout
+
+    def _json(self, method, endpoint, *options, stdin=None):
+        return json.loads(self._gh(method, endpoint, *options, stdin=stdin) or b"null")
 
     def tag_commit(self, tag):
         """The commit a tag resolves to on GitHub now, peeling annotated tags."""
-        target = self._json(f"repos/{self.repository}/git/ref/tags/{tag}")
+        target = self._json("GET", f"repos/{self.repository}/git/ref/tags/{tag}")
         if not isinstance(target, dict) or target.get("ref") != f"refs/tags/{tag}":
             raise PromotionError(f"Tag {tag} does not resolve to exactly one ref on GitHub")
         obj = target["object"]
@@ -69,30 +129,25 @@ class GitHubApi:
                 return obj["sha"]
             if obj["type"] != "tag":
                 raise PromotionError(f"Tag {tag} points at a {obj['type']}, not a commit")
-            obj = self._json(f"repos/{self.repository}/git/tags/{obj['sha']}")["object"]
+            obj = self._json("GET", f"repos/{self.repository}/git/tags/{obj['sha']}")["object"]
         raise PromotionError(f"Tag {tag} nests too deeply to peel")
 
     def releases(self, tag):
         """Every release carrying this tag name, drafts included."""
-        output = self._gh("--paginate", f"repos/{self.repository}/releases?per_page=100",
+        output = self._gh("GET", f"repos/{self.repository}/releases?per_page=100", "--paginate",
                           "--jq", f'.[] | select(.tag_name == "{tag}")')
         return [json.loads(line) for line in output.decode().splitlines() if line.strip()]
 
     def release(self, release_id):
-        return self._json(f"repos/{self.repository}/releases/{release_id}")
+        return self._json("GET", f"repos/{self.repository}/releases/{release_id}")
 
     def latest_id(self):
-        process = subprocess.run(("gh", "api", f"repos/{self.repository}/releases/latest", "--jq", ".id"),
-                                 capture_output=True, text=True)
-        if process.returncode:
-            if "HTTP 404" in process.stderr:
-                return None
-            raise PromotionError(f"Cannot read the Latest release: {process.stderr.strip()}")
-        return int(process.stdout.strip())
+        output = self._gh("GET", f"repos/{self.repository}/releases/latest", "--jq", ".id", missing_ok=True)
+        return None if output is None else int(output.decode().strip())
 
     def published_releases(self):
         """Every release that is not a draft: its id, tag and pre-release flag."""
-        output = self._gh("--paginate", f"repos/{self.repository}/releases?per_page=100",
+        output = self._gh("GET", f"repos/{self.repository}/releases?per_page=100", "--paginate",
                           "--jq", ".[] | select(.draft | not) | {id, tag_name, prerelease}")
         return [json.loads(line) for line in output.decode().splitlines() if line.strip()]
 
@@ -102,24 +157,24 @@ class GitHubApi:
         # never the default branch.
         payload = {"tag_name": tag, "target_commitish": target, "name": title, "body": body,
                    "draft": True, "prerelease": prerelease, "make_latest": "false"}
-        return self._json("-X", "POST", f"repos/{self.repository}/releases", "--input", "-",
+        return self._json("POST", f"repos/{self.repository}/releases", "--input", "-",
                           stdin=json.dumps(payload).encode())
 
     def delete_asset(self, asset_id):
-        self._gh("-X", "DELETE", f"repos/{self.repository}/releases/assets/{asset_id}")
+        self._gh("DELETE", f"repos/{self.repository}/releases/assets/{asset_id}")
 
     def upload_asset(self, release_id, path):
         url = f"https://uploads.github.com/repos/{self.repository}/releases/{release_id}/assets?name={path.name}"
-        return self._json("-X", "POST", url, "-H", "Content-Type: application/octet-stream",
+        return self._json("POST", url, "-H", "Content-Type: application/octet-stream",
                           "--input", str(path))
 
     def download_asset(self, asset_id):
-        return self._gh("-H", "Accept: application/octet-stream",
-                        f"repos/{self.repository}/releases/assets/{asset_id}")
+        return self._gh("GET", f"repos/{self.repository}/releases/assets/{asset_id}",
+                        "-H", "Accept: application/octet-stream")
 
     def publish(self, release_id, prerelease, make_latest):
         payload = {"draft": False, "prerelease": prerelease, "make_latest": "true" if make_latest else "false"}
-        return self._json("-X", "PATCH", f"repos/{self.repository}/releases/{release_id}", "--input", "-",
+        return self._json("PATCH", f"repos/{self.repository}/releases/{release_id}", "--input", "-",
                           stdin=json.dumps(payload).encode())
 
     def consumer_download(self, url):
