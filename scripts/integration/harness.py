@@ -82,6 +82,8 @@ class Server:
             "server-port": self.port,
             "online-mode": "false",
             "enforce-secure-profile": "false",
+            # Paper 26.3 turns the whitelist on by default, which would keep the bot out.
+            "white-list": "false",
             # A flat overworld, so no probe depends on terrain. Its one biome is the Deep Dark and
             # its one structure set the Ancient Cities, which the trim probes enter (#221); every
             # fixture sits far above them.

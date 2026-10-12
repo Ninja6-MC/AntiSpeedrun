@@ -43,6 +43,7 @@ SERVER_LEGS = (
     "folia-1.21.11",
     "paper-26.2",
     "folia-26.2",
+    "paper-26.3",
 )
 
 
@@ -122,7 +123,9 @@ def distribution(tag):
     """Modrinth and Hangar destinations for a tag, or [] when it must never reach them.
 
     Every declared platform and Minecraft version is derived from SERVER_LEGS, the servers
-    the candidate itself boots on, so a listing cannot claim more than was tested.
+    the candidate itself boots on, so each one was booted on at least one leg. Neither
+    distributor takes versions per loader, so a version booted on only one platform (Paper
+    26.3, with no Folia build) is listed beside every declared platform.
     """
     info = release(tag)
     if info["version"].split(".", 1)[0] == "0" or info["channel"] not in DISTRIBUTOR_CHANNELS:
