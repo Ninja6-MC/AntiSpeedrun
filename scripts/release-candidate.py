@@ -43,6 +43,7 @@ SERVER_LEGS = (
     "folia-1.21.11",
     "paper-26.2",
     "folia-26.2",
+    "paper-26.3",
 )
 
 

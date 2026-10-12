@@ -175,15 +175,16 @@ jobs:
     timeout-minutes: 15
 
     # The supported range stated in README.md, booted at both ends and at the last 1.21 release:
-    # 1.21.4 is the Paper API the plugin compiles against, so nothing older is claimed, and 26.2
+    # 1.21.4 is the Paper API the plugin compiles against, so nothing older is claimed, and 26.3
     # is the newest version with a pinned build here. Every leg is pinned to a build number and
     # its SHA-256, so an upstream release never changes what this gate runs. Newer servers are
     # compat.yml's job, on a schedule, where a new upstream release cannot block a pull request.
     # Moving a pin, or extending the range, is a reviewed change to this list and to README.md.
     #
     # Folia 1.21.4 and 26.2 have never published a STABLE build, so their pins are the newest
-    # ALPHA and BETA builds respectively. Minecraft 26.1 and newer refuse to start below Java 25;
-    # the plugin itself is Java 21 bytecode either way.
+    # ALPHA and BETA builds respectively. Folia has published no 26.3 build at all, so 26.3 is
+    # booted on Paper only and Folia stops at 26.2. Minecraft 26.1 and newer refuse to start
+    # below Java 25; the plugin itself is Java 21 bytecode either way.
     strategy:
       fail-fast: false
       matrix:
@@ -194,6 +195,7 @@ jobs:
           - { platform: folia, minecraft: '1.21.11', build: 14, java: '21', sha256: f52c408490a0225611e67907a3ca19f7e6da2c6bc899e715d5f46844e7103c39 }
           - { platform: paper, minecraft: '26.2', build: 129, java: '25', sha256: b1d8f6bfa1b6101fa8e947b53041cb3bdf5540e7b83b6547ca19ba7edefeb083 }
           - { platform: folia, minecraft: '26.2', build: 7, java: '25', sha256: 128a634192261cd38bb4a5dc54075018a0f896fd6c6f529e37dca6e99e32b3b3 }
+          - { platform: paper, minecraft: '26.3', build: 175, java: '25', sha256: ece5afb6d0cdf0c930489618bf92341e33d2ebcd4f21e6d365daff6ed26dafb0 }
 
     steps:
       # Only for scripts/: the plugin under test is the jar `build` produced, not a rebuild.
@@ -265,6 +267,11 @@ jobs:
     # Paper and Folia, and the last 1.21 Paper. mineflayer cannot speak 26.2 yet, so those legs
     # join with a 26.1 client through ViaVersion and ViaBackwards, which run.py fetches from
     # Hangar pinned by version and SHA-256 and installs on the test server only.
+    #
+    # Paper 26.3 is booted by `server-smoke` but has no leg here: no client can stay joined. A
+    # 26.1 mineflayer client through ViaVersion/ViaBackwards 5.12.0, 5.12.1 or 5.12.2-SNAPSHOT
+    # is kicked about 2 s after spawn with multiplayer.disconnect.invalid_player_movement, on
+    # bare Paper 26.3 without AntiSpeedrun too (#235). Add the leg once a client can join.
     strategy:
       fail-fast: false
       matrix:

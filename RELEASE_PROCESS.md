@@ -138,7 +138,9 @@ versions, Folia support). Both listings declare exactly the servers the candidat
 loaders, platforms and Minecraft versions are derived from `SERVER_LEGS` in
 `scripts/release-candidate.py`, which a unit test keeps equal to the `Server Boot` matrix in
 `ci.yml` and the `Candidate Server Boot` matrix in `release.yml`. Today that is Paper and
-Folia on `1.21.4`, `1.21.11` and `26.2`; moving a pin moves the listings with it. The files
+Folia on `1.21.4`, `1.21.11` and `26.2`, and Paper on `26.3`; moving a pin moves the listings
+with it. Modrinth takes one version list for all loaders, so its listing names `26.3` beside
+Folia too; Hangar lists Folia as a tag on the Paper versions. The files
 are:
 
 * `AntiSpeedrun-<version>.jar`, the plugin;

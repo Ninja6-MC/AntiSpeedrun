@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Paper 26.3 is now supported: CI and the release candidate boot the built jar on Paper 26.3 build 175, and Modrinth and Hangar listings name 26.3. Folia has no 26.3 build yet, so Folia support still ends at 26.2. The gameplay probes do not run on 26.3 yet, because no scripted client can stay joined to it through ViaVersion.
+
 ## [0.3.0] - 2026-10-12
 
 ### Added

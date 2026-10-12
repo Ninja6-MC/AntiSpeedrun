@@ -20,7 +20,7 @@ rc = rd.candidate
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 NOTES = "### Added\n- Things.\n"
-VERSIONS = ["1.21.4", "1.21.11", "26.2"]
+VERSIONS = ["1.21.4", "1.21.11", "26.2", "26.3"]
 ENV = {"MODRINTH_TOKEN": "m-token", "MODRINTH_PROJECT": "antispeedrun",
        "HANGAR_API_TOKEN": "h-token", "HANGAR_PROJECT": "AntiSpeedrun"}
 
@@ -35,7 +35,7 @@ class FakeModrinth:
 
     def __init__(self):
         self.details = {"id": "AbCd1234", "slug": "antispeedrun"}
-        self.game_versions = {"1.21.3", *VERSIONS, "26.3"}
+        self.game_versions = {"1.21.3", *VERSIONS, "26.4"}
         self.loaders = {"paper", "folia", "spigot"}
         self.public = True
         self.user_id = "user1"
@@ -108,7 +108,7 @@ class FakeHangar:
         self.details = {"id": 42, "namespace": {"owner": "Ninja6-MC", "slug": "AntiSpeedrun"},
                         "visibility": "public", "settings": {"tags": ["SUPPORTS_FOLIA"]}}
         self.channel_names = ["Release", "Alpha", "Beta"]
-        self.platform_versions = {"PAPER": {"1.21", *VERSIONS, "26.3"}}
+        self.platform_versions = {"PAPER": {"1.21", *VERSIONS, "26.4"}}
         self.review_versions = False
         self.allowed = True
         self.versions_by_name = {}

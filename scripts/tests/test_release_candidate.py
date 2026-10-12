@@ -111,8 +111,8 @@ class DistributionTest(unittest.TestCase):
     def test_declared_platforms_and_versions_come_from_the_tested_servers(self):
         modrinth, hangar = rc.distribution("v1.0.0")
         self.assertEqual(modrinth["loaders"], ["folia", "paper"])
-        self.assertEqual(modrinth["game_versions"], ["1.21.4", "1.21.11", "26.2"])
-        self.assertEqual(hangar["platforms"], {"PAPER": ["1.21.4", "1.21.11", "26.2"]})
+        self.assertEqual(modrinth["game_versions"], ["1.21.4", "1.21.11", "26.2", "26.3"])
+        self.assertEqual(hangar["platforms"], {"PAPER": ["1.21.4", "1.21.11", "26.2", "26.3"]})
         self.assertTrue(hangar["supports_folia"])
 
 

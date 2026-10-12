@@ -137,6 +137,7 @@ jobs:
           - { platform: folia, minecraft: '1.21.11', build: 14, java: '21', sha256: f52c408490a0225611e67907a3ca19f7e6da2c6bc899e715d5f46844e7103c39 }
           - { platform: paper, minecraft: '26.2', build: 129, java: '25', sha256: b1d8f6bfa1b6101fa8e947b53041cb3bdf5540e7b83b6547ca19ba7edefeb083 }
           - { platform: folia, minecraft: '26.2', build: 7, java: '25', sha256: 128a634192261cd38bb4a5dc54075018a0f896fd6c6f529e37dca6e99e32b3b3 }
+          - { platform: paper, minecraft: '26.3', build: 175, java: '25', sha256: ece5afb6d0cdf0c930489618bf92341e33d2ebcd4f21e6d365daff6ed26dafb0 }
 
     steps:
       # Only for scripts/: the plugin under test is the retained candidate, never a rebuild.

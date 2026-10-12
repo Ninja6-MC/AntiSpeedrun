@@ -102,11 +102,12 @@ of the first alpha.
 
 ## Requirements
 
-- Paper or Folia, Minecraft 1.21.4 through 26.2. The plugin compiles against Paper API
-  1.21.4, so earlier 1.21 releases are not supported even though `api-version: 1.21` lets
-  them load it. Every pull request boots the built jar on Paper and Folia 1.21.4, 1.21.11
-  and 26.2; a weekly run boots it on the newest Paper and Folia release as well, so a
-  version above 26.2 may work but is not yet claimed.
+- Paper, Minecraft 1.21.4 through 26.3, or Folia, 1.21.4 through 26.2. The plugin compiles
+  against Paper API 1.21.4, so earlier 1.21 releases are not supported even though
+  `api-version: 1.21` lets them load it. Every pull request boots the built jar on Paper and
+  Folia 1.21.4, 1.21.11 and 26.2, and on Paper 26.3 (Folia has no 26.3 build yet); a weekly
+  run boots it on the newest Paper and Folia release as well, so a version above those may
+  work but is not yet claimed.
 - Java 21 to build. The server needs whatever Java its Minecraft version requires: 21 for
   1.21.x, 25 for 26.1 and newer.
 - Floodgate is optional. When present on the server it lets `/progress` detect

@@ -12,6 +12,15 @@ against the plugin jar that run built, on Paper 26.2, Paper 1.21.11 and Folia 26
 leg uploads `results.json`, `client.log` and `server.log` as an artifact. Run it by hand for
 any other server version before claiming a rule works there.
 
+Paper 26.3 is booted by `Server Boot` but has no probe leg, because no scripted player can
+stay on it yet. A 26.1 mineflayer client through ViaVersion and ViaBackwards 5.12.0, 5.12.1
+or 5.12.2-SNAPSHOT is kicked about 2 seconds after spawn with
+`multiplayer.disconnect.invalid_player_movement`. That happens on a bare Paper 26.3 server
+without AntiSpeedrun as well, and the same setup passes on Paper 26.2 build 129, so it is an
+upstream protocol limitation, not a plugin failure (#235). The leg is added once a newer
+mineflayer or Via release lets a client join. The harness already sets `white-list=false`,
+which Paper 26.3 turns on by default.
+
 ## What it covers
 
 `gates.py` covers the dimension and item gates (#58). Each case sets the player's progression
