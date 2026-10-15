@@ -212,6 +212,7 @@ so that progression is advancement-driven by default.
 | `rejection-message` | A built-in message | MiniMessage with `{ITEM}` and `{REQUIREMENT}` placeholders. |
 | `require-personal-credit` | `true` | Answer the six possession-triggered advancements from personal credits. Applies to every gate, dimension gates included, whatever `enabled` says. |
 | `count-structure-loot` | `true` | Loot the player generates may stand in for mining iron or diamonds, never for smelting or crafting. |
+| `personal-credit-scope` | `ALL` | Who `require-personal-credit` applies to. `ALL`: every player. `PERMISSION`: only holders of `antispeedrun.credit.required`; everyone else is gated on vanilla advancements, as with the toggle off. |
 | `gated-items` | none | A map of tier id to tier. There is no code default: with none declared, no item is gated. |
 
 Vanilla completes `story/mine_stone`, `story/smelt_iron`, `story/iron_tools`,
@@ -220,7 +221,11 @@ player holds the item, however it arrived. While `require-personal-credit` is on
 on one of them is satisfied only by the player's own mining, smelting, crafting or blaze
 kill, recorded in `personal-credits.yml`; the vanilla advancement is ignored, so
 `/advancement grant` and `revoke` change nothing. A key the server cannot resolve is
-still waived. The credit definitions are the Amendment of
+still waived. To keep credits for a group of players only, such as testers, set
+`personal-credit-scope: PERMISSION` and grant `antispeedrun.credit.required` to that
+group; nobody else needs a node. Players outside the scope are answered from vanilla
+advancements, but still see the action wording described below. The credit definitions
+are the Amendment of
 [`provenance-model.md`](provenance-model.md). With it on, a switched-on gate that requires
 any other advancement vanilla completes on possession, such as `story/obtain_armor` or
 `end/elytra`, is reported as a warning at load, since a gift still satisfies it. Both

@@ -127,6 +127,10 @@ item-progression:
   # Loot the player generates themselves (a structure chest they open first, a trial vault) may
   # stand in for mining iron or diamonds, never for smelting or crafting. Takes effect on reload.
   count-structure-loot: true
+  # Who require-personal-credit applies to. ALL: every player. PERMISSION: only holders of
+  # antispeedrun.credit.required; everyone else is gated on vanilla advancements, as with
+  # require-personal-credit off. Takes effect on reload.
+  personal-credit-scope: ALL
   # Each key below names a tier, and the name is yours to choose. Avoid a colon in it: the
   # action bar warning above is throttled per tier name, and section 8's Mending gate shares
   # that throttle under the name "villager:mending". A tier does gate every item it lists

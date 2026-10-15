@@ -63,6 +63,29 @@ class PossessionAdvancementsTest {
     }
 
     @Test
+    @DisplayName("personal-credit-scope defaults to ALL and reads PERMISSION as written")
+    void readsCreditScope() throws Exception {
+        assertEquals(PluginConfig.CreditScope.ALL,
+                PluginConfig.defaults().itemProgression().personalCreditScope());
+        assertEquals(PluginConfig.CreditScope.PERMISSION, parse("""
+                item-progression:
+                  personal-credit-scope: PERMISSION
+                """).itemProgression().personalCreditScope());
+    }
+
+    @Test
+    @DisplayName("an unknown personal-credit-scope keeps ALL and says so")
+    void unknownCreditScopeFallsBack() throws Exception {
+        PluginConfig config = parse("""
+                item-progression:
+                  personal-credit-scope: TESTERS
+                """);
+        assertEquals(PluginConfig.CreditScope.ALL, config.itemProgression().personalCreditScope());
+        assertTrue(config.warnings().stream()
+                .anyMatch(w -> w.startsWith("item-progression.personal-credit-scope")));
+    }
+
+    @Test
     @DisplayName("a toggle of the wrong type keeps its default and says so")
     void wrongTypeFallsBack() throws Exception {
         PluginConfig config = parse("""

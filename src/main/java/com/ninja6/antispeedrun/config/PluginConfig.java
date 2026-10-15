@@ -276,7 +276,7 @@ public record PluginConfig(
     private static ItemProgression parseItemProgression(ConfigReader r) throws ConfigLoadException {
         r.expect("enabled", "drop-recall-enabled", "gate-dispensers", "gate-nested-bundles",
                 "feedback-cooldown-seconds", "rejection-message", "require-personal-credit",
-                "count-structure-loot", "gated-items");
+                "count-structure-loot", "personal-credit-scope", "gated-items");
 
         // Read before the tiers, and handed to each of them: item-progression.enabled: false gates
         // no item at all, so a key a tier names under it is not gating this server would fail to
@@ -312,7 +312,8 @@ public record PluginConfig(
                 r.miniMessage("rejection-message", DEFAULT_ITEM_REJECTION),
                 parsed,
                 r.bool("require-personal-credit", true),
-                r.bool("count-structure-loot", true));
+                r.bool("count-structure-loot", true),
+                r.enumValue("personal-credit-scope", CreditScope.class, CreditScope.ALL));
     }
 
     /**
@@ -522,6 +523,16 @@ public record PluginConfig(
     /** How an idle reminder reaches the player. Default {@code ACTIONBAR}. */
     public enum DisplayType { ACTIONBAR, TITLE, CHAT }
 
+    /** Which players {@code item-progression.require-personal-credit} applies to. */
+    public enum CreditScope {
+
+        /** Every player. */
+        ALL,
+
+        /** Only holders of {@code antispeedrun.credit.required}; everyone else reads vanilla advancements. */
+        PERMISSION
+    }
+
     /**
      * When {@code /progress} draws its card in the glyph-safe shape. Default {@link #AUTO}.
      *
@@ -609,6 +620,8 @@ public record PluginConfig(
      *                                default {@code true}
      * @param countStructureLoot      loot the player generated may stand in for finding iron or a
      *                                diamond, never for smelting or crafting; default {@code true}
+     * @param personalCreditScope     which players {@code requirePersonalCredit} applies to;
+     *                                default {@link CreditScope#ALL}
      */
     public record ItemProgression(
             boolean enabled,
@@ -619,10 +632,22 @@ public record PluginConfig(
             String rejectionMessage,
             List<ItemTier> gatedItems,
             boolean requirePersonalCredit,
-            boolean countStructureLoot) {
+            boolean countStructureLoot,
+            CreditScope personalCreditScope) {
         public ItemProgression {
             Objects.requireNonNull(rejectionMessage, "rejectionMessage");
+            Objects.requireNonNull(personalCreditScope, "personalCreditScope");
             gatedItems = List.copyOf(gatedItems);
+        }
+
+        /** With {@link CreditScope#ALL}, the scope every server had before the setting existed. */
+        public ItemProgression(boolean enabled, boolean dropRecallEnabled, boolean gateDispensers,
+                               boolean gateNestedBundles, int feedbackCooldownSeconds,
+                               String rejectionMessage, List<ItemTier> gatedItems,
+                               boolean requirePersonalCredit, boolean countStructureLoot) {
+            this(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles, feedbackCooldownSeconds,
+                    rejectionMessage, gatedItems, requirePersonalCredit, countStructureLoot,
+                    CreditScope.ALL);
         }
 
         /** The tier with this configuration id, if declared. */

@@ -126,6 +126,7 @@ refuse, and `/progress` points at `/asr inspect <player>`.
 | `antispeedrun.bypass.gates` | false | Exempt from dimension gates (foot, vehicle and stasis access) and the Dragon's Breath bottling gate. |
 | `antispeedrun.bypass.items` | false | Exempt from item pickup, dispenser, container and Allay restrictions, and Dragon's Breath bottling. |
 | `antispeedrun.bypass.anticheese` | false | Exempt from the early Eye of Ender throw block, and from the single-hit boss damage cap on hits the player causes. |
+| `antispeedrun.credit.required` | false | With `item-progression.personal-credit-scope: PERMISSION`, the players `require-personal-credit` applies to. Everyone else is gated on vanilla advancements. Ignored under the default scope `ALL`. |
 
 ### 4.2 Why operator status does not grant a bypass
 

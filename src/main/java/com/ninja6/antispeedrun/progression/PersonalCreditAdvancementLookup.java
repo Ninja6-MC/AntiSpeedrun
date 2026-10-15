@@ -11,6 +11,7 @@ import java.util.function.Supplier;
 import org.bukkit.entity.Player;
 
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.config.PluginConfig.CreditScope;
 import com.ninja6.antispeedrun.storage.PersonalCredit;
 import com.ninja6.antispeedrun.storage.PersonalCreditStore;
 
@@ -32,6 +33,9 @@ import com.ninja6.antispeedrun.storage.PersonalCreditStore;
  *   <li>{@link State#UNRESOLVABLE} from the wrapped lookup passes through unchanged: a key the
  *       server cannot resolve is waived everywhere, and a credit must not turn a waived requirement
  *       back into an enforced one.</li>
+ *   <li>With {@code item-progression.personal-credit-scope: PERMISSION}, a player who does not
+ *       hold {@link #REQUIRED_PERMISSION} gets the wrapped lookup's answer for every key, so a
+ *       server can keep credits for some players and vanilla advancements for the rest.</li>
  *   <li>Every other key, and every key while the toggle is off, is the wrapped lookup's answer.</li>
  * </ul>
  *
@@ -42,6 +46,9 @@ import com.ninja6.antispeedrun.storage.PersonalCreditStore;
  * <p>Thread-safe on the wrapped lookup's terms: the store and the snapshot are volatile reads.
  */
 public final class PersonalCreditAdvancementLookup implements AdvancementLookup {
+
+    /** Under {@link CreditScope#PERMISSION}, the players the credit requirement applies to. */
+    public static final String REQUIRED_PERMISSION = "antispeedrun.credit.required";
 
     /** Each protected key and the credits it needs, all of them. */
     private static final Map<String, Set<PersonalCredit>> REQUIRED = required();
@@ -75,7 +82,7 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
             return vanilla;
         }
         PluginConfig.ItemProgression settings = config.get().itemProgression();
-        if (!settings.requirePersonalCredit()) {
+        if (!settings.requirePersonalCredit() || !inScope(player, settings)) {
             return vanilla;
         }
         UUID id = player.getUniqueId();
@@ -85,6 +92,11 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
             }
         }
         return State.EARNED;
+    }
+
+    private static boolean inScope(Player player, PluginConfig.ItemProgression settings) {
+        return settings.personalCreditScope() == CreditScope.ALL
+                || player.hasPermission(REQUIRED_PERMISSION);
     }
 
     private static Map<String, Set<PersonalCredit>> required() {

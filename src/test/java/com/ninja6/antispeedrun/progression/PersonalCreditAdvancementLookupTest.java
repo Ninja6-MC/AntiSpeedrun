@@ -4,8 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.lang.reflect.Proxy;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
@@ -18,6 +20,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.config.PluginConfig.CreditScope;
 import com.ninja6.antispeedrun.config.PossessionAdvancements;
 import com.ninja6.antispeedrun.progression.AdvancementLookup.State;
 import com.ninja6.antispeedrun.storage.CreditSource;
@@ -51,16 +54,19 @@ class PersonalCreditAdvancementLookupTest {
 
     /** What vanilla says, per key; a key with no entry is NOT_EARNED. */
     private final Map<String, State> vanilla = new HashMap<>();
+    /** Permission nodes the test player holds. */
+    private final Set<String> permissions = new HashSet<>();
     private final AtomicReference<PluginConfig> config = new AtomicReference<>();
     private PersonalCreditStore credits;
     private PersonalCreditAdvancementLookup lookup;
     private UUID id;
     private Player player;
 
-    private static Player player(UUID id) {
+    private static Player player(UUID id, Set<String> permissions) {
         return (Player) Proxy.newProxyInstance(Player.class.getClassLoader(),
                 new Class<?>[] {Player.class}, (proxy, method, args) -> switch (method.getName()) {
                     case "getUniqueId" -> id;
+                    case "hasPermission" -> args[0] instanceof String node && permissions.contains(node);
                     case "hashCode" -> id.hashCode();
                     case "equals" -> proxy == args[0];
                     case "toString" -> "player(" + id + ")";
@@ -69,13 +75,17 @@ class PersonalCreditAdvancementLookupTest {
     }
 
     private static PluginConfig settings(boolean requireCredit, boolean countLoot) {
+        return settings(requireCredit, countLoot, CreditScope.ALL);
+    }
+
+    private static PluginConfig settings(boolean requireCredit, boolean countLoot, CreditScope scope) {
         PluginConfig base = PluginConfig.defaults();
         PluginConfig.ItemProgression items = base.itemProgression();
         return new PluginConfig(base.profile(), base.dimensionGates(),
                 new PluginConfig.ItemProgression(items.enabled(), items.dropRecallEnabled(),
                         items.gateDispensers(), items.gateNestedBundles(),
                         items.feedbackCooldownSeconds(), items.rejectionMessage(),
-                        items.gatedItems(), requireCredit, countLoot),
+                        items.gatedItems(), requireCredit, countLoot, scope),
                 base.trimProgression(), base.idleReminder(), base.progressCard(),
                 base.journeyBook(), base.bossScaling(), base.antiCheese(),
                 base.villagerProgression(), base.warnings());
@@ -89,7 +99,7 @@ class PersonalCreditAdvancementLookupTest {
         lookup = new PersonalCreditAdvancementLookup(
                 (p, key) -> vanilla.getOrDefault(key, State.NOT_EARNED), credits, config::get);
         id = UUID.randomUUID();
-        player = player(id);
+        player = player(id, permissions);
     }
 
     @Test
@@ -152,6 +162,35 @@ class PersonalCreditAdvancementLookupTest {
             vanilla.put(key, answer);
             assertEquals(answer, lookup.state(player, key), key);
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(State.class)
+    @DisplayName("scope PERMISSION: a player without antispeedrun.credit.required gets the vanilla answer")
+    void outsidePermissionScopeIsVanilla(State answer) {
+        config.set(settings(true, true, CreditScope.PERMISSION));
+        for (String key : PersonalCreditAdvancementLookup.protectedKeys()) {
+            vanilla.put(key, answer);
+            assertEquals(answer, lookup.state(player, key), key);
+        }
+    }
+
+    @Test
+    @DisplayName("scope PERMISSION: a holder of antispeedrun.credit.required still needs the credit")
+    void insidePermissionScopeNeedsCredit() {
+        config.set(settings(true, true, CreditScope.PERMISSION));
+        permissions.add(PersonalCreditAdvancementLookup.REQUIRED_PERMISSION);
+        vanilla.put(MINE_STONE, State.EARNED);
+        assertEquals(State.NOT_EARNED, lookup.state(player, MINE_STONE), "granted, no credit");
+        credits.record(id, PersonalCredit.MINE_STONE, CreditSource.ACTION);
+        assertEquals(State.EARNED, lookup.state(player, MINE_STONE), "credit recorded");
+    }
+
+    @Test
+    @DisplayName("scope ALL ignores the permission: every player needs the credit")
+    void allScopeIgnoresPermission() {
+        vanilla.put(MINE_STONE, State.EARNED);
+        assertEquals(State.NOT_EARNED, lookup.state(player, MINE_STONE));
     }
 
     @Test

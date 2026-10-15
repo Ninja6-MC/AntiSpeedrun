@@ -95,3 +95,6 @@ permissions:
   antispeedrun.bypass.anticheese:
     description: Bypasses anti-cheese restrictions (boss combat and early Eye of Ender throws)
     default: false
+  antispeedrun.credit.required:
+    description: Under item-progression.personal-credit-scope PERMISSION, gates read personal credits instead of vanilla advancements
+    default: false
