@@ -220,7 +220,10 @@ player holds the item, however it arrived. While `require-personal-credit` is on
 on one of them is satisfied only by the player's own mining, smelting, crafting or blaze
 kill, recorded in `personal-credits.yml`; the vanilla advancement is ignored, so
 `/advancement grant` and `revoke` change nothing. A key the server cannot resolve is
-still waived. The credit definitions are the Amendment of
+still waived. A player holding `antispeedrun.bypass.credit` is answered from vanilla
+advancements as if the toggle were off, so a server can keep credits for a group of
+players only; the action wording described below is still shown to them. The credit
+definitions are the Amendment of
 [`provenance-model.md`](provenance-model.md). With it on, a switched-on gate that requires
 any other advancement vanilla completes on possession, such as `story/obtain_armor` or
 `end/elytra`, is reported as a warning at load, since a gift still satisfies it. Both

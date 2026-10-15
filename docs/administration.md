@@ -122,10 +122,11 @@ refuse, and `/progress` points at `/asr inspect <player>`.
 | `antispeedrun.admin.bypass` | op | `/asr bypass` (the right to hand out a bypass). |
 | `antispeedrun.admin.inspect` | op | `/asr inspect`. |
 | `antispeedrun.admin.credit` | op | `/asr credit`. |
-| `antispeedrun.bypass` | false | Parent of the three bypass nodes below. |
+| `antispeedrun.bypass` | false | Parent of the four bypass nodes below. |
 | `antispeedrun.bypass.gates` | false | Exempt from dimension gates (foot, vehicle and stasis access) and the Dragon's Breath bottling gate. |
 | `antispeedrun.bypass.items` | false | Exempt from item pickup, dispenser, container and Allay restrictions, and Dragon's Breath bottling. |
 | `antispeedrun.bypass.anticheese` | false | Exempt from the early Eye of Ender throw block, and from the single-hit boss damage cap on hits the player causes. |
+| `antispeedrun.bypass.credit` | false | Exempt from `require-personal-credit`: every gate reads this player's vanilla advancements, as with the toggle off. All other gates still apply. |
 
 ### 4.2 Why operator status does not grant a bypass
 

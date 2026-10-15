@@ -4,8 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.lang.reflect.Proxy;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
@@ -51,16 +53,19 @@ class PersonalCreditAdvancementLookupTest {
 
     /** What vanilla says, per key; a key with no entry is NOT_EARNED. */
     private final Map<String, State> vanilla = new HashMap<>();
+    /** Permission nodes the test player holds. */
+    private final Set<String> permissions = new HashSet<>();
     private final AtomicReference<PluginConfig> config = new AtomicReference<>();
     private PersonalCreditStore credits;
     private PersonalCreditAdvancementLookup lookup;
     private UUID id;
     private Player player;
 
-    private static Player player(UUID id) {
+    private static Player player(UUID id, Set<String> permissions) {
         return (Player) Proxy.newProxyInstance(Player.class.getClassLoader(),
                 new Class<?>[] {Player.class}, (proxy, method, args) -> switch (method.getName()) {
                     case "getUniqueId" -> id;
+                    case "hasPermission" -> args[0] instanceof String node && permissions.contains(node);
                     case "hashCode" -> id.hashCode();
                     case "equals" -> proxy == args[0];
                     case "toString" -> "player(" + id + ")";
@@ -89,7 +94,7 @@ class PersonalCreditAdvancementLookupTest {
         lookup = new PersonalCreditAdvancementLookup(
                 (p, key) -> vanilla.getOrDefault(key, State.NOT_EARNED), credits, config::get);
         id = UUID.randomUUID();
-        player = player(id);
+        player = player(id, permissions);
     }
 
     @Test
@@ -152,6 +157,26 @@ class PersonalCreditAdvancementLookupTest {
             vanilla.put(key, answer);
             assertEquals(answer, lookup.state(player, key), key);
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(State.class)
+    @DisplayName("a holder of antispeedrun.bypass.credit gets the vanilla answer for every protected key")
+    void bypassPermissionIsVanilla(State answer) {
+        permissions.add(PersonalCreditAdvancementLookup.BYPASS_PERMISSION);
+        for (String key : PersonalCreditAdvancementLookup.protectedKeys()) {
+            vanilla.put(key, answer);
+            assertEquals(answer, lookup.state(player, key), key);
+        }
+    }
+
+    @Test
+    @DisplayName("the bypass is per player: another player still needs the credit")
+    void bypassPermissionIsPerPlayer() {
+        vanilla.put(MINE_STONE, State.EARNED);
+        Set<String> other = Set.of(PersonalCreditAdvancementLookup.BYPASS_PERMISSION);
+        assertEquals(State.EARNED, lookup.state(player(UUID.randomUUID(), other), MINE_STONE), "exempt");
+        assertEquals(State.NOT_EARNED, lookup.state(player, MINE_STONE), "not exempt");
     }
 
     @Test

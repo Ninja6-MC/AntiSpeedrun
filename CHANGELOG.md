@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `antispeedrun.bypass.credit` exempts a player from `item-progression.require-personal-credit`: their gates read vanilla advancements, as with the toggle off, while every other gate still applies. A server can keep personal credits for a tester group only. It is a child of `antispeedrun.bypass`.
+
 ## [0.3.1] - 2026-10-12
 
 0.3.0 was tagged but never published, so 0.3.1 is the first release after 0.2.0 and also
