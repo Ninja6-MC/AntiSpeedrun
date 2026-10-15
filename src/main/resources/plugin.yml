@@ -86,7 +86,6 @@ permissions:
       antispeedrun.bypass.gates: true
       antispeedrun.bypass.items: true
       antispeedrun.bypass.anticheese: true
-      antispeedrun.bypass.credit: true
   antispeedrun.bypass.gates:
     description: Bypasses dimension progression gates (Nether/End foot, vehicle, and stasis access)
     default: false
@@ -96,6 +95,6 @@ permissions:
   antispeedrun.bypass.anticheese:
     description: Bypasses anti-cheese restrictions (boss combat and early Eye of Ender throws)
     default: false
-  antispeedrun.bypass.credit:
-    description: Exempts from item-progression.require-personal-credit; gates read vanilla advancements
+  antispeedrun.credit.required:
+    description: Under item-progression.personal-credit-scope PERMISSION, gates read personal credits instead of vanilla advancements
     default: false

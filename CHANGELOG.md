@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `antispeedrun.bypass.credit` exempts a player from `item-progression.require-personal-credit`: their gates read vanilla advancements, as with the toggle off, while every other gate still applies. A server can keep personal credits for a tester group only. It is a child of `antispeedrun.bypass`.
+- `item-progression.personal-credit-scope` (default `ALL`) chooses who `require-personal-credit` applies to. With `PERMISSION`, only holders of the new `antispeedrun.credit.required` node are gated on personal credits, and everyone else on vanilla advancements, so a server can keep credits for a tester group only. Takes effect on `/asr reload`.
 
 ## [0.3.1] - 2026-10-12
 
