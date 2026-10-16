@@ -217,8 +217,9 @@ there without writing anything; set the environment up and re-run the failed job
 4. Complete the draft. An asset GitHub never finished receiving is deleted; drafts are not
    public. An uploaded asset must match its manifest digest byte for byte. Missing assets
    are uploaded from the candidate.
-5. Re-read the draft, check every asset again, re-check the tag, then publish. A
-   pre-release is published with `make_latest=false`. A stable release is published with
+5. Re-read the draft, check every asset again, re-check the tag, publish, then check the
+   tag once more: a tag recreated in between fails the run, with the release already
+   public. A pre-release is published with `make_latest=false`. A stable release is published with
    `make_latest=true` only when no published stable release has a higher SemVer version.
    Otherwise it gets `make_latest=false`. This covers re-running an older release's failed
    job, or approving two stable tags out of order. It does not cover two stable publish
