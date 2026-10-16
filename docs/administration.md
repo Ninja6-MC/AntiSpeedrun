@@ -414,11 +414,17 @@ Reasons a player passes when you expect a refusal:
   runtime the plugin waives that requirement rather than enforce something nobody
   can earn, and logs the key once. Check the log for a warning naming it.
 
-Teleports the plugin does not regulate, such as an operator's `/tp`, are honoured on
-both Paper and Folia: the player is not sent back. On Folia a teleport from another
-plugin raises no event and is judged when the player arrives. Any other arrival in a
-gated dimension without qualifying, a waiver, or a recorded exempt teleport is sent
-back.
+Vanilla `/tp` and `/teleport` commands are honoured on Paper and Folia. Other plugin
+or command teleports into a locked dimension require eligibility, a waiver, or a
+prior `AntiSpeedrunPlugin.expectTeleport(player, world)` voucher. Vouchers name one
+world, expire, and are consumed on arrival. Same-dimension teleports remain free.
+`dimension-gates.gate-plugin-teleports: false` restores unrestricted Paper plugin
+teleports; Folia still checks arrivals because it does not fire the teleport event.
+
+Logging into a locked Nether or End, or respawning at a Nether anchor without
+qualifying or a waiver, returns the player to safe ground at an actual Overworld
+spawn. Join checks run after progression initialization. A later move, logout,
+unlock or waiver cancels a pending return.
 
 ### 7.5 An item cannot be picked up
 

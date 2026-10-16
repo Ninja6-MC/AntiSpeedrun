@@ -238,7 +238,7 @@ public record PluginConfig(
     // ---------------------------------------------------------------------------------------
 
     private static DimensionGates parseDimensionGates(ConfigReader r) throws ConfigLoadException {
-        r.expect("nether", "the_end");
+        r.expect("nether", "the_end", "gate-plugin-teleports");
         return new DimensionGates(
                 parseDimensionGate(r.child("nether"), List.of("minecraft:story/smelt_iron"),
                         DEFAULT_NETHER_REJECTION),
@@ -246,7 +246,7 @@ public record PluginConfig(
                         List.of("minecraft:story/mine_diamond",
                                 "minecraft:nether/obtain_blaze_rod",
                                 "minecraft:nether/find_fortress"),
-                        DEFAULT_END_REJECTION));
+                        DEFAULT_END_REJECTION), r.bool("gate-plugin-teleports", true));
     }
 
     private static DimensionGate parseDimensionGate(ConfigReader r, List<String> defaultAdvancements,
@@ -564,7 +564,11 @@ public record PluginConfig(
      * Section 1. Both gates are always present; an absent block in the file means the gate runs on
      * its shipped defaults, not that it is disabled.
      */
-    public record DimensionGates(DimensionGate nether, DimensionGate theEnd) {
+    public record DimensionGates(DimensionGate nether, DimensionGate theEnd, boolean gatePluginTeleports) {
+        public DimensionGates(DimensionGate nether, DimensionGate theEnd) {
+            this(nether, theEnd, true);
+        }
+
         public DimensionGates {
             Objects.requireNonNull(nether, "nether");
             Objects.requireNonNull(theEnd, "theEnd");

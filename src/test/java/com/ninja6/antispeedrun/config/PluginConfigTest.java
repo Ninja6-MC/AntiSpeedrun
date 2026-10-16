@@ -48,6 +48,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class PluginConfigTest {
 
+    @Test
+    void pluginTeleportGateDefaultsOnAndCanBeDisabled() throws Exception {
+        assertTrue(PluginConfig.defaults().dimensionGates().gatePluginTeleports());
+        assertTrue(shipped().dimensionGates().gatePluginTeleports());
+        assertFalse(PluginConfig.from(yaml("dimension-gates:\n  gate-plugin-teleports: false\n"))
+                .dimensionGates().gatePluginTeleports());
+        PluginConfig invalid = PluginConfig.from(yaml("dimension-gates:\n  gate-plugin-teleports: wrong\n"));
+        assertTrue(invalid.dimensionGates().gatePluginTeleports());
+        assertTrue(mentions(invalid.warnings(), "gate-plugin-teleports"));
+    }
+
     // -------------------------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------------------------

@@ -84,6 +84,9 @@ profile: CORE
 
 # 1. Dimension Progression Gates
 dimension-gates:
+  # Require a vanilla teleport command or expectTeleport voucher for plugin/command entry.
+  # False restores unrestricted Paper plugin teleports; Folia still checks arrival.
+  gate-plugin-teleports: true
   nether:
     enabled: true
     require-playtime-hours: 0          # Default 0 (Advancement-driven). Set >0 for time gating.

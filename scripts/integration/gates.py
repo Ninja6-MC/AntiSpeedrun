@@ -20,7 +20,7 @@ import re
 import time
 
 from harness import ProbeError
-from probes import NETHER, OVERWORLD, Probes
+from probes import END, NETHER, OVERWORLD, Probes
 
 GATES = "dimension-gates"
 ITEMS = "item-progression"
@@ -348,8 +348,11 @@ class GateProbes(Probes):
                 at_spawn = abs(float(at["x"]) - SPAWN[0] - 0.5) < 1.5 and abs(float(at["z"]) - SPAWN[2] - 0.5) < 1.5
                 self.results.check(rule, f"{label} is judged on arrival: the player is returned to the "
                                          "overworld spawn and told why",
-                                   final == "NORMAL" and at_spawn and told
-                                   and any("result=true" in line for line in moved), detail)
+                                   final == "NORMAL" and told
+                                   and ((self.server.platform == "folia" and at_spawn
+                                         and any("result=true" in line for line in moved))
+                                        or (self.server.platform != "folia"
+                                            and any("result=false" in line for line in moved))), detail)
             self.to_start()
 
         self.progression()
@@ -364,19 +367,70 @@ class GateProbes(Probes):
         finally:
             self.run(f"deop {self.player}")
             time.sleep(1)
-        # A plugin teleport: honoured on Paper, where it fires PlayerTeleportEvent; on Folia it fires
-        # nothing and is judged when the player arrives (docs/administration.md section 7.4).
+        # Paper cancels unannounced entry; Folia checks it at arrival.
         folia = self.server.platform == "folia"
         nether_world = overworld + "_nether"
         case("another plugin's teleportAsync into the Nether" + (" on Folia" if folia else ""),
              lambda: self.run(f"asrprobe teleport {self.player} {nether_world} {lx + 0.5} {ly} {lz + 0.5}"),
-             not folia)
+             False)
         # The same teleport announced first with AntiSpeedrunPlugin#expectTeleport (#137), the API
-        # a plugin calls so its deliberate teleport is honoured on Folia too. Paper needs no call.
+        # a plugin calls so its deliberate teleport is honoured on both platforms.
         case("another plugin's teleportAsync announced with expectTeleport",
              lambda: self.run(f"asrprobe teleport {self.player} {nether_world} {lx + 0.5} {ly} {lz + 0.5} "
                               "expect"),
              True)
+
+        self.progression(NETHER_GATE)
+        case("an eligible player's unannounced plugin teleport",
+             lambda: self.run(f"asrprobe teleport {self.player} {nether_world} {lx + 0.5} {ly} {lz + 0.5}"), True)
+        self.progression()
+        self.run(f"asr bypass {self.player} on")
+        time.sleep(1)
+        try:
+            case("a waived player's unannounced plugin teleport",
+                 lambda: self.run(f"asrprobe teleport {self.player} {nether_world} {lx + 0.5} {ly} {lz + 0.5}"), True)
+        finally:
+            self.run(f"asr bypass {self.player} off")
+            time.sleep(1)
+        self.reload(lambda text: set_key(text, GATES, "gate-plugin-teleports", "false"))
+        try:
+            case("opt-out unannounced plugin teleport",
+                 lambda: self.run(f"asrprobe teleport {self.player} {nether_world} {lx + 0.5} {ly} {lz + 0.5}"), not folia)
+        finally:
+            self.reload(lambda text: set_key(text, GATES, "gate-plugin-teleports", "true"))
+
+    def login(self):
+        rule = "locked dimension login"
+        self.progression()
+        for dimension in (NETHER, END):
+            self.arena(dimension, *LANDING, half=5, height=6)
+            self.tp(dimension, *LANDING)
+            self.client.request("reconnect", timeout=35)
+            at = self.where()
+            self.results.check(rule, f"ineligible login in {dimension} returns to the Overworld",
+                               at["environment"] == "NORMAL", str(at))
+        self.progression(NETHER_GATE)
+        self.tp(NETHER, *LANDING)
+        self.client.request("reconnect", timeout=35)
+        self.results.check(rule, "eligible Nether login stays", self.environment() == "NETHER", str(self.where()))
+        self.to_start()
+        self.progression()
+        # A real charged anchor, activated by the player, survives a logout and remains a
+        # respawn destination even after the temporary teleport voucher has gone.
+        x, y, z = LANDING
+        self.tp(NETHER, x + 0.5, y, z + 2.5)
+        self.run(f"execute in {NETHER} run setblock {x} {y} {z} minecraft:respawn_anchor[charges=4]")
+        time.sleep(1)
+        self.client.request("hold", item=None)
+        self.client.request("use_block", x=x, y=y, z=z)
+        self.run(f"kill {self.player}")
+        time.sleep(1)
+        self.client.request("respawn", timeout=20)
+        time.sleep(3)
+        self.results.check(rule, "same-world Nether anchor respawn returns to the Overworld",
+                           self.environment() == "NORMAL", str(self.where()))
+        self.run(f"spawnpoint {self.player} {SPAWN[0]} {SPAWN[1]} {SPAWN[2]}")
+        self.to_start()
 
     # ------------------------------------------------------------------ item gates
 
@@ -599,7 +653,7 @@ class GateProbes(Probes):
         self.run(f"execute in {OVERWORLD} run kill @e[type=minecraft:item]")
 
 
-PROBES = ("portals", "credit_unlock", "vehicles", "operator", "bypass", "teleports", "pickups", "containers",
+PROBES = ("portals", "credit_unlock", "vehicles", "operator", "bypass", "teleports", "login", "pickups", "containers",
           "container_break", "merchant", "recall", "reload_active")
 
 

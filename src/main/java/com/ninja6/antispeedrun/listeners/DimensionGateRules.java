@@ -35,6 +35,17 @@ public final class DimensionGateRules {
     private DimensionGateRules() {
     }
 
+    /** Whether an otherwise exempt teleport cause needs an explicit destination voucher. */
+    public static boolean requiresVoucher(boolean pluginOrCommand, PluginConfig config) {
+        return pluginOrCommand && config.dimensionGates().gatePluginTeleports();
+    }
+
+    /** A queued return belongs to exactly one online arrival, including across reconnects. */
+    public static boolean currentArrival(Object expectedToken, Object currentToken,
+                                         boolean online, boolean sameWorld) {
+        return expectedToken != null && expectedToken == currentToken && online && sameWorld;
+    }
+
     /**
      * Which configured gate, if any, a transit from {@code from} to {@code to} has to clear.
      *

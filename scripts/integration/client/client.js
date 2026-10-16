@@ -24,19 +24,23 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n')
 const note = (...parts) => process.stderr.write(parts.join(' ') + '\n')
 
-const bot = mineflayer.createBot({
+const connection = {
   host: option('host', '127.0.0.1'),
   port: Number(option('port', '25565')),
   username: option('username', 'Probe'),
   version: option('version', false),
   auth: 'offline'
-})
+}
+let bot
+let reconnecting = false
+function connect () {
+  bot = mineflayer.createBot(connection)
 
 bot.on('kicked', (reason) => { send({ event: 'kicked', reason: JSON.stringify(reason) }); process.exit(3) })
 bot.on('error', (error) => { send({ event: 'error', message: error.message }); process.exit(4) })
-bot.on('end', (reason) => { send({ event: 'end', reason: String(reason) }); process.exit(0) })
+bot.on('end', (reason) => { if (!reconnecting) { send({ event: 'end', reason: String(reason) }); process.exit(0) } })
 // Chat and action bar lines since the last "messages" request, for asserting what a player is told.
-let heard = []
+
 bot.on('messagestr', (message, position) => {
   note('CHAT', position, message)
   heard.push(message)
@@ -49,6 +53,9 @@ bot.on('actionBar', (message) => {
 })
 bot.once('spawn', () => send({ event: 'spawn', version: bot.version }))
 bot.on('death', () => note('DEATH'))
+}
+let heard = []
+connect()
 
 // The container or merchant window the last open_block or open_merchant opened.
 let window = null
@@ -90,6 +97,22 @@ function blockAt (x, y, z) {
 }
 
 const ops = {
+  async reconnect () {
+    reconnecting = true
+    await new Promise((resolve) => { bot.once('end', resolve); bot.quit() })
+    await sleep(1500)
+    connect()
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('reconnect timed out')), 20000)
+      bot.once('spawn', () => { clearTimeout(timer); resolve() })
+    })
+    reconnecting = false
+    heard = []
+    window = null
+    await sleep(2500)
+    return { dimension: bot.game.dimension }
+  },
+
   async state () {
     const p = bot.entity.position
     return {
