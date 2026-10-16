@@ -11,7 +11,6 @@ import java.util.function.Supplier;
 import org.bukkit.entity.Player;
 
 import com.ninja6.antispeedrun.config.PluginConfig;
-import com.ninja6.antispeedrun.config.PluginConfig.CreditScope;
 import com.ninja6.antispeedrun.storage.PersonalCredit;
 import com.ninja6.antispeedrun.storage.PersonalCreditStore;
 
@@ -82,7 +81,7 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
             return vanilla;
         }
         PluginConfig.ItemProgression settings = config.get().itemProgression();
-        if (!settings.requirePersonalCredit() || !inScope(player, settings)) {
+        if (!applies(player, settings)) {
             return vanilla;
         }
         UUID id = player.getUniqueId();
@@ -94,9 +93,15 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
         return State.EARNED;
     }
 
-    private static boolean inScope(Player player, PluginConfig.ItemProgression settings) {
-        return settings.personalCreditScope() == CreditScope.ALL
-                || player.hasPermission(REQUIRED_PERMISSION);
+    /** Reads the player's effective scope on their owning region. */
+    public static boolean applies(Player player, PluginConfig.ItemProgression settings) {
+        return settings.personalCreditApplies(player.hasPermission(REQUIRED_PERMISSION));
+    }
+
+    /** Captures the same scope used by enforcement for generated player-facing wording. */
+    public static PluginConfig.ItemProgression presentation(Player player,
+                                                            PluginConfig.ItemProgression settings) {
+        return settings.forViewer(player.hasPermission(REQUIRED_PERMISSION));
     }
 
     private static Map<String, Set<PersonalCredit>> required() {

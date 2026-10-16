@@ -33,22 +33,21 @@ public final class MaterialGates {
     /**
      * Compiles the gated-item tiers of {@code progression} into a live lookup.
      *
+     * <p>Compilation also validates disabled tiers, so an invalid table fails at startup rather
+     * than waiting for enforcement to be enabled. Callers check {@code enabled} before enforcing.
+     *
      * @param progression the item-progression section of a configuration snapshot
      * @param warnings    collector for recoverable problems; the caller logs them
-     * @return the compiled table; empty when item progression is switched off, so a caller never
-     *         has to check {@code enabled} and the table at the same time
+     * @return the compiled table, including when item progression is switched off
      * @throws GateCollisionException if two tiers claim one material and neither dominates
      */
     public static ItemGateTable<Material> compile(PluginConfig.ItemProgression progression,
                                                   List<String> warnings)
             throws GateCollisionException {
-        if (!progression.enabled()) {
-            return empty();
-        }
         return ItemGateCompiler.compile(Material.class, UNIVERSE, progression.gatedItems(), warnings);
     }
 
-    /** A table that gates nothing. The startup and disabled states, without a null to check. */
+    /** A table that gates nothing. The startup state, without a null to check. */
     public static ItemGateTable<Material> empty() {
         return new ItemGateTable<>(EnumSet.noneOf(Material.class), new EnumMap<>(Material.class));
     }

@@ -33,7 +33,7 @@ public enum Subcommand {
     RELOAD("reload", "antispeedrun.admin.reload", "/asr reload"),
 
     /** {@code /asr profile apply <PROFILE>} — backs up the configuration and applies a preset. */
-    PROFILE("profile", "antispeedrun.admin.profile", "/asr profile apply <CASUAL|SMP_STANDARD|HARDCORE>"),
+    PROFILE("profile", "antispeedrun.admin.profile", "/asr profile apply <CORE|CASUAL|SMP_STANDARD|HARDCORE>"),
 
     /** {@code /asr unlock <nether|end>} — opens a dimension gate server-wide, durably. */
     UNLOCK("unlock", "antispeedrun.admin.unlock", "/asr unlock <nether|end> [lock]"),

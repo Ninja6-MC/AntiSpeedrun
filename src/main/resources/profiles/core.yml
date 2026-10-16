@@ -1,0 +1,356 @@
+# Schema version of this file, kept current by the plugin. Do not edit or remove it:
+# on start an older file is migrated forward (the old one is saved to backups/ first)
+# and a file from a newer version is refused.
+config-version: 1
+
+# AntiSpeedrun - Unified Anti-Speedrun, Progression Gates, Anti-Boosting & Boss Combat
+# Configuration Profiles: CORE, CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM
+# Preset resources live at src/main/resources/profiles/<name>.yml
+# You can apply presets via command: /asr profile apply <PROFILE>
+profile: CORE
+
+# Advancement keys, wherever they appear below, are read as "namespace:path" and the
+# "minecraft:" namespace is supplied when you leave it off, so "story/smelt_iron" and
+# "minecraft:story/smelt_iron" are the same requirement. Surrounding spaces are ignored.
+#
+# A key that is not a valid namespaced key -- an upper-case letter, an inner space, a
+# stray character -- is an ERROR, not a warning, and so is a require-advancements list
+# whose entries are all blank. That is deliberate. An unresolvable advancement is waived
+# at runtime rather than enforced, so a gate naming one would report itself armed and let
+# every player through. To require no advancement, write an empty list: [].
+#
+# Two more ways of losing a requirement are the same ERROR, for the same reason:
+#
+#   - a require-advancements under an ITEM TIER written on one line as a plain value
+#     instead of as a list of "- " entries. There is no built-in default for a tier, so
+#     falling back leaves the tier switched on and requiring nothing at all. Written the
+#     same way under a dimension gate it stays a WARNING: those ship a default, so the
+#     gate goes on requiring the shipped advancements -- not what you wrote, which is
+#     worth telling you about, but it is still a gate that gates something;
+#   - gate-mending-trade: true with required-advancement left blank. Each half is fine on
+#     its own; together they gate the trade on nothing.
+#
+# One qualification, so this does not read as a wider promise than it is: it applies to
+# gates that are switched ON. A bad key inside a section whose "enabled" is false -- or
+# under item-progression when that is false, or under villager-progression when
+# gate-mending-trade is false -- is a WARNING. A gate that is off admits everyone and says
+# so, so it is not gating the plugin fails to apply, and a stale key in a section you have
+# already turned off must not stop your server. Turning that section back on with the key
+# unchanged is what then fails, at the next start.
+#
+# What a rejected file costs depends on WHEN it is rejected, so check the log:
+#
+#   /asr reload  - nothing changes. The configuration already running stays live, item
+#                  gates included. Fix the file and reload again.
+#   server start - there is no previous configuration to keep, so what happens depends on
+#                  how the file is wrong, and the SEVERE line above the outcome says which:
+#
+#                  * Any of the four cases above under a gate that is switched on -- a bad
+#                    advancement key, a require-advancements list whose entries all name
+#                    nothing, an item tier's require-advancements written as a plain
+#                    value, a blank required-advancement beside gate-mending-trade: true --
+#                    STOPS THE PLUGIN. So does a file that parses but whose gated-items
+#                    cannot be turned into a gate table at all. It does not start on defaults,
+#                    because those defaults declare NO gated item tiers -- so booting on
+#                    them would turn item gating off across the whole server over one
+#                    typo, which is the ungated-but-armed failure this file is read
+#                    strictly to avoid. Fix the key and restart.
+#                  * A file that cannot be parsed at all -- broken indentation, a stray
+#                    character -- falls back to the built-in defaults and the server
+#                    starts. A file that says nothing cannot describe gating this plugin
+#                    then fails to apply, and refusing to boot over a mistyped character
+#                    is a worse failure than landing on known-good values. The fallback
+#                    notice is logged at WARNING just below the SEVERE, and item gating is
+#                    OFF while it lasts. Do not leave a server running in this state.
+#
+#                  The reasoning behind the split is in issue #91.
+
+# Message templates are MiniMessage, and they are parsed when this file is loaded. That
+# covers every rejection-message, every item tier hint, villager-progression.hint,
+# journey-book.title and idle-reminder.message. Write colour and style as tags -- <red>,
+# <gold>, <bold>. Hints are the exception, both the item tier ones and
+# villager-progression.hint: they are checked the same way at load, but shown as plain
+# text, so a tag written in one appears to the player as written instead of being
+# applied. Style the {REQUIREMENT} a hint fills in from the rejection-message around it.
+#
+# A legacy section-sign code is not MiniMessage. A template containing one is refused at
+# load, with a WARNING naming the key. A message or title is replaced by the shipped
+# default for that same key. A tier hint is dropped instead: its default is blank, since
+# a tier you add yourself ships no hint, so the rejection line names what is still
+# outstanding in its place. Nothing else changes: the gate still refuses the player, and
+# the player still sees a correct message -- just not the one you wrote. Fix the template
+# and reload. Parsing at load is why a mistyped template is reported once at startup
+# instead of throwing on a region thread every time somebody is turned away.
+
+# 1. Dimension Progression Gates
+dimension-gates:
+  gate-plugin-teleports: true
+  nether:
+    enabled: true
+    require-playtime-hours: 0          # Default 0 (Advancement-driven). Set >0 for time gating.
+    require-advancements:
+      - "minecraft:story/smelt_iron"
+    # MiniMessage. A legacy § code is refused at load; the default is used.
+    rejection-message: "<red>🔒 The Nether is locked! <yellow>Mine iron ore<red> and smelt it in a furnace <yellow>you loaded yourself<red>. Type <gold>/progress"
+
+  the_end:
+    enabled: true
+    require-playtime-hours: 0          # Default 0 (Advancement-driven). Set >0 for time gating.
+    require-account-age-days: 0        # Default 0 (Advancement-driven). Set >0 for age gating.
+    require-advancements:
+      - "minecraft:story/mine_diamond"
+      - "minecraft:nether/obtain_blaze_rod"
+      - "minecraft:nether/find_fortress"
+    # MiniMessage. A legacy § code is refused at load; the default is used.
+    rejection-message: "<red>🔒 The End is sealed! <yellow>Mine diamond ore<red>, find a <yellow>Nether Fortress<red> and <yellow>kill a Blaze<red> yourself first. Type <gold>/progress"
+
+# 2. Anti-Boosting & Item Progression Gating (Minecraft Tag & Pattern Resolution)
+item-progression:
+  enabled: false
+  # Gating is a pure function of (player advancements, material). Naturally generated loot
+  # is not special-cased: see docs/provenance-model.md for why the exemption was removed
+  # rather than fixed. gate-natural-structure-chests, gate-player-placed-chests and
+  # gate-armor-stands are gone because each configured a distinction that no longer exists.
+  drop-recall-enabled: true           # A player can always re-collect an item entity they dropped or died with
+  gate-dispensers: true               # Prevent dispensers from equipping locked armor onto unqualified players
+  gate-nested-bundles: true           # Prevent extracting/spraying locked items from Bundles
+  feedback-cooldown-seconds: 3        # Cooldown between action bar warning messages
+  # MiniMessage. A legacy § code is refused at load; the default is used.
+  rejection-message: "<red>🔒 You cannot pick up <yellow>{ITEM}<red>! Requires: <gold>{REQUIREMENT}"
+  # Vanilla completes story/mine_stone, story/smelt_iron, story/iron_tools, story/upgrade_tools,
+  # story/mine_diamond and nether/obtain_blaze_rod as soon as the player HOLDS the item, so a
+  # gift or a chest withdrawal opens the gate. While this is on, those six are answered from
+  # what the player did themselves instead: mined, smelted, crafted or killed. It applies to
+  # every gate that requires one of them, the dimension gates included, even while enabled
+  # above is false. /advancement grant and revoke no longer change them. Nothing carries over
+  # from vanilla advancements already earned. See docs/provenance-model.md.
+  require-personal-credit: true
+  # Loot the player generates themselves (a structure chest they open first, a trial vault) may
+  # stand in for mining iron or diamonds, never for smelting or crafting. Takes effect on reload.
+  count-structure-loot: true
+  # Who require-personal-credit applies to. ALL: every player. PERMISSION: only holders of
+  # antispeedrun.credit.required; everyone else is gated on vanilla advancements, as with
+  # require-personal-credit off. Takes effect on reload.
+  personal-credit-scope: ALL
+  # Each key below names a tier, and the name is yours to choose. Avoid a colon in it: the
+  # action bar warning above is throttled per tier name, and section 8's Mending gate shares
+  # that throttle under the name "villager:mending". A tier does gate every item it lists
+  # whatever you call it -- this is a WARNING, not an error -- but a tier named the same as
+  # that key would silently swallow one of the two warnings while the other's cooldown runs.
+  gated-items:
+    iron-tier:
+      # Match modes: PREFIX ("IRON_*"), SUFFIX ("*_IRON_ORE"), CONTAINS ("*_IRON_*").
+      # Prefix-only matching leaks the deepslate ore variants - DEEPSLATE_IRON_ORE does
+      # not start with IRON_, so silk-touched ore below Y=0 would be ungated.
+      match-patterns:
+        - "IRON_*"
+        - "RAW_IRON*"
+        - "CHAINMAIL_*"
+        - "*_IRON_ORE"
+      exclude-materials:
+        - "IRON_DOOR"
+        - "IRON_TRAPDOOR"
+        - "IRON_BARS"
+        - "HEAVY_WEIGHTED_PRESSURE_PLATE"
+        # IRON_CHAIN from Minecraft 1.21.9. Either name excludes the chain block on every
+        # supported version; the plugin maps it across the rename.
+        - "CHAIN"
+        - "LANTERN"
+        - "SOUL_LANTERN"
+      items:
+        - "SHIELD"
+        - "BUCKET"
+        - "SHEARS"
+        - "FLINT_AND_STEEL"
+        - "CROSSBOW"
+        - "TRIAL_KEY"
+        - "OMINOUS_TRIAL_KEY"
+        - "OMINOUS_BOTTLE"
+      require-advancements:
+        - "minecraft:story/mine_stone"
+      require-playtime-hours: 0
+      # Plain text; tags show as written. A legacy § code is refused at load and the
+      # hint is dropped.
+      hint: "Mine natural stone with a pickaxe yourself (Stone Age)"
+
+    diamond-tier:
+      match-patterns:
+        - "DIAMOND_*"
+        - "*_DIAMOND_ORE"
+      items:
+        # DIAMOND_* does not match DIAMOND itself - there is no trailing underscore - so the
+        # gem escaped every pattern while the tools made from it were gated. Same class of
+        # leak as the deepslate ores above.
+        - "DIAMOND"
+      require-advancements:
+        - "minecraft:story/iron_tools"
+      require-playtime-hours: 0
+      # Plain text; tags show as written. A legacy § code is refused at load and the
+      # hint is dropped.
+      hint: "Craft an Iron Pickaxe yourself"
+
+    nether-tier:
+      items:
+        - "BLAZE_ROD"
+        - "BLAZE_POWDER"
+        - "NETHER_WART"
+        - "BREWING_STAND"
+        - "GHAST_TEAR"
+        - "MAGMA_CREAM"
+        - "WITHER_SKELETON_SKULL"
+        - "BREEZE_ROD"
+        - "WIND_CHARGE"
+      require-advancements:
+        - "minecraft:story/enter_the_nether"
+      require-playtime-hours: 0
+      # Plain text; tags show as written. A legacy § code is refused at load and the
+      # hint is dropped.
+      hint: "Enter the Nether"
+
+    end-tier:
+      match-patterns:
+        - "*_SHULKER_BOX"
+      items:
+        - "ENDER_EYE"
+        - "END_CRYSTAL"
+        - "SHULKER_SHELL"
+        - "SHULKER_BOX"
+        - "ELYTRA"
+        - "DRAGON_BREATH"
+        - "DRAGON_HEAD"
+        - "DRAGON_EGG"
+        - "TOTEM_OF_UNDYING"
+      require-advancements:
+        - "minecraft:nether/obtain_blaze_rod"
+        - "minecraft:nether/find_fortress"
+      require-playtime-hours: 0          # Was 20.0 - contradicted the advancement-driven End gate above.
+      require-account-age-days: 0        # Was 7 - see the getFirstPlayed caveat in section 2.1.
+      # Plain text; tags show as written. A legacy § code is refused at load and the
+      # hint is dropped.
+      hint: "Kill a Blaze yourself in a Nether Fortress"
+
+    netherite-tier:
+      # Precedence: a Material matching two tiers resolves MOST-RESTRICTIVE-WINS - the tier
+      # whose requirements are a strict superset owns it, identical requirements fall back to
+      # document order, and an incomparable pair fails startup with a named error rather than
+      # letting map ordering decide. An exclude-materials entry is applied last and wins
+      # outright, which is how a material claimed by two systems is handed to the right one.
+      match-patterns:
+        - "NETHERITE_*"
+      exclude-materials:
+        # Matches NETHERITE_* but is a smithing template, owned by trim-progression in
+        # section 3, not by this tier. Excluding it here is the resolution, not a collision.
+        - "NETHERITE_UPGRADE_SMITHING_TEMPLATE"
+      items:
+        - "ANCIENT_DEBRIS"
+        - "MACE"
+        - "HEAVY_CORE"
+      require-advancements:
+        - "minecraft:story/mine_diamond"
+        - "minecraft:nether/obtain_blaze_rod"
+      # Plain text; tags show as written. A legacy § code is refused at load and the
+      # hint is dropped.
+      hint: "Mine diamond ore and kill a Blaze yourself"
+
+# 3. Armor Trim & Smithing Template Progression
+trim-progression:
+  enabled: false
+  gate-natural-trim-chests: false             # Default FALSE: structure loot keeps its templates. TRUE removes a gated template from natural loot for a player who has not explored its structure.
+  block-unearned-template-duplication: true   # Require structure discovery to clone templates in crafting tables and Crafters
+  block-unearned-smithing: true               # Require structure discovery to apply trim in Smithing Table
+  block-wearing-unearned-trims: true          # Prevent wearing armor with unearned trims
+
+# 4. Idle Reminder Engine (Per-Player EntityScheduler)
+idle-reminder:
+  enabled: true
+  stand-still-seconds: 15              # Trigger when standing still for 15s
+  cooldown-minutes: 10                 # Minimum 10 min between reminders
+  display-duration-seconds: 5          # Display on screen for 5 seconds
+  display-type: "ACTIONBAR"            # Options: ACTIONBAR, TITLE, CHAT
+  message: "<yellow>💡 Next Goal: <white>{NEXT_STEP} <gray>(Run <gold>/progress<gray>)"
+
+# 4a. The /progress card
+progress-card:
+  # AUTO renders the glyph-safe card for Bedrock clients and the full one for Java clients.
+  # The full card uses status marks and an arrow that Bedrock's font does not carry, so a
+  # Geyser player sees replacement boxes for them; the simple card is plain ASCII throughout.
+  # ALWAYS gives everyone the simple card, NEVER gives everyone the full one.
+  # AUTO can only recognise a Bedrock player when Floodgate runs on this server and the player
+  # has a Floodgate id. A Bedrock account linked to a Java account, or Floodgate installed only
+  # on the proxy, still gets the full card; use ALWAYS if your Bedrock players arrive that way.
+  simple-card: "AUTO"                  # Options: AUTO, ALWAYS, NEVER
+
+# 5. Journey Guide Book
+journey-book:
+  give-on-first-join: true
+  title: "<gold>Ninja6 Survival Guide"
+  author: "Ninja6-MC"
+
+# 6. Multi-Dragon Boss Combat Scaling
+boss-scaling:
+  enabled: false                       # Development build: enable after Epic 6 is complete.
+  scale-resummoned-dragons: true       # Scale 4-End-Crystal respawn rituals
+  battle-prep-seconds: 30              # Party reinforcement window upon End entry / resummon
+  multi-dragon:
+    enabled: true
+    multiplier: 0.5                    # Scaling factor (must be > 0.0)
+    rounding-mode: "HALF_UP"           # Options: HALF_UP, CEIL, FLOOR
+    max-dragons: 5
+    balanced-xp: true                  # 1st dragon full XP, secondary dragons 1,000 XP
+  exit-portal-egg:
+    enabled: true
+    placement-mode: "TOP_PILLAR"       # Options: TOP_PILLAR, ITEM_DROP, NONE
+  skull-drop-chance: 0.05
+  # Resummon battles only. During a world's FIRST fight the exit portal does not exist
+  # yet - vanilla generates it when the dragon dies - so this is a no-op on initial entry.
+  exit-portal-lock-during-battle: true
+  # Escape valve: releases the lock when no player has damaged a dragon for this long,
+  # so anyone who logs in mid-fight is not trapped in the End. 0 disables the release.
+  exit-portal-lock-release-minutes: 10
+
+# 7. Anti-Cheese Engine
+anti-cheese:
+  enabled: true
+  # Cancels DamageType.BAD_RESPAWN_POINT (bed and respawn anchor explosions) against the Ender
+  # Dragon and the Wither. TNT, arrows and melee are untouched. Off until the v0.2.0 playtest.
+  block-bed-anchor-boss-damage: false
+  # Caps what one hit can do to the Ender Dragon or the Wither, measured after armour and
+  # resistance. Off by default: set it to true to enforce max-single-hit-boss-damage.
+  cap-single-hit-boss-damage: false
+  # Time-to-kill budget, not just an anti-1-shot guard. The Ender Dragon has 200 HP and
+  # the Wither 300, so 50.0 still permits a 4-hit dragon kill. 12.0 gives roughly a
+  # 17-hit fight. Raise it for a faster fight; lower it to force sustained combat.
+  max-single-hit-boss-damage: 12.0
+  # Refuses an Eye of Ender throw until the player has earned minecraft:nether/find_fortress.
+  # The eye stays in the hand and no Eye of Ender entity is spawned. Placing an eye into an
+  # empty End Portal frame is not a throw and is left alone.
+  block-early-eye-throwing: true
+  # MiniMessage. A legacy § code is refused at load; the default is used.
+  early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
+  # Refuses an End Crystal placed on the exit portal's centre column (0, 0), the duplication
+  # exploit. The four ritual positions on the portal rim, (+-3, 0) and (0, +-3), are untouched,
+  # so resummoning still works.
+  # Off until the v0.2.0 playtest.
+  block-exit-portal-crystal-place: false
+  block-gateway-pre-dragon: false      # Off until the v0.2.0 playtest. Block bridging, pearling & chorus fruit to the Outer End
+  outer-end-radius: 500                # Boundary enforced until the world's first dragon dies
+  outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
+
+# 8. Villager Progression
+# Refuses a villager or wandering-trader trade whose result carries Mending until the
+# advancement below is earned. This gate is independent of section 2: it stays on with
+# item-progression.enabled: false. It does borrow two keys from section 2, though --
+# the refusal is worded by item-progression.rejection-message and throttled by
+# item-progression.feedback-cooldown-seconds -- so both still apply here even when
+# item progression itself is switched off. It is waived by the same antispeedrun.bypass.items
+# permission and /asr bypass grant as the item gate.
+villager-progression:
+  gate-mending-trade: false
+  required-advancement: "minecraft:story/cure_zombie_villager"
+  # Shown as {REQUIREMENT} in the refusal. Left blank, the player is shown the raw
+  # advancement key instead. Update it if you change required-advancement: while
+  # gate-mending-trade is true, leaving the shipped sentence beside a requirement that is no
+  # longer the shipped one is a WARNING at load, because the refusal would then describe
+  # something this gate does not ask for. Plain text; tags show as written. A legacy § code
+  # is refused at load and the default is used.
+  hint: "Cure a Zombie Villager (Zombie Doctor)"

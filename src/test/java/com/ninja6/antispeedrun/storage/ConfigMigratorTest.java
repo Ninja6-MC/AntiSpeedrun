@@ -271,7 +271,7 @@ class ConfigMigratorTest {
         assertThrows(ConfigVersionException.class, () -> parse("config-version: banana\n"));
         assertThrows(ConfigVersionException.class, () -> parse("config-version: 0\n"));
         assertTrue(parse("config-version: 1\n").warnings().stream().noneMatch(w -> w.contains("config-version")));
-        assertEquals(PluginConfig.defaults().profile(), parse("profile: SMP_STANDARD\n").profile());
+        assertEquals(PluginConfig.defaults().profile(), parse("profile: CORE\n").profile());
     }
 
     @Test

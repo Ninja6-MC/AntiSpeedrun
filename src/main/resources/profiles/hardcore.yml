@@ -26,12 +26,13 @@ config-version: 1
 # regardless of skill, and it is not an anti-alt measure. Set it only deliberately, and
 # only on an established world.
 #
-# Configuration Profiles: CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM. Hand-editing away
+# Configuration Profiles: CORE, CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM. Hand-editing away
 # from a preset means setting profile: CUSTOM yourself -- nothing rewrites this key.
 profile: HARDCORE
 
 # 1. Dimension Progression Gates
 dimension-gates:
+  gate-plugin-teleports: true
   nether:
     enabled: true
     require-playtime-hours: 2.0        # See NOTE 1 above.
@@ -128,6 +129,8 @@ item-progression:
       hint: "Enter the Nether"
 
     end-tier:
+      match-patterns:
+        - "*_SHULKER_BOX"
       items:
         - "ENDER_EYE"
         - "END_CRYSTAL"

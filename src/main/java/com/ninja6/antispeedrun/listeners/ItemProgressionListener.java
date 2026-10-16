@@ -45,6 +45,7 @@ import org.bukkit.util.BoundingBox;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
 import com.ninja6.antispeedrun.config.PluginConfig.ItemTier;
 import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
@@ -1032,7 +1033,7 @@ public final class ItemProgressionListener implements Listener {
                 config.itemProgression().rejectionMessage(),
                 mini.escapeTags(ItemGateRules.friendlyName(material.name())),
                 mini.escapeTags(ItemGateRules.requirementText(hint, result,
-                        config.itemProgression())));
+                        PersonalCreditAdvancementLookup.presentation(player, config.itemProgression()))));
         player.sendActionBar(mini.deserialize(line));
         result.fallbackHint().ifPresent(fallback ->
                 player.sendMessage(mini.deserialize("<gray>" + mini.escapeTags(fallback))));

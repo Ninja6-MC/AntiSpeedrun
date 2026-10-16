@@ -26,8 +26,10 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPortalEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.util.Vector;
@@ -35,6 +37,8 @@ import org.bukkit.util.Vector;
 import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
+import com.ninja6.antispeedrun.progression.IdleReminderRules;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
 import com.ninja6.antispeedrun.progression.PlayerStateMap;
 import com.ninja6.antispeedrun.storage.DimensionUnlock;
@@ -112,13 +116,9 @@ public final class ProgressionGateListener implements Listener {
     /**
      * The teleport causes this plugin will cancel across a dimension boundary.
      *
-     * <p>An allow-list rather than a deny-list, and the distinction is the point of #6's second
-     * acceptance criterion. What is <em>absent</em> here — {@code PLUGIN}, {@code COMMAND},
-     * {@code UNKNOWN}, {@code SPECTATE} — is every teleport another plugin or an operator asked
-     * for. A hub, a warp plugin or {@code /tp} moving a player between dimensions is that server's
-     * decision, and a progression plugin silently vetoing it would be a defect in this plugin
-     * rather than a gate. The causes listed are the ones a player produces for themselves, which is
-     * what the gate exists to regulate.
+     * <p>These player-driven causes are always checked. PLUGIN and COMMAND are checked
+     * separately by the default-on gate-plugin-teleports setting, with explicit destination
+     * vouchers preserving deliberate admin and integration teleports.
      *
      * <p>{@code ENDER_PEARL} is the one #6 names: a pearl thrown into a portal and parked in a
      * stasis chamber is the classic cross-dimensional skip. The rest are here because they are the
@@ -274,6 +274,9 @@ public final class ProgressionGateListener implements Listener {
      */
     private final PlayerStateMap<UUID> lastWorld;
 
+    /** A distinct token for each arrival, invalidated on quit and on any later teleport. */
+    private final PlayerStateMap<Object> arrivalTokens;
+
     /** Arrivals this listener is returning, for the reinforcement window to skip (#209). */
     private final RefusedArrivals refusedArrivals;
 
@@ -283,6 +286,7 @@ public final class ProgressionGateListener implements Listener {
         this.lastFeedback = plugin.playerState().register("dimension-gate-feedback");
         this.decisions = plugin.playerState().register("dimension-gate-decisions");
         this.lastWorld = plugin.playerState().register("dimension-gate-last-world");
+        this.arrivalTokens = plugin.playerState().register("dimension-gate-arrival-tokens");
         seedLastWorld();
     }
 
@@ -479,11 +483,11 @@ public final class ProgressionGateListener implements Listener {
         if (to == null) {
             return;
         }
-        if (!GATED_CAUSES.contains(event.getCause())) {
-            return;
-        }
         Player player = event.getPlayer();
         PluginConfig config = plugin.configuration();
+        if (!GATED_CAUSES.contains(event.getCause()) && !requiresVoucher(event.getCause(), config)) {
+            return;
+        }
         Optional<DimensionUnlock> destination =
                 DimensionGateRules.gatedDestination(kindOf(event.getFrom()), kindOf(to), config);
         if (destination.isEmpty()) {
@@ -498,8 +502,23 @@ public final class ProgressionGateListener implements Listener {
             return;
         }
 
+        if (requiresVoucher(event.getCause(), config) && hasDecision(player, dimension, to.getWorld())) {
+            return; // Arrival, not this event, consumes the voucher.
+        }
         event.setCancelled(true);
         reject(player, config, dimension, result);
+    }
+
+    private static boolean requiresVoucher(PlayerTeleportEvent.TeleportCause cause, PluginConfig config) {
+        return DimensionGateRules.requiresVoucher(cause == PlayerTeleportEvent.TeleportCause.PLUGIN
+                || cause == PlayerTeleportEvent.TeleportCause.COMMAND, config);
+    }
+
+    private boolean hasDecision(Player player, DimensionUnlock dimension, World world) {
+        Map<DimensionUnlock, DimensionGateRules.Decision> notes = decisions.get(player.getUniqueId())
+                .orElse(Map.of());
+        return world != null && DimensionGateRules.decisionCovers(notes.get(dimension),
+                world.getUID(), System.currentTimeMillis());
     }
 
     /**
@@ -546,8 +565,11 @@ public final class ProgressionGateListener implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerTeleportSettled(PlayerTeleportEvent event) {
-        if (GATED_CAUSES.contains(event.getCause())) {
-            return;
+        // Even a same-world admin move supersedes a delayed login return.
+        arrivalTokens.remove(event.getPlayer().getUniqueId());
+        if (GATED_CAUSES.contains(event.getCause())
+                || requiresVoucher(event.getCause(), plugin.configuration())) {
+            return; // Never manufacture or refresh a voucher for these causes.
         }
         Location to = event.getTo();
         if (to == null || to.getWorld() == null) {
@@ -576,10 +598,8 @@ public final class ProgressionGateListener implements Listener {
      * why the command line is the only place left to see the difference, and which forms it reads.
      *
      * <p>{@code MONITOR} with {@code ignoreCancelled}, for the reason {@link #onPlayerTeleportSettled}
-     * gives: a command another plugin refuses must leave nothing behind. On Paper the same
-     * {@code /tp} fires {@code PlayerTeleportEvent} as well and the settled handler writes the same
-     * note again, which replaces this one; the command hook is registered on both platforms for the
-     * reason the backstop is, not because Paper needs it.
+     * gives: a command another plugin refuses must leave nothing behind. The same voucher
+     * authorizes Paper's teleport event and Folia's arrival, without refreshing its lifetime.
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
@@ -683,11 +703,9 @@ public final class ProgressionGateListener implements Listener {
      * Tells the gate that {@code player} is about to be teleported into {@code destination} on
      * purpose, so that the arrival is not returned — #135.
      *
-     * <p>For a plugin that moves players between dimensions. On Paper it is unnecessary: the
-     * teleport fires {@code PlayerTeleportEvent}, and {@link #onPlayerTeleportSettled} notes any
-     * cause this plugin does not regulate. On Folia {@code teleportAsync} fires nothing, so without
-     * this call the arrival of a player who has not met the gate is indistinguishable from the
-     * unreported vehicle transit, and is returned.
+     * <p>For a plugin that moves players between dimensions. With plugin teleport gating enabled,
+     * Paper checks this voucher before allowing entry. Folia checks it on arrival because its
+     * async teleport does not fire PlayerTeleportEvent. Both consume it only at arrival.
      *
      * <p>Call it immediately before the teleport. It covers one arrival, in that world, within
      * {@link DimensionGateRules#DECISION_WINDOW_MILLIS}; a teleport that does not happen leaves
@@ -878,11 +896,9 @@ public final class ProgressionGateListener implements Listener {
      * re-entry into a dimension the gate now closes to them, and the gate is not a one-time toll.
      * The anchor survives; only the arrival is undone, and they are told why like anyone else.
      *
-     * <p>Logging in goes the other way. Joining adds the player to a world too, but there is no
-     * earlier world on record for this session, so {@link DimensionGateRules#departure} reports no
-     * change and a player who logs out in the Nether and back in is not judged. That is a hole by
-     * omission rather than a decision, and closing it would mean checking on join — #100's scope is
-     * the transit Folia does not report.
+     * <p>A login without a recorded departure is checked on the next entity tick, after join
+     * initialization. A refused login or anchor respawn returns to an actual Overworld. Each
+     * deferred return checks its arrival token, current world, eligibility and waivers again.
      *
      * <h2>Folia region threading</h2>
      *
@@ -934,15 +950,53 @@ public final class ProgressionGateListener implements Listener {
         UUID id = player.getUniqueId();
         UUID lastSeenIn = lastWorld.get(id).orElse(null);
         lastWorld.put(id, arrivedIn.getUID());
+        Object token = new Object();
+        arrivalTokens.put(id, token);
+        if (lastSeenIn == null) {
+            // Join initialization populates progression and PDC-backed state before this runs.
+            // The token also prevents an old session or an intervening move being returned.
+            player.getScheduler().run(plugin, task -> {
+                if (currentArrival(player, arrivedIn, token)) {
+                    checkArrival(player, arrivedIn, null, token);
+                }
+            }, null);
+            return;
+        }
         Optional<UUID> departed = DimensionGateRules.departure(lastSeenIn, arrivedIn.getUID());
         if (departed.isEmpty()) {
             return;
         }
-        // Null when the world they left has since been unloaded. Its kind is then unknown, which
-        // kindOf reads as CUSTOM, so an arrival in the Nether or the End is still gated; the
-        // return goes to the server's primary world instead.
-        World cameFrom = plugin.getServer().getWorld(departed.get());
+        checkArrival(player, arrivedIn, plugin.getServer().getWorld(departed.get()), token);
+    }
 
+    /** A Nether respawn anchor is a fresh entry, including a respawn in the same world. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onRespawn(PlayerRespawnEvent event) {
+        forgetArrival(event.getPlayer());
+    }
+
+    /** Folia's async respawn does not fire PlayerRespawnEvent, even at a same-world anchor. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onDeath(PlayerDeathEvent event) {
+        // Its next EntityAddToWorldEvent must be a fresh entry rather than a same-world move.
+        // A voucher from the previous life must not authorize that respawn either.
+        forgetArrival(event.getEntity());
+    }
+
+    private void forgetArrival(Player player) {
+        UUID id = player.getUniqueId();
+        lastWorld.remove(id);
+        arrivalTokens.remove(id);
+        decisions.remove(id);
+    }
+
+    private boolean currentArrival(Player player, World world, Object token) {
+        return DimensionGateRules.currentArrival(token,
+                arrivalTokens.get(player.getUniqueId()).orElse(null),
+                player.isOnline(), player.getWorld().equals(world));
+    }
+
+    private void checkArrival(Player player, World arrivedIn, World cameFrom, Object token) {
         PluginConfig config = plugin.configuration();
         Optional<DimensionUnlock> destination = DimensionGateRules.gatedDestination(
                 kindOf(cameFrom), kindOf(arrivedIn), config);
@@ -962,14 +1016,20 @@ public final class ProgressionGateListener implements Listener {
             return;
         }
 
-        refusedArrivals.mark(id, arrivedIn.getUID());
-        World returnTo = cameFrom != null ? cameFrom : plugin.getServer().getWorlds().get(0);
+        refusedArrivals.mark(player.getUniqueId(), arrivedIn.getUID());
+        World returnTo = cameFrom != null ? cameFrom : plugin.getServer().getWorlds().stream()
+                .filter(world -> world.getEnvironment() == World.Environment.NORMAL)
+                .findFirst().orElse(null);
+        if (returnTo == null) {
+            plugin.getLogger().warning("Cannot return " + player.getName() + ": no Overworld is loaded.");
+            return;
+        }
         // The return is scheduled before the player is told why, so a message that fails cannot
         // leave them standing in a dimension they were refused.
         plugin.getLogger().fine(() -> "Returning " + player.getName() + " from " + arrivedIn.getName()
                 + " to " + returnTo.getName() + ": they arrived without passing the " + dimension
                 + " gate, so a transit reached this world without any handler cancelling it.");
-        returnToSpawn(player, returnTo);
+        returnToSpawn(player, returnTo, arrivedIn, token, dimension);
         reject(player, config, dimension, result);
     }
 
@@ -988,7 +1048,8 @@ public final class ProgressionGateListener implements Listener {
      * arithmetic lives there rather than here because it is the one part of this method a test can
      * reach without a running server.
      */
-    private void returnToSpawn(Player player, World world) {
+    private void returnToSpawn(Player player, World world, World arrivedIn, Object token,
+                               DimensionUnlock dimension) {
         Location spawn = world.getSpawnLocation();
         plugin.getServer().getRegionScheduler().execute(plugin, spawn, () -> {
             int minY = world.getMinHeight();
@@ -1000,8 +1061,31 @@ public final class ProgressionGateListener implements Listener {
                 plugin.getLogger().fine(() -> "No standable ground in the spawn column of "
                         + world.getName() + "; returning " + player.getName() + " to the spawn as is.");
             }
-            scheduleEjection(player, new Location(world, landing.x(), landing.y(), landing.z(),
-                    spawn.getYaw(), spawn.getPitch()));
+            Location destination = new Location(world, landing.x(), landing.y(), landing.z(),
+                    spawn.getYaw(), spawn.getPitch());
+            player.getScheduler().run(plugin, task -> {
+                if (!currentArrival(player, arrivedIn, token)) {
+                    return;
+                }
+                PluginConfig config = plugin.configuration();
+                if (!DimensionGateRules.gate(dimension, config).enabled() || waived(player, dimension)
+                        || hasDecision(player, dimension, arrivedIn)
+                        || evaluate(player, config, dimension).eligible()) {
+                    return;
+                }
+                if (player.getVehicle() != null) {
+                    player.leaveVehicle();
+                }
+                // A return to a gated source dimension must not start another refusal cycle.
+                DimensionGateRules.gatedDestination(kindOf(arrivedIn), kindOf(world), config)
+                        .ifPresent(gate -> noteDecision(player, gate, world));
+                player.teleportAsync(destination).whenComplete((moved, failure) -> {
+                    if (failure != null || !Boolean.TRUE.equals(moved)) {
+                        plugin.getLogger().log(Level.WARNING,
+                                "Could not return " + player.getName() + " from a locked dimension.", failure);
+                    }
+                });
+            }, null);
         });
     }
 
@@ -1097,6 +1181,9 @@ public final class ProgressionGateListener implements Listener {
         MiniMessage mini = MiniMessage.miniMessage();
         player.sendMessage(mini.deserialize(
                 DimensionGateRules.gate(dimension, config).rejectionMessage()));
+        IdleReminderRules.outstanding(result,
+                PersonalCreditAdvancementLookup.presentation(player, config.itemProgression()))
+                .ifPresent(hint -> player.sendMessage(mini.deserialize("<gray>" + mini.escapeTags(hint))));
         DimensionGateRules.fallbackHint(result).ifPresent(hint ->
                 player.sendMessage(mini.deserialize("<gray>" + mini.escapeTags(hint))));
     }

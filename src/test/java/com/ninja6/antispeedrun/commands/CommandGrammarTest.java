@@ -233,7 +233,7 @@ class CommandGrammarTest {
         void profileArguments() {
             assertEquals(List.of("apply"),
                     CommandCompletion.complete(new String[] {"profile", ""}, ADMIN, ONLINE));
-            assertEquals(List.of("CASUAL", "SMP_STANDARD", "HARDCORE"),
+            assertEquals(List.of("CORE", "CASUAL", "SMP_STANDARD", "HARDCORE"),
                     CommandCompletion.complete(new String[] {"profile", "apply", ""}, ADMIN, ONLINE));
             // CUSTOM is not a preset and must never be offered.
             assertFalse(CommandCompletion.complete(new String[] {"profile", "apply", ""}, ADMIN, ONLINE)

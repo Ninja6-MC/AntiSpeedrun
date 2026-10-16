@@ -5,7 +5,9 @@ jar on first start. This page lists every section, its keys, and their defaults;
 installation, commands and troubleshooting see [administration.md](administration.md).
 
 A default below is the value used when the key is absent from `config.yml`. It is
-the same as the value in the shipped `SMP_STANDARD` file unless noted.
+the same as the value in the shipped `CORE` file unless noted. Item and trim
+progression ship off in CORE, but retain a `true` missing-key fallback for existing
+configurations. Updating never replaces an existing `config.yml`.
 
 ## 1. Sections at a glance
 
@@ -37,7 +39,7 @@ overrides, no environment overrides and no layering of profiles. In detail:
    `config.yml` with the preset after backing the old one up. Nothing from the old file
    is merged in. The `profile` key itself does not change any behavior; setting
    `profile: HARDCORE` by hand without changing the other keys does nothing except
-   change the label. `profile` is one of `CASUAL`, `SMP_STANDARD`, `HARDCORE` or
+   change the label. `profile` is one of `CORE`, `CASUAL`, `SMP_STANDARD`, `HARDCORE` or
    `CUSTOM`.
 3. **Gate decisions are layered on top of the configuration** for a given player, in
    this order of waivers (any one waives the gate): the standing `antispeedrun.bypass*`
@@ -178,7 +180,7 @@ is not versioned.
 
 | Key | Default | Notes |
 | :--- | :--- | :--- |
-| `profile` | `SMP_STANDARD` | `CASUAL`, `SMP_STANDARD`, `HARDCORE` or `CUSTOM`. Label only. |
+| `profile` | `CORE` | `CORE`, `CASUAL`, `SMP_STANDARD`, `HARDCORE` or `CUSTOM`. Label only. |
 
 ### 4.2 `dimension-gates`
 
@@ -193,6 +195,13 @@ of the requirements that are set.
 | `require-advancements` | Nether: `minecraft:story/smelt_iron`. End: `minecraft:story/mine_diamond`, `minecraft:nether/obtain_blaze_rod`, `minecraft:nether/find_fortress` | A list of advancement keys, all required. `[]` requires none. |
 | `rejection-message` | A built-in message pointing at `/progress` | MiniMessage. Shown when a player is refused. |
 
+`dimension-gates.gate-plugin-teleports` defaults to `true`. On Paper, cross-dimension
+`PLUGIN` and `COMMAND` teleports need the same destination voucher as on Folia when
+the player is ineligible. Vanilla `/tp` commands and plugin `expectTeleport` vouchers
+remain supported. Setting it to `false` restores the previous Paper exemptions;
+Folia still checks unannounced arrivals. EssentialsX's own `/tp` needs a gate bypass
+or `/asr unlock`. Gates use world kind, including custom Nether and End worlds.
+
 Covered transits: portals, teleports across dimensions, vehicles and stasis.
 `/asr unlock` overrides these gates server-wide (see
 [administration.md](administration.md#53-dimension-unlock)).
@@ -204,7 +213,7 @@ so that progression is advancement-driven by default.
 
 | Key | Default | Notes |
 | :--- | :--- | :--- |
-| `enabled` | `true` | Master switch for item tiers. |
+| `enabled` | `true` (CORE: `false`) | Master switch for item tiers. |
 | `drop-recall-enabled` | `true` | A player can always re-collect an item entity they dropped or died with. |
 | `gate-dispensers` | `true` | Refuse dispenser-fired tier-locked armor onto an unqualified player. |
 | `gate-nested-bundles` | `true` | Refuse extracting locked items from bundles. |
@@ -224,7 +233,11 @@ kill, recorded in `personal-credits.yml`; the vanilla advancement is ignored, so
 still waived. To keep credits for a group of players only, such as testers, set
 `personal-credit-scope: PERMISSION` and grant `antispeedrun.credit.required` to that
 group; nobody else needs a node. Players outside the scope are answered from vanilla
-advancements, but still see the action wording described below. The credit definitions
+advancements and see advancement wording in progress, reminders, generated item and
+dimension refusal details, and newly issued guide books. Admin inspection uses the
+target player's scope. Existing books keep their text; request a fresh copy after a
+scope or permission change. Operator-written messages and tier hints are preserved.
+The credit definitions
 are the Amendment of
 [`provenance-model.md`](provenance-model.md). With it on, a switched-on gate that requires
 any other advancement vanilla completes on possession, such as `story/obtain_armor` or
@@ -273,7 +286,9 @@ Iron smelting is the only cost of the portal, so a player can reach the Nether a
 they have iron. Diamonds wait for the iron pickaxe, the tool that mines them, which keeps
 diamonds from arriving in the same moment as the Nether. Blaze, wart and ghast items are
 gated on having entered the Nether, not on being allowed to, so they cannot be hoarded
-before the first visit. Exception: `BREEZE_ROD` and `WIND_CHARGE` are in `nether-tier` but come from overworld trial chambers, so a player who finds them before entering the Nether meets the lock. The `HARDCORE` profile uses the same diamond and Nether-tier keys and
+before the first visit. Uncolored and all 16 dyed shulker boxes belong to the
+End tier; existing files must add `"*_SHULKER_BOX"` under that tier's `match-patterns`
+to cover dyed boxes, or apply a preset. Exception: `BREEZE_ROD` and `WIND_CHARGE` are in `nether-tier` but come from overworld trial chambers, so a player who finds them before entering the Nether meets the lock. The `HARDCORE` profile uses the same diamond and Nether-tier keys and
 adds its playtime requirement; `CASUAL` and `SMP_STANDARD` match the table above.
 
 ### 4.4 `trim-progression`
@@ -316,7 +331,7 @@ Ancient City keeps it; the record is never cleared by the plugin.
 
 | Key | Default | Notes |
 | :--- | :--- | :--- |
-| `enabled` | `true` | |
+| `enabled` | `true` (CORE: `false`) | Master switch for trim progression. |
 | `stand-still-seconds` | `15` | Minimum `1`. Standing still this long triggers a reminder. |
 | `cooldown-minutes` | `10` | Minimum `0`. Minimum gap between reminders. |
 | `display-duration-seconds` | `5` | Minimum `1`. |
@@ -467,8 +482,14 @@ grant, or `/asr unlock end`. The damage cap is waived for a hit caused by a play
 
 ## 5. Profiles
 
-The three presets are `src/main/resources/profiles/<name>.yml`, and each is a complete
-file. The differences in the live sections:
+The four presets are `src/main/resources/profiles/<name>.yml`, and each is a complete
+file. `CORE` is the fresh-install default: dimension gates and anti-cheese stay on,
+while item and trim progression, boss scaling and the Mending trade gate are off.
+Personal-action credits still apply to dimension gates. CORE keeps the complete
+tier and trim rules so either feature can be enabled with its `enabled` key.
+`SMP_STANDARD` keeps the previous item and trim gating behavior. Existing servers
+keep their files; to adopt CORE, run `/asr profile apply CORE` (this backs up and
+replaces the whole file). The differences among the other presets:
 
 | Setting | `CASUAL` | `SMP_STANDARD` | `HARDCORE` |
 | :--- | :--- | :--- | :--- |

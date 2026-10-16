@@ -49,7 +49,7 @@ import java.util.Optional;
  * <p>Values here are modelled exactly as {@code config.yml} states them. Match patterns are kept
  * as raw strings: compiling them into material sets is Task 4.2.1's job, not this type's.
  *
- * @param profile              tuning profile the server has selected; default {@link Profile#SMP_STANDARD}
+ * @param profile              tuning profile the server has selected; default {@link Profile#CORE}
  * @param dimensionGates       section 1, dimension progression gates
  * @param itemProgression      section 2, anti-boosting and item progression gating
  * @param trimProgression      section 3, armor trim and smithing template progression
@@ -190,7 +190,7 @@ public record PluginConfig(
                 "idle-reminder", "progress-card", "journey-book", "boss-scaling", "anti-cheese",
                 "villager-progression");
 
-        Profile profile = r.enumValue("profile", Profile.class, Profile.SMP_STANDARD);
+        Profile profile = r.enumValue("profile", Profile.class, Profile.CORE);
         DimensionGates dimensionGates = parseDimensionGates(r.child("dimension-gates"));
         ItemProgression itemProgression = parseItemProgression(r.child("item-progression"));
         TrimProgression trimProgression = parseTrimProgression(r.child("trim-progression"));
@@ -238,7 +238,7 @@ public record PluginConfig(
     // ---------------------------------------------------------------------------------------
 
     private static DimensionGates parseDimensionGates(ConfigReader r) throws ConfigLoadException {
-        r.expect("nether", "the_end");
+        r.expect("nether", "the_end", "gate-plugin-teleports");
         return new DimensionGates(
                 parseDimensionGate(r.child("nether"), List.of("minecraft:story/smelt_iron"),
                         DEFAULT_NETHER_REJECTION),
@@ -246,7 +246,7 @@ public record PluginConfig(
                         List.of("minecraft:story/mine_diamond",
                                 "minecraft:nether/obtain_blaze_rod",
                                 "minecraft:nether/find_fortress"),
-                        DEFAULT_END_REJECTION));
+                        DEFAULT_END_REJECTION), r.bool("gate-plugin-teleports", true));
     }
 
     private static DimensionGate parseDimensionGate(ConfigReader r, List<String> defaultAdvancements,
@@ -518,7 +518,7 @@ public record PluginConfig(
     // ---------------------------------------------------------------------------------------
 
     /** Tuning profile. {@code CUSTOM} means the operator has hand-edited away from a preset. */
-    public enum Profile { CASUAL, SMP_STANDARD, HARDCORE, CUSTOM }
+    public enum Profile { CORE, CASUAL, SMP_STANDARD, HARDCORE, CUSTOM }
 
     /** How an idle reminder reaches the player. Default {@code ACTIONBAR}. */
     public enum DisplayType { ACTIONBAR, TITLE, CHAT }
@@ -564,7 +564,11 @@ public record PluginConfig(
      * Section 1. Both gates are always present; an absent block in the file means the gate runs on
      * its shipped defaults, not that it is disabled.
      */
-    public record DimensionGates(DimensionGate nether, DimensionGate theEnd) {
+    public record DimensionGates(DimensionGate nether, DimensionGate theEnd, boolean gatePluginTeleports) {
+        public DimensionGates(DimensionGate nether, DimensionGate theEnd) {
+            this(nether, theEnd, true);
+        }
+
         public DimensionGates {
             Objects.requireNonNull(nether, "nether");
             Objects.requireNonNull(theEnd, "theEnd");
@@ -638,6 +642,19 @@ public record PluginConfig(
             Objects.requireNonNull(rejectionMessage, "rejectionMessage");
             Objects.requireNonNull(personalCreditScope, "personalCreditScope");
             gatedItems = List.copyOf(gatedItems);
+        }
+
+        /** Whether personal actions replace vanilla advancements for this player. */
+        public boolean personalCreditApplies(boolean hasRequiredPermission) {
+            return requirePersonalCredit
+                    && (personalCreditScope == CreditScope.ALL || hasRequiredPermission);
+        }
+
+        /** A presentation snapshot whose credit wording matches this player's requirements. */
+        public ItemProgression forViewer(boolean hasRequiredPermission) {
+            return new ItemProgression(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles,
+                    feedbackCooldownSeconds, rejectionMessage, gatedItems,
+                    personalCreditApplies(hasRequiredPermission), countStructureLoot, personalCreditScope);
         }
 
         /** With {@link CreditScope#ALL}, the scope every server had before the setting existed. */

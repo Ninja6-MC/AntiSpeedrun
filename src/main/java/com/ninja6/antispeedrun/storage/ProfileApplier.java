@@ -71,7 +71,7 @@ public final class ProfileApplier {
 
     /** The profiles a preset exists for: everything except {@link Profile#CUSTOM}. */
     public static List<Profile> applicable() {
-        return List.of(Profile.CASUAL, Profile.SMP_STANDARD, Profile.HARDCORE);
+        return List.of(Profile.CORE, Profile.CASUAL, Profile.SMP_STANDARD, Profile.HARDCORE);
     }
 
     /**

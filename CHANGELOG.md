@@ -8,7 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `item-progression.personal-credit-scope` (default `ALL`) chooses who `require-personal-credit` applies to. With `PERMISSION`, only holders of the new `antispeedrun.credit.required` node are gated on personal credits, and everyone else on vanilla advancements, so a server can keep credits for a tester group only. Takes effect on `/asr reload`.
+- `CORE` is the fresh-install profile, keeping dimension gates and personal credits
+  enabled while item and trim progression, boss scaling and Mending trade gating are
+  off. Existing configurations are preserved; `/asr profile apply CORE` backs up and
+  replaces the file.
+- Administration guidance for seed privacy and Paper generation hardening, including
+  limitations for existing worlds.
+- `item-progression.personal-credit-scope` (default `ALL`) chooses who
+  `require-personal-credit` applies to. With `PERMISSION`, only holders of
+  `antispeedrun.credit.required` are gated on personal credits, and everyone else on
+  vanilla advancements. Takes effect on `/asr reload`.
+
+### Changed
+- Dimension gates now check unannounced plugin and command teleports on Paper by
+  default, including existing installations where the new key is absent. Set
+  `dimension-gates.gate-plugin-teleports: false` to restore the old Paper behaviour.
+  Vanilla teleport commands and `expectTeleport` vouchers remain supported. EssentialsX's
+  own `/tp` needs a gate bypass or `/asr unlock`; gates also cover custom Nether and End
+  worlds by their world kind.
+- `item-progression.gated-items` is validated even when item progression is off. Before
+  upgrading, a server that disabled item progression to work around a tier collision
+  must fix the collision first: otherwise AntiSpeedrun refuses to start, and its
+  dimension gates go down with it.
+
+### Fixed
+- Generated progression guidance now matches each player's personal-credit scope across
+  progress cards, idle reminders, new guide books, and item and dimension refusal details.
+  Admin inspection describes the target player's requirements. Custom messages stay intact.
+- Locked Nether and End logins and Nether anchor respawns return to safe Overworld
+  ground after initialization. Pending returns recheck session, world and eligibility.
+  Players already parked in a locked dimension without personal credits are returned
+  on their next login; admins can restore earned progress with `/asr credit grant`.
+- Every bundled item tier table includes all 16 dyed shulker boxes in the End tier
+  alongside the uncolored box. Existing configurations need `"*_SHULKER_BOX"` added
+  to the End tier's `match-patterns`, or a preset reapplied.
 
 ## [0.3.1] - 2026-10-12
 

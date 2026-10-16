@@ -25,14 +25,14 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The three shipped presets, read off the classpath and parsed by the real
+ * The four shipped presets, read off the classpath and parsed by the real
  * {@link PluginConfig} code — the same technique {@code PluginConfigTest} uses on
  * {@code config.yml}, for the same reason: Bukkit is not on the test classpath, so the presets are
  * driven through the {@link ConfigSection} seam with genuine YAML.
  *
  * <p>This is what closes #57's fourth acceptance criterion. The naming drift it names —
  * {@code HARDCORE_SEEDRUN} against {@code HARDCORE} — is already gone from {@code main}, so the job
- * is to make the three names structurally unable to drift apart again: the resource path comes from
+ * is to make the preset names structurally unable to drift apart again: the resource path comes from
  * the enum constant ({@link ProfileApplier#resourcePath}), and each file must declare the profile
  * its own filename implies.
  */
@@ -127,11 +127,29 @@ class PresetProfileTest {
     }
 
     @Test
-    @DisplayName("SMP_STANDARD is exactly the shipped config.yml, so the default cannot drift")
-    void smpStandardMatchesShipped() throws Exception {
+    @DisplayName("CORE is exactly the shipped config.yml, so the default cannot drift")
+    void coreMatchesShipped() throws Exception {
         // Compared as parsed snapshots rather than as bytes: the two files carry different header
         // comments on purpose, and comments are not configuration.
-        assertEquals(shipped(), preset(Profile.SMP_STANDARD));
+        assertEquals(shipped(), preset(Profile.CORE));
+    }
+
+    @Test
+    @DisplayName("CORE retains dimension gates and personal credits while optional progression is off")
+    void coreKeepsTheCoreGates() throws Exception {
+        PluginConfig core = preset(Profile.CORE);
+        PluginConfig standard = preset(Profile.SMP_STANDARD);
+        assertEquals(standard.dimensionGates(), core.dimensionGates());
+        assertEquals(standard.antiCheese(), core.antiCheese());
+        assertEquals(standard.itemProgression().gatedItems(), core.itemProgression().gatedItems());
+        assertEquals(false, core.itemProgression().enabled());
+        assertEquals(false, core.trimProgression().enabled());
+        assertTrue(core.itemProgression().requirePersonalCredit());
+        assertEquals(false, core.bossScaling().enabled());
+        assertEquals(false, core.villagerProgression().gateMendingTrade());
+        assertEquals(false, core.antiCheese().blockBedAnchorBossDamage());
+        assertEquals(false, core.antiCheese().blockExitPortalCrystalPlace());
+        assertTrue(standard.trimProgression().enabled());
     }
 
     @Test

@@ -4,10 +4,10 @@
 config-version: 1
 
 # AntiSpeedrun - Unified Anti-Speedrun, Progression Gates, Anti-Boosting & Boss Combat
-# Configuration Profiles: CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM
+# Configuration Profiles: CORE, CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM
 # Preset resources live at src/main/resources/profiles/<name>.yml
 # You can apply presets via command: /asr profile apply <PROFILE>
-profile: SMP_STANDARD
+profile: CORE
 
 # Advancement keys, wherever they appear below, are read as "namespace:path" and the
 # "minecraft:" namespace is supplied when you leave it off, so "story/smelt_iron" and
@@ -84,6 +84,9 @@ profile: SMP_STANDARD
 
 # 1. Dimension Progression Gates
 dimension-gates:
+  # Require a vanilla teleport command or expectTeleport voucher for plugin/command entry.
+  # False restores unrestricted Paper plugin teleports; Folia still checks arrival.
+  gate-plugin-teleports: true
   nether:
     enabled: true
     require-playtime-hours: 0          # Default 0 (Advancement-driven). Set >0 for time gating.
@@ -105,7 +108,7 @@ dimension-gates:
 
 # 2. Anti-Boosting & Item Progression Gating (Minecraft Tag & Pattern Resolution)
 item-progression:
-  enabled: true
+  enabled: false
   # Gating is a pure function of (player advancements, material). Naturally generated loot
   # is not special-cased: see docs/provenance-model.md for why the exemption was removed
   # rather than fixed. gate-natural-structure-chests, gate-player-placed-chests and
@@ -207,6 +210,8 @@ item-progression:
       hint: "Enter the Nether"
 
     end-tier:
+      match-patterns:
+        - "*_SHULKER_BOX"
       items:
         - "ENDER_EYE"
         - "END_CRYSTAL"
@@ -251,7 +256,7 @@ item-progression:
 
 # 3. Armor Trim & Smithing Template Progression
 trim-progression:
-  enabled: true
+  enabled: false
   gate-natural-trim-chests: false             # Default FALSE: structure loot keeps its templates. TRUE removes a gated template from natural loot for a player who has not explored its structure.
   block-unearned-template-duplication: true   # Require structure discovery to clone templates in crafting tables and Crafters
   block-unearned-smithing: true               # Require structure discovery to apply trim in Smithing Table
