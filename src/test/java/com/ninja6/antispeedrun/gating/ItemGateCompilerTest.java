@@ -206,10 +206,8 @@ class ItemGateCompilerTest {
         }
 
         @Test
-        @DisplayName("compiles to an empty table when item progression is switched off")
-        void disabledCompilesToNothing() throws Exception {
-            // MaterialGates short-circuits on enabled == false; the compiler itself is unaware of
-            // the flag, so the two are asserted separately.
+        @DisplayName("an absent tier table compiles to nothing")
+        void absentTiersCompileToNothing() throws Exception {
             PluginConfig off = yaml("item-progression:\n  enabled: false\n");
             assertTrue(compile(off).isEmpty());
         }

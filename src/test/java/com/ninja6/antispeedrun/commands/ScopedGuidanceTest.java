@@ -65,6 +65,7 @@ class ScopedGuidanceTest {
             assertEquals(personal, text.contains("kill a blaze yourself"), text);
             assertEquals(!personal, text.contains("minecraft:nether/obtain_blaze_rod"), text);
         }
+        assertTrue(AntiSpeedrunCommand.outstanding(missing, viewer).startsWith("needs "));
         String book = String.join(" ", JourneyBookPages.pages(config, viewer));
         assertEquals(personal, book.toLowerCase(Locale.ROOT).contains("kill a blaze yourself"), book);
         assertEquals(!personal, book.contains("advancements.nether.obtain_blaze_rod.title"), book);

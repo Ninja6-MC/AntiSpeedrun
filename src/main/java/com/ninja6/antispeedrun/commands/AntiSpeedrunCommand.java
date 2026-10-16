@@ -451,7 +451,9 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
         if (!result.missingAdvancements().isEmpty()) {
             CreditedActions.Split missing =
                     CreditedActions.split(result.missingAdvancements(), items);
-            parts.addAll(missing.actions());
+            if (!missing.actions().isEmpty()) {
+                parts.add("needs " + String.join(", ", missing.actions()));
+            }
             if (!missing.advancements().isEmpty()) {
                 parts.add("needs " + String.join(", ", missing.advancements()));
             }

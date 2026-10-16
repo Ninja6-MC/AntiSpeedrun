@@ -14,15 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replaces the file.
 - Administration guidance for seed privacy and Paper generation hardening, including
   limitations for existing worlds.
-- Dimension gates now check unannounced plugin and command teleports on Paper by
-  default. Set `dimension-gates.gate-plugin-teleports: false` to restore the old Paper
-  behaviour. Vanilla teleport commands and `expectTeleport` vouchers remain supported.
-  EssentialsX's own `/tp` needs a gate bypass or `/asr unlock`; gates also cover custom
-  Nether and End worlds by their world kind.
 - `item-progression.personal-credit-scope` (default `ALL`) chooses who
   `require-personal-credit` applies to. With `PERMISSION`, only holders of
   `antispeedrun.credit.required` are gated on personal credits, and everyone else on
   vanilla advancements. Takes effect on `/asr reload`.
+
+### Changed
+- Dimension gates now check unannounced plugin and command teleports on Paper by
+  default, including existing installations where the new key is absent. Set
+  `dimension-gates.gate-plugin-teleports: false` to restore the old Paper behaviour. Vanilla teleport commands and `expectTeleport` vouchers remain supported.
+  EssentialsX's own `/tp` needs a gate bypass or `/asr unlock`; gates also cover custom
+  Nether and End worlds by their world kind.
 
 ### Fixed
 - Generated progression guidance now matches each player's personal-credit scope across

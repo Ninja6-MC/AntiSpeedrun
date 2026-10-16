@@ -26,8 +26,8 @@ with the plugin jar and its checksum, on the
 [Releases page](https://github.com/Ninja6-MC/AntiSpeedrun/releases), which lists the
 current build. There is no stable release yet. Everything listed under "Implemented"
 below runs on a server. Some of it ships off and must be enabled by the server
-operator: every anti-cheese rule except the Eye of Ender block, and boss scaling as a
-whole.
+operator: item and trim progression, every anti-cheese rule except the Eye of Ender
+block, and boss scaling as a whole.
 
 ---
 
@@ -43,7 +43,8 @@ step, adds optional anti-cheese rules, and can scale the Ender Dragon fight to t
   configured playtime, account age and advancement requirements are met. Covers
   portals, teleports across dimensions, vehicles and stasis. See `dimension-gates`
   in `config.yml`.
-- **Item progression gates** -- tier-gated items cannot be picked up, equipped,
+- **Item progression gates** -- ships off (`item-progression.enabled: false`).
+  When enabled, tier-gated items cannot be picked up, equipped,
   fired from dispensers onto a player, taken out of containers and bundles, or taken
   off armor stands and out of item frames, or handed to or taken back from an Allay,
   until the player has earned the tier (`item-progression`). Bottling Dragon's Breath
@@ -77,8 +78,9 @@ step, adds optional anti-cheese rules, and can scale the Ender Dragon fight to t
   `multi-dragon.balanced-xp` option sets each extra dragon's reward to 1,000 XP;
   turning it off retains the earlier 500 XP cap. Ships off: `boss-scaling.enabled` is
   `false` and must be set to `true`.
-- **Armor trim and smithing template gating** (`trim-progression`) -- on by default
-  (`enabled: true`). Duplicating a trim template in a crafting table or Crafter
+- **Armor trim and smithing template gating** (`trim-progression`) -- ships off
+  (`enabled: false`). When enabled, duplicating a trim template in a crafting table
+  or Crafter
   (`block-unearned-template-duplication`), applying a trim at a smithing table
   (`block-unearned-smithing`) and wearing a trimmed piece (`block-wearing-unearned-trims`)
   are refused until the player has discovered the matching structure; all three are on by
@@ -142,7 +144,7 @@ from one category each.
 
 ---
 
-Fresh installs use `CORE`: dimension gates and anti-cheese are enabled, with item
+Fresh installs use `CORE`: dimension gates and the early Eye of Ender block are on, with item
 and trim progression, boss scaling and Mending trade gating off. Existing servers
 keep their configuration. Apply `SMP_STANDARD` to opt in to item and trim gating,
 or enable either section individually; applying a preset replaces the whole file
