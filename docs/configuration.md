@@ -195,6 +195,13 @@ of the requirements that are set.
 | `require-advancements` | Nether: `minecraft:story/smelt_iron`. End: `minecraft:story/mine_diamond`, `minecraft:nether/obtain_blaze_rod`, `minecraft:nether/find_fortress` | A list of advancement keys, all required. `[]` requires none. |
 | `rejection-message` | A built-in message pointing at `/progress` | MiniMessage. Shown when a player is refused. |
 
+`dimension-gates.gate-plugin-teleports` defaults to `true`. On Paper, cross-dimension
+`PLUGIN` and `COMMAND` teleports need the same destination voucher as on Folia when
+the player is ineligible. Vanilla `/tp` commands and plugin `expectTeleport` vouchers
+remain supported. Setting it to `false` restores the previous Paper exemptions;
+Folia still checks unannounced arrivals. EssentialsX's own `/tp` needs a gate bypass
+or `/asr unlock`. Gates use world kind, including custom Nether and End worlds.
+
 Covered transits: portals, teleports across dimensions, vehicles and stasis.
 `/asr unlock` overrides these gates server-wide (see
 [administration.md](administration.md#53-dimension-unlock)).

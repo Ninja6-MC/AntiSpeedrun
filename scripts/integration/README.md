@@ -36,7 +36,8 @@ succeed:
 | `vehicles` | The same, riding a boat steered into the portal. |
 | `operator` | An operator holds no bypass node, is refused at the portal and cannot pick up a diamond. |
 | `bypass` | `/asr bypass` lets an ineligible player through the portal and pick up a diamond; revoked, and once a 5-second grant expires, both are refused again. |
-| `teleports` | The deliberate-teleport contract (#135): the console's cross-dimension `/tp` and an operator's own `/execute in ... run tp @s` are honoured on both platforms. Another plugin's `teleportAsync` is honoured on Paper; on Folia it fires no event and is judged on arrival, so the player is returned to the Overworld spawn and told why (`docs/administration.md` section 7.4). The same teleport announced first with `AntiSpeedrunPlugin#expectTeleport` (#137) is honoured on both. |
+| `teleports` | Vanilla console and operator `/tp` commands and `expectTeleport` vouchers are honoured. Unannounced plugin teleports for ineligible players are refused on Paper and returned on Folia; eligibility and bypass controls succeed. Turning `gate-plugin-teleports` off restores Paper's exemption while Folia still checks arrivals. |
+| `login` | Reconnects an ineligible player parked in the Nether and End and checks the return to the Overworld; an eligible Nether reconnect stays. A charged Nether respawn anchor also returns an ineligible player after respawn. |
 | `pickups` | An ineligible player walks over a diamond, silk-touched deepslate diamond ore (C-11) and a diamond sword carrying the retired natural-origin tag (C-01): each is refused and stays on the ground. Control: an eligible player picks up the diamond. |
 | `containers` | An ineligible player cannot shift-click or pick diamonds out of a chest; an eligible one can. |
 | `container_break` | An ineligible player breaks a chest and a Decorated Pot holding diamonds rather than opening them (C-02): the spilled diamonds are refused. |

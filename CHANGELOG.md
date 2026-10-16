@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- Generated progression guidance now matches each player's personal-credit scope across
-  progress cards, idle reminders, new guide books, and item and dimension refusal details.
-  Admin inspection describes the target player's requirements. Custom messages stay intact.
-
 ### Added
 - `CORE` is the fresh-install profile, keeping dimension gates and personal credits
   enabled while item and trim progression, boss scaling and Mending trade gating are
@@ -30,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vanilla advancements. Takes effect on `/asr reload`.
 
 ### Fixed
+- Generated progression guidance now matches each player's personal-credit scope across
+  progress cards, idle reminders, new guide books, and item and dimension refusal details.
+  Admin inspection describes the target player's requirements. Custom messages stay intact.
 - Locked Nether and End logins and Nether anchor respawns return to safe Overworld
   ground after initialization. Pending returns recheck session, world and eligibility.
   Players already parked in a locked dimension without personal credits are returned
