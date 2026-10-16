@@ -5,6 +5,7 @@ import copy
 import hashlib
 import importlib.util
 import io
+import json
 import subprocess
 import tempfile
 import unittest
@@ -70,9 +71,8 @@ class FakeGitHub:
         return [{"id": r["id"], "tag_name": r["tag_name"], "prerelease": r["prerelease"]}
                 for r in self.releases_by_id.values() if not r["draft"]]
 
-    def create_draft(self, tag, title, body, prerelease, target):
+    def create_draft(self, tag, title, body, prerelease):
         self.writes.append(("create", tag))
-        self.draft_target = target
         release = self.add_release(tag, True, prerelease, name=title, body=body)
         return copy.deepcopy(release)
 
@@ -149,11 +149,19 @@ class PromoteTest(unittest.TestCase):
         self.assertFalse(release["prerelease"])
         self.assertEqual(api.latest, release["id"])
 
-    def test_draft_targets_the_candidate_commit(self):
+    def test_tag_recreated_elsewhere_while_publishing_stops(self):
         self.candidate("v1.0.0")
         api = FakeGitHub()
-        self.promote(api)
-        self.assertEqual(api.draft_target, SHA)
+        original = api.publish
+
+        def publish_after_tag_recreated_from_main(release_id, prerelease, make_latest):
+            api.tag_sha = "f" * 40
+            return original(release_id, prerelease, make_latest)
+
+        api.publish = publish_after_tag_recreated_from_main
+        with self.assertRaisesRegex(gh.PromotionError, "moved tag"):
+            self.promote(api)
+        self.assertEqual(api.writes[-1][0], "publish")
 
     def test_stable_release_older_than_a_published_stable_is_not_made_latest(self):
         self.candidate("v1.0.0")
@@ -333,8 +341,11 @@ class GitHubApiTest(unittest.TestCase):
         """Patch gh for one block; the returned list collects each command it was given."""
         calls = []
 
+        self.stdin = []
+
         def fake_run(command, input=None, capture_output=False):
             calls.append(command)
+            self.stdin.append(input)
             return subprocess.CompletedProcess(command, returncode, stdout, stderr)
 
         patcher = mock.patch.object(gh.subprocess, "run", fake_run)
@@ -348,13 +359,21 @@ class GitHubApiTest(unittest.TestCase):
         self.run_gh(self.response(403, body, (("X-Accepted-GitHub-Permissions", "contents=write"),)),
                     returncode=1, stderr=b"gh: Resource not accessible by integration (HTTP 403)\n")
         with self.assertRaises(gh.PromotionError) as raised:
-            gh.GitHubApi(self.REPO).create_draft("v0.3.1", "AntiSpeedrun v0.3.1", NOTES, False, SHA)
+            gh.GitHubApi(self.REPO).create_draft("v0.3.1", "AntiSpeedrun v0.3.1", NOTES, False)
         message = str(raised.exception)
         self.assertIn(f"POST repos/{self.REPO}/releases failed with HTTP 403", message)
         self.assertIn('"message":"Resource not accessible by integration"', message)
         self.assertIn("X-Accepted-GitHub-Permissions: contents=write", message)
         self.assertIn("gh: Resource not accessible by integration (HTTP 403)", message)
         self.assertNotIn("\n", message)
+
+    def test_draft_names_the_existing_tag_without_a_target_commit(self):
+        self.run_gh(self.response(201, b'{"id": 5}'))
+        gh.GitHubApi(self.REPO).create_draft("v0.4.2", "AntiSpeedrun v0.4.2", NOTES, True)
+        payload = json.loads(self.stdin[0])
+        self.assertNotIn("target_commitish", payload)
+        self.assertEqual(payload, {"tag_name": "v0.4.2", "name": "AntiSpeedrun v0.4.2", "body": NOTES,
+                                   "draft": True, "prerelease": True, "make_latest": "false"})
 
     def test_failure_without_the_permission_header_omits_it(self):
         self.run_gh(self.response(500, b'{"message":"Server Error"}'), returncode=1)

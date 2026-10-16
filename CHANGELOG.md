@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Release publication no longer fails with HTTP 403 when `main` has workflow changes the tagged commit lacks: the GitHub draft names the existing tag and no longer sends a target commit. The tag is also checked again after publishing.
+
 ## [0.4.1] - 2026-10-16
 
 0.4.0 was tagged but never published, so 0.4.1 is the first release after 0.3.1 and also

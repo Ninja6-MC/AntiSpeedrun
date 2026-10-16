@@ -151,11 +151,12 @@ class GitHubApi:
                           "--jq", ".[] | select(.draft | not) | {id, tag_name, prerelease}")
         return [json.loads(line) for line in output.decode().splitlines() if line.strip()]
 
-    def create_draft(self, tag, title, body, prerelease, target):
-        # The tag already exists and names `target`. Should it vanish before publishing, GitHub
-        # recreates it from target_commitish, which is therefore the candidate's commit and
-        # never the default branch.
-        payload = {"tag_name": tag, "target_commitish": target, "name": title, "body": body,
+    def create_draft(self, tag, title, body, prerelease):
+        # The tag already exists, so target_commitish is left out: GitHub ignores it for an
+        # existing tag, and naming a commit whose workflow files differ from the default branch
+        # appears to make the call need workflows=write, which the job's token cannot hold
+        # (#238). The tag is checked again before and after publishing instead.
+        payload = {"tag_name": tag, "name": title, "body": body,
                    "draft": True, "prerelease": prerelease, "make_latest": "false"}
         return self._json("POST", f"repos/{self.repository}/releases", "--input", "-",
                           stdin=json.dumps(payload).encode())
@@ -311,7 +312,7 @@ def promote(api, manifest, directory, sha):
         release = matches[0]
         log(f"Found {'draft' if release.get('draft') else 'published'} release {release['id']} for {tag}")
     else:
-        release = api.create_draft(tag, title, notes, manifest["prerelease"], manifest["source_sha"])
+        release = api.create_draft(tag, title, notes, manifest["prerelease"])
         log(f"Created draft release {release['id']} for {tag}")
     check_metadata(release, manifest, title, notes)
 
@@ -326,6 +327,9 @@ def promote(api, manifest, directory, sha):
         release = api.publish(release["id"], manifest["prerelease"],
                               should_be_latest(api, manifest, release["id"]))
         log(f"Published release {release['id']} ({'pre-release' if manifest['prerelease'] else 'stable'})")
+        # A tag deleted between that check and publishing is recreated from the default branch.
+        # The release is public by then, so this can only report it.
+        check_source(api, manifest, sha)
 
     release = api.release(release["id"])
     if release.get("draft"):

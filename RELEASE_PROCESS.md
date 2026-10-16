@@ -100,6 +100,12 @@ source-commit verification only: the tag must point at the commit the workflow c
 out, and that commit must be on `main`. The existing GitHub pre-releases, including
 v0.1.0, were published from unsigned annotated tags.
 
+**Tag the tip of `main`, and hold workflow changes until approval.** Until a release made
+since the fix for #238 has published with workflow changes on `main` that its tag lacks, tag
+the tip of `main` and merge nothing that touches `.github/workflows/` between tagging and
+approving the publish job. v0.3.0 and v0.4.0 failed to publish with HTTP 403 when such a
+change merged first.
+
 ### Step 3: Automated stages
 
 The tag push starts **Release** (`release.yml`) at the tagged commit.
@@ -203,14 +209,18 @@ there without writing anything; set the environment up and re-run the failed job
    A tag moved after the candidate was built fails the run.
 2. Look up every release carrying the tag, drafts included. More than one stops the run.
 3. With none, create a **draft** titled `AntiSpeedrun <tag>` with `release-notes.md` as its
-   body and the candidate's pre-release flag. Its `target_commitish` is the candidate's
-   source commit, so if the tag disappeared before publishing, GitHub would recreate it
-   there and not at the head of `main`.
+   body and the candidate's pre-release flag. It names the existing tag and sends no
+   `target_commitish`: with a commit whose workflow files differ from `main`, that field
+   appears to make the call need `workflows=write`, which the job's token cannot hold. The
+   release's target therefore shows `main`, not the tagged commit, and a tag deleted before
+   publishing would be recreated at the head of `main`; step 5 checks the tag before and
+   after publishing.
 4. Complete the draft. An asset GitHub never finished receiving is deleted; drafts are not
    public. An uploaded asset must match its manifest digest byte for byte. Missing assets
    are uploaded from the candidate.
-5. Re-read the draft, check every asset again, re-check the tag, then publish. A
-   pre-release is published with `make_latest=false`. A stable release is published with
+5. Re-read the draft, check every asset again, re-check the tag, publish, then check the
+   tag once more: a tag recreated in between fails the run, with the release already
+   public. A pre-release is published with `make_latest=false`. A stable release is published with
    `make_latest=true` only when no published stable release has a higher SemVer version.
    Otherwise it gets `make_latest=false`. This covers re-running an older release's failed
    job, or approving two stable tags out of order. It does not cover two stable publish
