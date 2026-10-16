@@ -211,7 +211,8 @@ there without writing anything; set the environment up and re-run the failed job
 3. With none, create a **draft** titled `AntiSpeedrun <tag>` with `release-notes.md` as its
    body and the candidate's pre-release flag. It names the existing tag and sends no
    `target_commitish`: with a commit whose workflow files differ from `main`, that field
-   makes the call need `workflows=write`, which the job's token cannot hold. Without it, a
+   appears to make the call need `workflows=write`, which the job's token cannot hold, so
+   the release's target shows `main` rather than the tagged commit. Without it, a
    tag deleted before publishing would be recreated at the head of `main`; step 5 checks
    the tag before and after publishing.
 4. Complete the draft. An asset GitHub never finished receiving is deleted; drafts are not

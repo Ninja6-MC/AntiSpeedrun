@@ -153,9 +153,9 @@ class GitHubApi:
 
     def create_draft(self, tag, title, body, prerelease):
         # The tag already exists, so target_commitish is left out: GitHub ignores it for an
-        # existing tag, yet a commit whose workflow files differ from the default branch makes
-        # the call need workflows=write, which the job's token cannot hold (#238). The tag is
-        # checked again before and after publishing instead.
+        # existing tag, and naming a commit whose workflow files differ from the default branch
+        # appears to make the call need workflows=write, which the job's token cannot hold
+        # (#238). The tag is checked again before and after publishing instead.
         payload = {"tag_name": tag, "name": title, "body": body,
                    "draft": True, "prerelease": prerelease, "make_latest": "false"}
         return self._json("POST", f"repos/{self.repository}/releases", "--input", "-",
