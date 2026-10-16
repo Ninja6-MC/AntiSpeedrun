@@ -234,7 +234,7 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
             profile = Profile.valueOf(args[2].trim().toUpperCase(Locale.ROOT).replace('-', '_'));
         } catch (IllegalArgumentException unknown) {
             reply(sender, "<red>Unknown profile <yellow>" + escape(args[2]) + "<red>. Choose one of "
-                    + "<yellow>CASUAL<red>, <yellow>SMP_STANDARD<red> or <yellow>HARDCORE<red>.");
+                    + "<yellow>CORE<red>, <yellow>CASUAL<red>, <yellow>SMP_STANDARD<red> or <yellow>HARDCORE<red>.");
             return;
         }
         if (profile == Profile.CUSTOM) {

@@ -78,6 +78,30 @@ class ItemGateCompilerTest {
 
     // -------------------------------------------------------------------------------------------
 
+    @Test
+    @DisplayName("all bundled tier tables gate uncolored and every dyed shulker box")
+    void shulkerColorsInEveryPreset() throws Exception {
+        List<String> paths = new ArrayList<>(List.of("/config.yml"));
+        for (PluginConfig.Profile profile : com.ninja6.antispeedrun.storage.ProfileApplier.applicable()) {
+            paths.add("/" + com.ninja6.antispeedrun.storage.ProfileApplier.resourcePath(profile));
+        }
+        List<TestMaterial> boxes = java.util.Arrays.stream(TestMaterial.values())
+                .filter(material -> material.name().equals("SHULKER_BOX")
+                        || material.name().endsWith("_SHULKER_BOX"))
+                .toList();
+        assertEquals(17, boxes.size());
+        for (String path : paths) {
+            try (InputStream in = getClass().getResourceAsStream(path);
+                 Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+                ItemGateTable<TestMaterial> table = compile(PluginConfig.from(parse(reader, path)));
+                for (TestMaterial box : boxes) {
+                    assertEquals("end-tier", tierOf(table, box), path + ": " + box);
+                }
+            }
+        }
+        assertTrue(warnings.isEmpty(), warnings.toString());
+    }
+
     @Nested
     @DisplayName("the shipped config.yml")
     class Shipped {

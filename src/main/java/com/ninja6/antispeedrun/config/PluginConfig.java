@@ -49,7 +49,7 @@ import java.util.Optional;
  * <p>Values here are modelled exactly as {@code config.yml} states them. Match patterns are kept
  * as raw strings: compiling them into material sets is Task 4.2.1's job, not this type's.
  *
- * @param profile              tuning profile the server has selected; default {@link Profile#SMP_STANDARD}
+ * @param profile              tuning profile the server has selected; default {@link Profile#CORE}
  * @param dimensionGates       section 1, dimension progression gates
  * @param itemProgression      section 2, anti-boosting and item progression gating
  * @param trimProgression      section 3, armor trim and smithing template progression
@@ -190,7 +190,7 @@ public record PluginConfig(
                 "idle-reminder", "progress-card", "journey-book", "boss-scaling", "anti-cheese",
                 "villager-progression");
 
-        Profile profile = r.enumValue("profile", Profile.class, Profile.SMP_STANDARD);
+        Profile profile = r.enumValue("profile", Profile.class, Profile.CORE);
         DimensionGates dimensionGates = parseDimensionGates(r.child("dimension-gates"));
         ItemProgression itemProgression = parseItemProgression(r.child("item-progression"));
         TrimProgression trimProgression = parseTrimProgression(r.child("trim-progression"));
@@ -518,7 +518,7 @@ public record PluginConfig(
     // ---------------------------------------------------------------------------------------
 
     /** Tuning profile. {@code CUSTOM} means the operator has hand-edited away from a preset. */
-    public enum Profile { CASUAL, SMP_STANDARD, HARDCORE, CUSTOM }
+    public enum Profile { CORE, CASUAL, SMP_STANDARD, HARDCORE, CUSTOM }
 
     /** How an idle reminder reaches the player. Default {@code ACTIONBAR}. */
     public enum DisplayType { ACTIONBAR, TITLE, CHAT }

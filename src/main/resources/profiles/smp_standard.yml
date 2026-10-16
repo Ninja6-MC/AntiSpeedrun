@@ -10,17 +10,16 @@ config-version: 1
 # plugins/AntiSpeedrun/backups/config-<timestamp>.yml first, so a preset applied by
 # mistake is recoverable.
 #
-# The default. Every gate on, everything advancement-driven, no time or tenure
-# requirements anywhere -- progress is earned by playing, never by waiting. This preset
-# is identical to the shipped config.yml; PresetProfileTest asserts that, so the two
-# cannot drift apart.
+# Every progression gate on, with no time or tenure requirements anywhere.
+# This preset enables item and trim progression; CORE is the fresh-install default.
 #
-# Configuration Profiles: CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM. Hand-editing away
+# Configuration Profiles: CORE, CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM. Hand-editing away
 # from a preset means setting profile: CUSTOM yourself -- nothing rewrites this key.
 profile: SMP_STANDARD
 
 # 1. Dimension Progression Gates
 dimension-gates:
+  gate-plugin-teleports: true
   nether:
     enabled: true
     require-playtime-hours: 0          # Default 0 (Advancement-driven). Set >0 for time gating.
@@ -124,6 +123,8 @@ item-progression:
       hint: "Enter the Nether"
 
     end-tier:
+      match-patterns:
+        - "*_SHULKER_BOX"
       items:
         - "ENDER_EYE"
         - "END_CRYSTAL"

@@ -93,8 +93,26 @@ class ProfileApplierTest {
     }
 
     @Test
+    @DisplayName("applying CORE installs its complete resource and preserves the existing file")
+    void appliesCore(@TempDir Path folder) throws Exception {
+        Path config = folder.resolve("config.yml");
+        String previous = "profile: CUSTOM\nitem-progression:\n  enabled: true\n";
+        Files.writeString(config, previous);
+        String path = "/" + ProfileApplier.resourcePath(Profile.CORE);
+        byte[] expected;
+        try (InputStream resource = getClass().getResourceAsStream(path)) {
+            expected = resource.readAllBytes();
+        }
+        Optional<Path> backup = ProfileApplier.apply(new ByteArrayInputStream(expected), config,
+                folder.resolve(ProfileApplier.BACKUP_DIRECTORY), AT, ZONE);
+        assertEquals(new String(expected, StandardCharsets.UTF_8), Files.readString(config));
+        assertEquals(previous, Files.readString(backup.orElseThrow()));
+    }
+
+    @Test
     @DisplayName("the filename is derived from the enum constant, so the two cannot drift")
     void resourcePathDerivedFromEnum() {
+        assertEquals("profiles/core.yml", ProfileApplier.resourcePath(Profile.CORE));
         assertEquals("profiles/casual.yml", ProfileApplier.resourcePath(Profile.CASUAL));
         assertEquals("profiles/smp_standard.yml", ProfileApplier.resourcePath(Profile.SMP_STANDARD));
         assertEquals("profiles/hardcore.yml", ProfileApplier.resourcePath(Profile.HARDCORE));
@@ -108,7 +126,7 @@ class ProfileApplierTest {
         // Asserted as a whole list, not merely searched for CUSTOM: applicable() is what
         // tab completion offers and what /asr profile apply accepts, so an extra constant
         // slipping into it is as much a fault as CUSTOM appearing in it.
-        assertEquals(List.of(Profile.CASUAL, Profile.SMP_STANDARD, Profile.HARDCORE),
+        assertEquals(List.of(Profile.CORE, Profile.CASUAL, Profile.SMP_STANDARD, Profile.HARDCORE),
                 ProfileApplier.applicable());
     }
 

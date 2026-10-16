@@ -74,7 +74,7 @@ class JourneyBookPagesTest {
     private static PluginConfig withTiers(List<ItemTier> tiers) {
         PluginConfig base = shipped();
         ItemProgression items = base.itemProgression();
-        ItemProgression replaced = new ItemProgression(items.enabled(), items.dropRecallEnabled(),
+        ItemProgression replaced = new ItemProgression(true, items.dropRecallEnabled(),
                 items.gateDispensers(), items.gateNestedBundles(), items.feedbackCooldownSeconds(),
                 items.rejectionMessage(), tiers, items.requirePersonalCredit(),
                 items.countStructureLoot());
@@ -161,7 +161,7 @@ class JourneyBookPagesTest {
         @Test
         @DisplayName("each item tier appears under a readable name with its configured hint")
         void itemTiers() {
-            String text = book(shipped());
+            String text = book(withTiers(shipped().itemProgression().gatedItems()));
             assertTrue(text.contains("Iron Tier"));
             assertTrue(text.contains("Netherite Tier"));
             assertTrue(text.contains("Mine natural stone with a pickaxe yourself (Stone Age)"));
@@ -191,6 +191,7 @@ class JourneyBookPagesTest {
         @Test
         @DisplayName("with no tiers, or item gating off, there is no items section")
         void noItemSection() {
+            assertFalse(book(shipped()).contains("Iron Tier"), "CORE ships item gating off");
             assertFalse(book(withTiers(List.of())).contains("You cannot pick up gated items"));
         }
 

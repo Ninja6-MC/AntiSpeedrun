@@ -8,7 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `CORE` is the fresh-install profile, keeping dimension gates and anti-cheese enabled while item and trim progression, boss scaling and Mending trade gating are off. Existing configurations are preserved; `/asr profile apply CORE` backs up and replaces the file. Personal credits still apply to dimension gates.
+- Administration guidance for seed privacy and Paper generation hardening, including limitations for existing worlds.
 - `item-progression.personal-credit-scope` (default `ALL`) chooses who `require-personal-credit` applies to. With `PERMISSION`, only holders of the new `antispeedrun.credit.required` node are gated on personal credits, and everyone else on vanilla advancements, so a server can keep credits for a tester group only. Takes effect on `/asr reload`.
+
+### Fixed
+- Every bundled item tier table includes all 16 dyed shulker boxes in the End tier alongside the uncolored box. Existing configurations need `"*_SHULKER_BOX"` added to the End tier's `match-patterns`, or a preset reapplied.
 
 ## [0.3.1] - 2026-10-12
 

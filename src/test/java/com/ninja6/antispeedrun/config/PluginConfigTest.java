@@ -146,7 +146,7 @@ class PluginConfigTest {
         void matchesSpecification() throws Exception {
             PluginConfig c = shipped();
 
-            assertEquals(PluginConfig.Profile.SMP_STANDARD, c.profile());
+            assertEquals(PluginConfig.Profile.CORE, c.profile());
 
             PluginConfig.DimensionGate nether = c.dimensionGates().nether();
             assertTrue(nether.enabled());
@@ -201,7 +201,7 @@ class PluginConfigTest {
         void gatedItemTiers() throws Exception {
             PluginConfig.ItemProgression items = shipped().itemProgression();
 
-            assertTrue(items.enabled());
+            assertFalse(items.enabled());
             assertTrue(items.dropRecallEnabled());
             assertTrue(items.gateDispensers());
             assertTrue(items.gateNestedBundles());
@@ -246,7 +246,10 @@ class PluginConfigTest {
 
             assertEquals(d.profile(), s.profile());
             assertEquals(d.dimensionGates(), s.dimensionGates());
-            assertEquals(d.trimProgression(), s.trimProgression());
+            assertTrue(d.trimProgression().enabled(), "missing-key fallback preserves existing configs");
+            assertFalse(s.trimProgression().enabled(), "fresh installs opt in to trim gating");
+            assertEquals(d.trimProgression().blockUnearnedSmithing(),
+                    s.trimProgression().blockUnearnedSmithing());
             assertEquals(d.idleReminder(), s.idleReminder());
             assertEquals(d.journeyBook(), s.journeyBook());
             assertEquals(d.bossScaling(), s.bossScaling());
@@ -255,7 +258,8 @@ class PluginConfigTest {
 
             // gated-items is the one section with no code-level default: an absent block means no
             // tiers are gated, which cannot be expressed as a duplicate of the shipped table.
-            assertEquals(d.itemProgression().enabled(), s.itemProgression().enabled());
+            assertTrue(d.itemProgression().enabled(), "missing-key fallback preserves existing configs");
+            assertFalse(s.itemProgression().enabled(), "fresh installs opt in to item gating");
             assertEquals(d.itemProgression().dropRecallEnabled(), s.itemProgression().dropRecallEnabled());
             assertEquals(d.itemProgression().gateDispensers(), s.itemProgression().gateDispensers());
             assertEquals(d.itemProgression().gateNestedBundles(), s.itemProgression().gateNestedBundles());
@@ -408,7 +412,7 @@ class PluginConfigTest {
                         placement-mode: top-pillar
                     """));
 
-            assertEquals(PluginConfig.Profile.SMP_STANDARD, config.profile());
+            assertEquals(PluginConfig.Profile.CORE, config.profile());
             assertEquals(PluginConfig.DisplayType.ACTIONBAR, config.idleReminder().displayType());
             assertEquals(PluginConfig.PlacementMode.TOP_PILLAR,
                     config.bossScaling().exitPortalEgg().placementMode(),
@@ -1710,7 +1714,7 @@ class PluginConfigTest {
                         // The binding must see the candidate, and the holder must still be serving
                         // the previous snapshot while it runs -- that ordering is the whole point.
                         seenByBinding.set(candidate);
-                        assertEquals(PluginConfig.Profile.SMP_STANDARD, holder.get().profile(),
+                        assertEquals(PluginConfig.Profile.CORE, holder.get().profile(),
                                 "the candidate must not be live yet");
                         return "derived from " + candidate.profile();
                     });

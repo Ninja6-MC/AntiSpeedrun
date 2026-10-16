@@ -33,7 +33,7 @@ import anti_cheese  # noqa: E402
 import credits  # noqa: E402
 import gates  # noqa: E402
 import trims  # noqa: E402
-from probes import Results  # noqa: E402
+from probes import Probes, Results  # noqa: E402
 
 USER_AGENT = "AntiSpeedrun-CI/1.0 (+https://github.com/Ninja6-MC/AntiSpeedrun)"
 # Pinned by version and SHA-256, as Hangar publishes them. Test servers only.
@@ -78,6 +78,16 @@ def fetch_pinned(cache, name, url, sha256):
         os.remove(path)
         raise ProbeError(f"{name}: expected SHA-256 {sha256}, got {actual}")
     return path
+
+
+def enable_progression_fixture(text):
+    """Opt in to the item and trim systems exercised by the gameplay probes."""
+    for section in ("item-progression", "trim-progression"):
+        text, changed = re.subn(rf"(?m)^({section}:\n  enabled:) (?:true|false)$",
+                                r"\1 true", text, count=1)
+        if changed != 1:
+            raise ProbeError(f"missing {section}.enabled in the integration fixture")
+    return text
 
 
 def plugin_failures(log):
@@ -142,6 +152,8 @@ def main(argv=None):
             server.plugins = plugins
         with server:
             server.wait_started(args.boot_timeout)
+            # CORE ships both optional progression systems off; these probes exercise them.
+            Probes(server, None, PLAYER, results).reload(enable_progression_fixture)
             with client:
                 client.wait_event("spawn", 120)
                 server.wait_for(rf"ASRPROBE join name={PLAYER}", 30)

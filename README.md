@@ -129,7 +129,7 @@ Download the plugin jar from the
 | `/progress` (or `/asr progress`) | `antispeedrun.progress` | everyone | Shows your milestones and next step. |
 | `/journeybook` (alias `/rulesbook`, or `/asr book`) | `antispeedrun.book` | everyone | Gives you the Journey Guide Book. |
 | `/asr reload` | `antispeedrun.admin.reload` | op | Reloads `config.yml`, all or nothing. |
-| `/asr profile apply <CASUAL\|SMP_STANDARD\|HARDCORE>` | `antispeedrun.admin.profile` | op | Backs up the configuration and applies a preset. |
+| `/asr profile apply <CORE\|CASUAL\|SMP_STANDARD\|HARDCORE>` | `antispeedrun.admin.profile` | op | Backs up the configuration and applies a preset. |
 | `/asr unlock <nether\|end> [lock]` | `antispeedrun.admin.unlock` | op | Unlocks (or re-locks) a dimension for everyone, persistently. |
 | `/asr bypass <player> [duration\|off]` | `antispeedrun.admin.bypass` | op | Grants or revokes a temporary bypass for a player. |
 | `/asr inspect <player>` | `antispeedrun.admin.inspect` | op | Reports a player's progression state. |
@@ -142,13 +142,19 @@ from one category each.
 
 ---
 
+Fresh installs use `CORE`: dimension gates and anti-cheese are enabled, with item
+and trim progression, boss scaling and Mending trade gating off. Existing servers
+keep their configuration. Apply `SMP_STANDARD` to opt in to item and trim gating,
+or enable either section individually; applying a preset replaces the whole file
+after taking a backup. Personal-action credits still apply to dimension gates.
+
 ## Documentation
 
 - [Administration guide](docs/administration.md) -- installation, first start, commands
   and permissions, profiles, dimension unlock, temporary bypass, persisted state,
   backup boundaries and troubleshooting.
 - [Configuration reference](docs/configuration.md) -- every `config.yml` section, its
-  defaults, validation and reload behavior, and the three profiles.
+  defaults, validation and reload behavior, and the four profiles.
 - [Real-server integration harness](scripts/integration/README.md) -- gameplay probes
   that run the built jar on a real Paper server with a scripted player, and how to run them.
 

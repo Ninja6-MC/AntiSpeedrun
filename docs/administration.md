@@ -42,7 +42,7 @@ Then:
 1. Stop the server.
 2. Copy the jar into the server's `plugins/` directory.
 3. Start the server. On the first start the plugin writes its default `config.yml`
-   to `plugins/AntiSpeedrun/`. The shipped default uses the `SMP_STANDARD` profile.
+   to `plugins/AntiSpeedrun/`. The shipped default uses the `CORE` profile.
 4. Review `config.yml` (see [configuration.md](configuration.md)), then run
    `/asr reload` or restart.
 
@@ -64,7 +64,7 @@ between builds.
 A clean install is also fine: back up `plugins/AntiSpeedrun/` and `playerdata`, delete
 `config.yml`, install the jar and restart. Deleting `config.yml` loses every local edit
 and any preset applied with `/asr profile apply`; the plugin writes a fresh default
-`config.yml` (the `SMP_STANDARD` profile), and the state files carry over. Every
+`config.yml` (the `CORE` profile), and the state files carry over. Every
 anti-cheese rule added since v0.1.x ships off, so enable the ones you want in
 `config.yml`.
 
@@ -98,7 +98,7 @@ must name an online player; `credit` also takes an offline player (section 5.6).
 | `/progress` (or `/asr progress`) | `antispeedrun.progress` | everyone |
 | `/journeybook` (alias `/rulesbook`, or `/asr book`) | `antispeedrun.book` | everyone |
 | `/asr reload` | `antispeedrun.admin.reload` | op |
-| `/asr profile apply <CASUAL\|SMP_STANDARD\|HARDCORE>` | `antispeedrun.admin.profile` | op |
+| `/asr profile apply <CORE\|CASUAL\|SMP_STANDARD\|HARDCORE>` | `antispeedrun.admin.profile` | op |
 | `/asr unlock <nether\|end> [lock]` | `antispeedrun.admin.unlock` | op |
 | `/asr bypass <player> [duration\|off]` | `antispeedrun.admin.bypass` | op |
 | `/asr inspect <player>` | `antispeedrun.admin.inspect` | op |
@@ -170,7 +170,7 @@ Fix the file before restarting.
 
 ### 5.2 Profiles
 
-Three presets ship inside the jar: `CASUAL`, `SMP_STANDARD` and `HARDCORE`. They
+Four presets ship inside the jar: `CORE`, `CASUAL`, `SMP_STANDARD` and `HARDCORE`. They
 differ in tuning, not structure; see [configuration.md](configuration.md#5-profiles).
 
 ```text
@@ -471,3 +471,23 @@ template is gone for everyone, not held back until the player qualifies.
   by earlier versions came from Sneak 100 and cannot be told apart from a real visit.
 - **Plugin loot.** Loot a plugin generates through the loot table API is not natural
   loot and is left alone.
+
+## 8. Seed privacy and generation hardening
+
+Keep `/seed` restricted to trusted administrators, and treat world downloads,
+backups and seed-bearing logs as private. AntiSpeedrun enforces progression; it
+does not conceal the seed or prevent seed cracking.
+
+For a new world, consider Paper's `feature-seeds.generate-random-seeds-for-all`
+setting in `config/paper-world-defaults.yml` or the world's `paper-world.yml`.
+It fills seeds for generation features that have not already been assigned one;
+it does not randomize all structure locations. Review the structure seed options
+in `spigot.yml` separately. See Paper's [world configuration reference](https://docs.papermc.io/paper/reference/world-configuration/#feature-seeds)
+and [seed-reversing limitations](https://docs.papermc.io/paper/anti-xray/#seed-reversing).
+
+Back up the world and configuration before changing generation settings, test
+them on the exact server version, and retain the resulting values across restarts
+and restores. These settings affect newly generated terrain; they do not rewrite
+existing chunks. Changing them on an established world can produce inconsistent
+generation across old and new areas. Seed hardening is defense in depth, not a
+guarantee that the world seed cannot be recovered.
