@@ -431,6 +431,15 @@ class GateProbes(Probes):
         time.sleep(3)
         self.results.check(rule, "same-world Nether anchor respawn returns to the Overworld",
                            self.environment() == "NORMAL", str(self.where()))
+        self.progression(NETHER_GATE)
+        self.tp(NETHER, x + 0.5, y, z + 2.5)
+        self.run(f"kill {self.player}")
+        time.sleep(1)
+        self.client.request("respawn", timeout=20)
+        time.sleep(3)
+        self.results.check(rule, "eligible same-world Nether anchor respawn stays",
+                           self.environment() == "NETHER", str(self.where()))
+        self.to_start()
         self.run(f"spawnpoint {self.player} {SPAWN[0]} {SPAWN[1]} {SPAWN[2]}")
         self.to_start()
 

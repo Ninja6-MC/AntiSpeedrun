@@ -26,6 +26,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPortalEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
@@ -971,8 +972,22 @@ public final class ProgressionGateListener implements Listener {
     /** A Nether respawn anchor is a fresh entry, including a respawn in the same world. */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onRespawn(PlayerRespawnEvent event) {
-        lastWorld.remove(event.getPlayer().getUniqueId());
-        arrivalTokens.remove(event.getPlayer().getUniqueId());
+        forgetArrival(event.getPlayer());
+    }
+
+    /** Folia's async respawn does not fire PlayerRespawnEvent, even at a same-world anchor. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onDeath(PlayerDeathEvent event) {
+        // Its next EntityAddToWorldEvent must be a fresh entry rather than a same-world move.
+        // A voucher from the previous life must not authorize that respawn either.
+        forgetArrival(event.getEntity());
+    }
+
+    private void forgetArrival(Player player) {
+        UUID id = player.getUniqueId();
+        lastWorld.remove(id);
+        arrivalTokens.remove(id);
+        decisions.remove(id);
     }
 
     private boolean currentArrival(Player player, World world, Object token) {
