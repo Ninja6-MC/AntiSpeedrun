@@ -384,14 +384,16 @@ class GateProbes(Probes):
         case("an eligible player's unannounced plugin teleport",
              lambda: self.run(f"asrprobe teleport {self.player} {nether_world} {lx + 0.5} {ly} {lz + 0.5}"), True)
         self.progression()
-        self.run(f"asr bypass {self.player} on")
-        time.sleep(1)
+        reply = self.server.query(f"asr bypass {self.player} permanent", r"\[AntiSpeedrun\][^\r\n]*")
+        if "Granted" not in reply.group(0):
+            raise ProbeError(f"the permanent bypass was not granted: {reply.group(0)}")
         try:
             case("a waived player's unannounced plugin teleport",
                  lambda: self.run(f"asrprobe teleport {self.player} {nether_world} {lx + 0.5} {ly} {lz + 0.5}"), True)
         finally:
-            self.run(f"asr bypass {self.player} off")
-            time.sleep(1)
+            reply = self.server.query(f"asr bypass {self.player} off", r"\[AntiSpeedrun\][^\r\n]*")
+            if "Revoked" not in reply.group(0):
+                raise ProbeError(f"the permanent bypass was not revoked: {reply.group(0)}")
         self.reload(lambda text: set_key(text, GATES, "gate-plugin-teleports", "false"))
         try:
             case("opt-out unannounced plugin teleport",
