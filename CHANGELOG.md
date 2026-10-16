@@ -22,9 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Dimension gates now check unannounced plugin and command teleports on Paper by
   default, including existing installations where the new key is absent. Set
-  `dimension-gates.gate-plugin-teleports: false` to restore the old Paper behaviour. Vanilla teleport commands and `expectTeleport` vouchers remain supported.
-  EssentialsX's own `/tp` needs a gate bypass or `/asr unlock`; gates also cover custom
-  Nether and End worlds by their world kind.
+  `dimension-gates.gate-plugin-teleports: false` to restore the old Paper behaviour.
+  Vanilla teleport commands and `expectTeleport` vouchers remain supported. EssentialsX's
+  own `/tp` needs a gate bypass or `/asr unlock`; gates also cover custom Nether and End
+  worlds by their world kind.
+- `item-progression.gated-items` is validated even when item progression is off. Before
+  upgrading, a server that disabled item progression to work around a tier collision
+  must fix the collision first: otherwise AntiSpeedrun refuses to start, and its
+  dimension gates go down with it.
 
 ### Fixed
 - Generated progression guidance now matches each player's personal-credit scope across
