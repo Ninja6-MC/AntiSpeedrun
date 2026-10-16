@@ -11,7 +11,8 @@ series and where a build is published.
 
 * **Development** -- `v0.Y.Z`, with Y incremented for each finished feature group.
   `v0.1.0` is Epics 1-5, `v0.2.0` is Epics 6 and 7, `v0.3.0` is Epic 9 (first published
-  as `v0.3.1` because `v0.3.0` was tagged but never published) and `v0.4.0` is Epic 10.
+  as `v0.3.1` because `v0.3.0` was tagged but never published) and `v0.4.0` is Epic 10
+  (first published as `v0.4.1`, for the same reason).
   Version numbers follow published builds, not planned feature groups. Config and commands may
   change between development builds. `config.yml` carries a `config-version` and is migrated
   on start (the old file is backed up first), so testers no longer regenerate it. The state
