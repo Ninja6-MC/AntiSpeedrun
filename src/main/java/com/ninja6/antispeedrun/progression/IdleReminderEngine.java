@@ -268,7 +268,7 @@ public final class IdleReminderEngine {
         // is earned, not wiring, and they are unit-tested there without a Bukkit type in sight.
         IdleReminderRules.State next = IdleReminderRules.advance(previous, where, now, settings,
                 () -> IdleReminderRules.nextStep(progressOf(player, config),
-                        config.itemProgression()),
+                        PersonalCreditAdvancementLookup.presentation(player, config.itemProgression())),
                 step -> deliver(player, settings, step),
                 (stage, thrown) -> reportFailure(player, stage, thrown, now));
         tracked.put(id, next);

@@ -13,6 +13,7 @@ import org.bukkit.entity.Player;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
 import com.ninja6.antispeedrun.progression.IdleReminderRules.MilestoneProgress;
 import com.ninja6.antispeedrun.progression.Milestone;
@@ -94,7 +95,7 @@ public final class ProgressCommand implements CommandExecutor, TabCompleter {
         player.getScheduler().run(plugin, task -> {
             List<MilestoneProgress> progress = progressOf(player, config);
             for (String line : ProgressCardRenderer.card(player.getName(), progress, style,
-                    config.itemProgression())) {
+                    PersonalCreditAdvancementLookup.presentation(player, config.itemProgression()))) {
                 player.sendMessage(MINI.deserialize(line));
             }
             fallbackHints(player, progress);

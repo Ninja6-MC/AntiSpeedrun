@@ -19,6 +19,7 @@ import org.bukkit.persistence.PersistentDataType;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -111,7 +112,8 @@ public final class JourneyBookCommand implements CommandExecutor, TabCompleter {
                 player.sendMessage(MINI.deserialize(ALREADY_HELD));
                 return;
             }
-            Map<Integer, ItemStack> leftover = player.getInventory().addItem(book(config));
+            Map<Integer, ItemStack> leftover = player.getInventory().addItem(book(config,
+                    PersonalCreditAdvancementLookup.presentation(player, config.itemProgression())));
             if (!leftover.isEmpty()) {
                 player.sendMessage(MINI.deserialize(INVENTORY_FULL));
                 return;
@@ -140,7 +142,8 @@ public final class JourneyBookCommand implements CommandExecutor, TabCompleter {
             if (!player.isOnline() || plugin.journeyBook().hasReceived(player)) {
                 return;
             }
-            ItemStack book = book(config);
+            ItemStack book = book(config,
+                    PersonalCreditAdvancementLookup.presentation(player, config.itemProgression()));
             for (ItemStack rest : player.getInventory().addItem(book).values()) {
                 player.getWorld().dropItem(player.getLocation(), rest);
             }
@@ -149,7 +152,7 @@ public final class JourneyBookCommand implements CommandExecutor, TabCompleter {
     }
 
     /** The book as it is handed out: a fresh item built from {@code config}. */
-    ItemStack book(PluginConfig config) {
+    ItemStack book(PluginConfig config, PluginConfig.ItemProgression items) {
         PluginConfig.JourneyBook settings = config.journeyBook();
         ItemStack item = new ItemStack(Material.WRITTEN_BOOK);
         BookMeta meta = (BookMeta) item.getItemMeta();
@@ -163,7 +166,7 @@ public final class JourneyBookCommand implements CommandExecutor, TabCompleter {
                 .decorationIfAbsent(TextDecoration.ITALIC, TextDecoration.State.FALSE));
 
         List<Component> pages = new ArrayList<>();
-        for (String page : JourneyBookPages.pages(config)) {
+        for (String page : JourneyBookPages.pages(config, items)) {
             pages.add(MINI.deserialize(page));
         }
         // addPages has a stable void descriptor; pages(List) changes its return type in Paper 26.2.

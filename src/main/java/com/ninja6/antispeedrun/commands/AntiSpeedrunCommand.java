@@ -22,7 +22,9 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
+import com.ninja6.antispeedrun.config.CreditedActions;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
 import com.ninja6.antispeedrun.config.PluginConfig.Profile;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
 import com.ninja6.antispeedrun.progression.Milestone;
@@ -432,7 +434,8 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
                 reply(sender, "  <yellow>◆ " + milestone.displayName()
                         + "<gray> — not earned, but open server-wide via <white>/asr unlock");
             } else {
-                reply(sender, "  <red>✘ " + milestone.displayName() + "<gray> — " + outstanding(result));
+                reply(sender, "  <red>✘ " + milestone.displayName() + "<gray> — " + outstanding(result,
+                        PersonalCreditAdvancementLookup.presentation(player, config.itemProgression())));
             }
             result.fallbackHint().ifPresent(hint -> reply(sender, "    <dark_gray>" + escape(hint)));
         }
@@ -443,10 +446,15 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
     }
 
     /** A one-line description of what a player still owes a gate. */
-    private static String outstanding(EligibilityResult result) {
+    static String outstanding(EligibilityResult result, PluginConfig.ItemProgression items) {
         List<String> parts = new ArrayList<>();
         if (!result.missingAdvancements().isEmpty()) {
-            parts.add("needs " + String.join(", ", result.missingAdvancements()));
+            CreditedActions.Split missing =
+                    CreditedActions.split(result.missingAdvancements(), items);
+            parts.addAll(missing.actions());
+            if (!missing.advancements().isEmpty()) {
+                parts.add("needs " + String.join(", ", missing.advancements()));
+            }
         }
         if (result.missingPlaytimeHours() > 0.0D) {
             parts.add(String.format(Locale.ROOT, "%.1fh more playtime", result.missingPlaytimeHours()));

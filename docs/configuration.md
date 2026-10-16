@@ -226,7 +226,11 @@ kill, recorded in `personal-credits.yml`; the vanilla advancement is ignored, so
 still waived. To keep credits for a group of players only, such as testers, set
 `personal-credit-scope: PERMISSION` and grant `antispeedrun.credit.required` to that
 group; nobody else needs a node. Players outside the scope are answered from vanilla
-advancements, but still see the action wording described below. The credit definitions
+advancements and see advancement wording in progress, reminders, generated item and
+dimension refusal details, and newly issued guide books. Admin inspection uses the
+target player's scope. Existing books keep their text; request a fresh copy after a
+scope or permission change. Operator-written messages and tier hints are preserved.
+The credit definitions
 are the Amendment of
 [`provenance-model.md`](provenance-model.md). With it on, a switched-on gate that requires
 any other advancement vanilla completes on possession, such as `story/obtain_armor` or

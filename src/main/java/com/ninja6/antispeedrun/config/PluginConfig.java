@@ -644,6 +644,19 @@ public record PluginConfig(
             gatedItems = List.copyOf(gatedItems);
         }
 
+        /** Whether personal actions replace vanilla advancements for this player. */
+        public boolean personalCreditApplies(boolean hasRequiredPermission) {
+            return requirePersonalCredit
+                    && (personalCreditScope == CreditScope.ALL || hasRequiredPermission);
+        }
+
+        /** A presentation snapshot whose credit wording matches this player's requirements. */
+        public ItemProgression forViewer(boolean hasRequiredPermission) {
+            return new ItemProgression(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles,
+                    feedbackCooldownSeconds, rejectionMessage, gatedItems,
+                    personalCreditApplies(hasRequiredPermission), countStructureLoot, personalCreditScope);
+        }
+
         /** With {@link CreditScope#ALL}, the scope every server had before the setting existed. */
         public ItemProgression(boolean enabled, boolean dropRecallEnabled, boolean gateDispensers,
                                boolean gateNestedBundles, int feedbackCooldownSeconds,

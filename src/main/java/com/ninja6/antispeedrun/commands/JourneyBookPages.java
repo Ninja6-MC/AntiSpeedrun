@@ -143,11 +143,17 @@ public final class JourneyBookPages {
      * @return at least one page, and never more than {@link #MAX_PAGES}
      */
     public static List<String> pages(PluginConfig config) {
+        return pages(config, config.itemProgression());
+    }
+
+    /** Pages describing the recipient's effective personal-credit scope. */
+    public static List<String> pages(PluginConfig config, PluginConfig.ItemProgression viewerItems) {
         Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(viewerItems, "viewerItems");
         List<List<Paragraph>> sections = new ArrayList<>();
         sections.add(cover(config));
-        sections.add(dimensions(config));
-        items(config).ifPresent(sections::add);
+        sections.add(dimensions(config, viewerItems));
+        items(viewerItems).ifPresent(sections::add);
         otherRules(config).ifPresent(sections::add);
         sections.add(commands());
 
@@ -190,7 +196,7 @@ public final class JourneyBookPages {
         return page;
     }
 
-    private static List<Paragraph> dimensions(PluginConfig config) {
+    private static List<Paragraph> dimensions(PluginConfig config, PluginConfig.ItemProgression viewerItems) {
         List<Paragraph> section = new ArrayList<>();
         section.add(Paragraph.text(HEADING, "Dimensions"));
         List<Milestone> gates = Milestone.dimensionGates(config);
@@ -201,22 +207,21 @@ public final class JourneyBookPages {
         for (Milestone gate : gates) {
             section.add(Paragraph.text(BODY, ""));
             section.add(Paragraph.text("<dark_blue><bold>", gate.displayName()));
-            section.addAll(requirement(gate.requirement(), config.itemProgression()));
+            section.addAll(requirement(gate.requirement(), viewerItems));
         }
         if (gates.size() == 1) {
             String open = gates.get(0).id().equals(Milestone.NETHER_ID) ? "The End" : "The Nether";
             section.add(Paragraph.text(BODY, ""));
             section.add(Paragraph.text(NOTE, open + " is not gated."));
         }
-        if (CreditedActions.lootCounts(config.itemProgression())) {
+        if (CreditedActions.lootCounts(viewerItems)) {
             section.add(Paragraph.text(BODY, ""));
             section.add(Paragraph.text(NOTE, CreditedActions.LOOT_NOTE));
         }
         return section;
     }
 
-    private static Optional<List<Paragraph>> items(PluginConfig config) {
-        PluginConfig.ItemProgression items = config.itemProgression();
+    private static Optional<List<Paragraph>> items(PluginConfig.ItemProgression items) {
         if (!items.enabled() || items.gatedItems().isEmpty()) {
             return Optional.empty();
         }

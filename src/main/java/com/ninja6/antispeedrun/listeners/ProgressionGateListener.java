@@ -36,6 +36,8 @@ import org.bukkit.util.Vector;
 import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
+import com.ninja6.antispeedrun.progression.IdleReminderRules;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
 import com.ninja6.antispeedrun.progression.PlayerStateMap;
 import com.ninja6.antispeedrun.storage.DimensionUnlock;
@@ -1164,6 +1166,9 @@ public final class ProgressionGateListener implements Listener {
         MiniMessage mini = MiniMessage.miniMessage();
         player.sendMessage(mini.deserialize(
                 DimensionGateRules.gate(dimension, config).rejectionMessage()));
+        IdleReminderRules.outstanding(result,
+                PersonalCreditAdvancementLookup.presentation(player, config.itemProgression()))
+                .ifPresent(hint -> player.sendMessage(mini.deserialize("<gray>" + mini.escapeTags(hint))));
         DimensionGateRules.fallbackHint(result).ifPresent(hint ->
                 player.sendMessage(mini.deserialize("<gray>" + mini.escapeTags(hint))));
     }
