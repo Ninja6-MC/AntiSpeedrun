@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-16
+
+Anti-speedrun-only defaults for new installs and hardened dimension gates. Read the
+upgrade notes below before updating from 0.3.x.
+
 ### Added
 - `CORE` is the fresh-install profile, keeping dimension gates and personal credits
   enabled while item and trim progression, boss scaling and Mending trade gating are
@@ -42,6 +47,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every bundled item tier table includes all 16 dyed shulker boxes in the End tier
   alongside the uncolored box. Existing configurations need `"*_SHULKER_BOX"` added
   to the End tier's `match-patterns`, or a preset reapplied.
+
+### Upgrading from 0.3.x
+- Your `config.yml` is kept. `CORE` applies only to a fresh install; run
+  `/asr profile apply CORE` to switch an existing server to it.
+- Plugin and command teleports into a locked Nether or End are now checked on Paper,
+  including on servers whose file lacks `dimension-gates.gate-plugin-teleports`. Give
+  staff a gate bypass if they move players with EssentialsX's `/tp`.
+- A server that turned item progression off to work around a tier collision will not
+  start until the collision is fixed, because `gated-items` is now validated anyway.
+- Players parked in a locked dimension without personal credits are returned to the
+  Overworld on their next login. Grant credits first with `/asr credit grant` if needed.
+- Add `"*_SHULKER_BOX"` to the End tier's `match-patterns`, or reapply a preset, to gate
+  the dyed shulker boxes.
 
 ## [0.3.1] - 2026-10-12
 
