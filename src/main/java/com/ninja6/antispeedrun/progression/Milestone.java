@@ -71,7 +71,7 @@ public record Milestone(String id, String displayName, MilestoneRequirement requ
         keys.addAll(config.dimensionGates().nether().requireAdvancements());
         keys.addAll(config.dimensionGates().theEnd().requireAdvancements());
         for (ItemTier tier : config.itemProgression().gatedItems()) {
-            keys.addAll(tier.requireAdvancements());
+            keys.addAll(MilestoneRequirement.of(tier).lookupKeys());
         }
         // Section 8 gates one villager trade on a single advancement; it is read on the same hot
         // path as everything else, so it belongs in the same capture -- but only when the gate is

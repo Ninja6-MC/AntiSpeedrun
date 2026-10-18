@@ -58,7 +58,7 @@ public class GateCollisionException extends Exception {
     }
 
     private static String requirements(PluginConfig.ItemTier tier) {
-        return "(advancements=" + tier.requireAdvancements()
+        return "(advancements=" + tier.requireAdvancements() + ", credits=" + tier.requireCredits()
                 + ", playtime-hours=" + tier.requirePlaytimeHours()
                 + ", account-age-days=" + tier.requireAccountAgeDays() + ")";
     }

@@ -90,6 +90,25 @@ class JourneyBookPagesTest {
         return String.join("\n---\n", JourneyBookPages.pages(config));
     }
 
+    @Test
+    void creditOnlyTierNamesItsAction() {
+        ItemTier tier = new ItemTier("shulker", List.of(), List.of(), List.of("SHULKER_BOX"),
+                List.of(), List.of(com.ninja6.antispeedrun.storage.PersonalCredit.KILL_SHULKER),
+                0.0D, 0, "");
+        PluginConfig config = withTiers(List.of(tier));
+        String text = book(config);
+        assertTrue(text.contains("Kill a shulker yourself"));
+        assertFalse(text.contains("antispeedrun:credit/"));
+        ItemProgression items = config.itemProgression();
+        ItemProgression off = new ItemProgression(items.enabled(), items.dropRecallEnabled(),
+                items.gateDispensers(), items.gateNestedBundles(), items.feedbackCooldownSeconds(),
+                items.rejectionMessage(), items.gatedItems(), false, items.countStructureLoot());
+        String outsideScope = String.join(" ", JourneyBookPages.pages(config, off));
+        assertFalse(outsideScope.contains("Kill a shulker yourself"));
+        assertFalse(outsideScope.contains("antispeedrun:credit/"));
+        assertTrue(outsideScope.contains("Open from the start."));
+    }
+
     @Nested
     @DisplayName("content")
     class Content {

@@ -76,6 +76,17 @@ class ProgressCardTest {
         return text.toString();
     }
 
+    @Test
+    void explicitCreditNamesTheActionOnCardAndRefusal() {
+        String key = com.ninja6.antispeedrun.storage.PersonalCredit.KILL_WITHER.requirementKey();
+        MilestoneProgress progress = missingAdvancement("Beacon", key);
+        String text = plain(ProgressCardRenderer.card("Reader", List.of(progress), Style.SIMPLE, ITEMS));
+        assertTrue(text.contains("kill a Wither yourself"));
+        assertFalse(text.contains(key));
+        assertEquals("kill a Wither yourself",
+                com.ninja6.antispeedrun.listeners.ItemGateRules.outstanding(progress.result(), ITEMS));
+    }
+
     @Nested
     @DisplayName("rows")
     class Rows {

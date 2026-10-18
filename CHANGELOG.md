@@ -8,9 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - Optional personal brewing progression for configurable beneficial potion effects,
   including splash, lingering and tipped-arrow delivery. The gate starts disabled;
   brewing credits are recorded per player in `brewed-effects.yml`.
+- Item tiers support `require-credits`, an optional list of personal credit IDs required
+  alongside advancements and time. `kill-shulker`, `kill-wither` and `kill-evoker` can be
+  configured, persisted, granted and revoked, and are named in generated progression
+  guidance. Their automatic kill recorders are separate features. Explicit credits follow
+  the personal-credit toggle and scope.
+- Config schema version 2 preserves existing tiers and defaults missing credit lists to
+  `[]`; migration changes only the version stamp in a version 1 file.
 
 ## [0.4.1] - 2026-10-16
 

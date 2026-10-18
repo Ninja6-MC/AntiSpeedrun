@@ -203,7 +203,7 @@ public final class ProgressionManager {
         if (requirement.isEmpty()) {
             return EligibilityResult.pass();
         }
-        return MilestoneEvaluator.evaluate(requirement, snapshot(player, config, requirement.advancements()));
+        return MilestoneEvaluator.evaluate(requirement, snapshot(player, config, requirement.lookupKeys()));
     }
 
     /** Evaluates a whole milestone. */

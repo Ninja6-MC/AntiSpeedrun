@@ -36,6 +36,26 @@ class MilestoneEvaluatorTest {
         return snapshot(queried, earned, Set.of(), 100.0D, 365L, true);
     }
 
+    @Test
+    void explicitCreditsAreConjunctiveAndNeverWaived() {
+        var credit = com.ninja6.antispeedrun.storage.PersonalCredit.KILL_SHULKER;
+        String key = credit.requirementKey();
+        MilestoneRequirement requirement = new MilestoneRequirement(
+                List.of("custom:quest"), List.of(credit), 2.0D, 3);
+        assertFalse(requirement.isEmpty());
+        assertEquals(List.of("custom:quest", key), requirement.lookupKeys());
+        EligibilityResult missing = MilestoneEvaluator.evaluate(requirement,
+                snapshot(Set.of("custom:quest", key), Set.of("custom:quest"), Set.of(key),
+                        1.0D, 2L, true));
+        assertFalse(missing.eligible());
+        assertEquals(List.of(key), missing.missingAdvancements());
+        assertTrue(missing.unresolvableAdvancements().isEmpty());
+        assertEquals(1.0D, missing.missingPlaytimeHours());
+        assertEquals(1, missing.missingAccountAgeDays());
+        assertTrue(MilestoneEvaluator.evaluate(requirement,
+                withAdvancements(Set.of("custom:quest", key), Set.of("custom:quest", key))).eligible());
+    }
+
     @Nested
     @DisplayName("advancement requirements")
     class Advancements {

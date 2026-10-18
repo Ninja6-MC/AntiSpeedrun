@@ -38,6 +38,10 @@ import com.ninja6.antispeedrun.storage.PersonalCreditStore;
  *   <li>Every other key, and every key while the toggle is off, is the wrapped lookup's answer.</li>
  * </ul>
  *
+ * <p>Explicit {@code require-credits} keys are answered directly from the store, without asking
+ * vanilla to resolve an advancement. They are satisfied outside the configured scope or while
+ * personal credits are disabled.
+ *
  * <p>Both settings are read from the live snapshot on every call, so {@code /asr reload} changes the
  * answer at once. {@code count-structure-loot} decides only whether a {@code loot} record counts;
  * the record itself is kept either way, so switching it back restores the answer.
@@ -57,7 +61,7 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
     private final Supplier<PluginConfig> config;
 
     /**
-     * @param delegate the server-backed lookup, consulted for every key
+     * @param delegate the server-backed lookup, consulted for advancement keys
      * @param credits  the recorded credits
      * @param config   the live configuration snapshot
      */
@@ -75,6 +79,13 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
 
     @Override
     public State state(Player player, String key) {
+        var explicit = PersonalCredit.fromRequirementKey(key);
+        if (explicit.isPresent()) {
+            PluginConfig.ItemProgression settings = config.get().itemProgression();
+            return !applies(player, settings)
+                    || credits.has(player.getUniqueId(), explicit.get(), settings.countStructureLoot())
+                    ? State.EARNED : State.NOT_EARNED;
+        }
         State vanilla = delegate.state(player, key);
         Set<PersonalCredit> needed = REQUIRED.get(key);
         if (needed == null || vanilla == State.UNRESOLVABLE) {
@@ -107,6 +118,9 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
     private static Map<String, Set<PersonalCredit>> required() {
         Map<String, EnumSet<PersonalCredit>> grouped = new HashMap<>();
         for (PersonalCredit credit : PersonalCredit.values()) {
+            if (credit.advancement() == null) {
+                continue;
+            }
             grouped.computeIfAbsent(credit.advancement(), k -> EnumSet.noneOf(PersonalCredit.class))
                     .add(credit);
         }
