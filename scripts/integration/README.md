@@ -210,3 +210,11 @@ Server behaviours that already cost a cycle:
   `minecraft:ancient_cities` set (spacing 24, separation 8, salt 20083232) from the seed
   `/seed` reports, which `trims.city_chunk` reproduces, so the probe enters a generated city.
 
+
+
+`elytra_collection` loads newly located End Cities and checks that actual generated ship
+frames receive provenance. A real player removes the original Elytra, including a cancelled
+attempt first, then refills the frame. Unmarked frames and loose gifts cannot earn credit;
+the successful collector and an operator-restored credit can pick up Elytra. The probe uses
+`/asrprobe frame <player> inspect|cancel-next|stage|approach <query>` for observation, protection-plugin cancellation and approaches from the frame's actual facing,
+and the player's normal attack and interact packets for removals and refills.

@@ -278,7 +278,7 @@ public record PluginConfig(
     private static ItemProgression parseItemProgression(ConfigReader r) throws ConfigLoadException {
         r.expect("enabled", "drop-recall-enabled", "gate-dispensers", "gate-nested-bundles",
                 "feedback-cooldown-seconds", "rejection-message", "require-personal-credit",
-                "count-structure-loot", "personal-credit-scope", "gated-items");
+                "count-structure-loot", "personal-credit-scope", "require-elytra-collection", "gated-items");
 
         // Read before the tiers, and handed to each of them: item-progression.enabled: false gates
         // no item at all, so a key a tier names under it is not gating this server would fail to
@@ -315,7 +315,8 @@ public record PluginConfig(
                 parsed,
                 r.bool("require-personal-credit", true),
                 r.bool("count-structure-loot", true),
-                r.enumValue("personal-credit-scope", CreditScope.class, CreditScope.ALL));
+                r.enumValue("personal-credit-scope", CreditScope.class, CreditScope.ALL),
+                r.bool("require-elytra-collection", false));
     }
 
     /**
@@ -629,6 +630,8 @@ public record PluginConfig(
      *                                diamond, never for smelting or crafting; default {@code true}
      * @param personalCreditScope     which players {@code requirePersonalCredit} applies to;
      *                                default {@link CreditScope#ALL}
+     * @param requireElytraCollection require personal collection from an original natural End Ship
+     *                                frame, independently of other credits; default {@code false}
      */
     public record ItemProgression(
             boolean enabled,
@@ -640,7 +643,8 @@ public record PluginConfig(
             List<ItemTier> gatedItems,
             boolean requirePersonalCredit,
             boolean countStructureLoot,
-            CreditScope personalCreditScope) {
+            CreditScope personalCreditScope,
+            boolean requireElytraCollection) {
         public ItemProgression {
             Objects.requireNonNull(rejectionMessage, "rejectionMessage");
             Objects.requireNonNull(personalCreditScope, "personalCreditScope");
@@ -657,7 +661,25 @@ public record PluginConfig(
         public ItemProgression forViewer(boolean hasRequiredPermission) {
             return new ItemProgression(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles,
                     feedbackCooldownSeconds, rejectionMessage, gatedItems,
-                    personalCreditApplies(hasRequiredPermission), countStructureLoot, personalCreditScope);
+                    personalCreditApplies(hasRequiredPermission), countStructureLoot, personalCreditScope,
+                    elytraCollectionApplies(hasRequiredPermission));
+        }
+
+        /** Whether personally collecting an Elytra is required for this player. */
+        public boolean elytraCollectionApplies(boolean hasRequiredPermission) {
+            return requireElytraCollection
+                    && (personalCreditScope == CreditScope.ALL || hasRequiredPermission);
+        }
+
+        /** Existing callers keep the optional collection requirement switched off. */
+        public ItemProgression(boolean enabled, boolean dropRecallEnabled, boolean gateDispensers,
+                               boolean gateNestedBundles, int feedbackCooldownSeconds,
+                               String rejectionMessage, List<ItemTier> gatedItems,
+                               boolean requirePersonalCredit, boolean countStructureLoot,
+                               CreditScope personalCreditScope) {
+            this(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles, feedbackCooldownSeconds,
+                    rejectionMessage, gatedItems, requirePersonalCredit, countStructureLoot,
+                    personalCreditScope, false);
         }
 
         /** With {@link CreditScope#ALL}, the scope every server had before the setting existed. */

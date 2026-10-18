@@ -168,6 +168,15 @@ const ops = {
     return { block: block.name }
   },
 
+  async use_entity ({ entity }) {
+    const target = nearest(entity)
+    if (!target) throw new Error(`no ${entity} in view`)
+    await bot.lookAt(target.position, true)
+    bot.activateEntity(target)
+    await sleep(400)
+    return { target: target.id }
+  },
+
   // One melee hit. offset targets a dragon part: its entity id is the dragon's plus one (head)
   // to eight, in vanilla's part order, and the server resolves it with getEntityOrPart.
   async attack ({ entity, offset }) {

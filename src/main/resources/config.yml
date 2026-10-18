@@ -126,6 +126,9 @@ item-progression:
   # every gate that requires one of them, the dimension gates included, even while enabled
   # above is false. /advancement grant and revoke no longer change them. Nothing carries over
   # from vanilla advancements already earned. See docs/provenance-model.md.
+  # Optional: collect your own Elytra from a newly generated End Ship frame.
+  # Older unmarked ships cannot earn credit; see docs/provenance-model.md.
+  require-elytra-collection: false
   require-personal-credit: true
   # Loot the player generates themselves (a structure chest they open first, a trial vault) may
   # stand in for mining iron or diamonds, never for smelting or crafting. Takes effect on reload.

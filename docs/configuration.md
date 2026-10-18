@@ -220,6 +220,7 @@ so that progression is advancement-driven by default.
 | `feedback-cooldown-seconds` | `3` | Minimum `0`. Throttle between refusal messages. |
 | `rejection-message` | A built-in message | MiniMessage with `{ITEM}` and `{REQUIREMENT}` placeholders. |
 | `require-personal-credit` | `true` | Answer the six possession-triggered advancements from personal credits. Applies to every gate, dimension gates included, whatever `enabled` says. |
+| `require-elytra-collection` | `false` | Require personal collection from an original natural End Ship frame before acquiring or equipping Elytra. Independent of `require-personal-credit`, follows `personal-credit-scope`, and needs item progression enabled. Ships generated before installation cannot earn credit; see the [upgrade limitation](provenance-model.md#optional-personal-elytra-collection). |
 | `count-structure-loot` | `true` | Loot the player generates may stand in for mining iron or diamonds, never for smelting or crafting. |
 | `personal-credit-scope` | `ALL` | Who `require-personal-credit` applies to. `ALL`: every player. `PERMISSION`: only holders of `antispeedrun.credit.required`; everyone else is gated on vanilla advancements, as with the toggle off. |
 | `gated-items` | none | A map of tier id to tier. There is no code default: with none declared, no item is gated. |

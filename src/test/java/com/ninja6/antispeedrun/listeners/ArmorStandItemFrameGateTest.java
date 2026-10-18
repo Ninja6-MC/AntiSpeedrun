@@ -35,10 +35,12 @@ class ArmorStandItemFrameGateTest {
     }
 
     @Test
-    @DisplayName("the item frame event is handled at HIGH and ignores cancelled events")
+    @DisplayName("the item frame gate precedes MONITOR credit recording and ignores cancellations")
     void itemFrameSubscribed() throws NoSuchMethodException {
-        assertHighAndIgnoresCancelled(ItemProgressionListener.class
-                .getMethod("onItemFrameChange", PlayerItemFrameChangeEvent.class));
+        EventHandler annotation = ItemProgressionListener.class
+                .getMethod("onItemFrameChange", PlayerItemFrameChangeEvent.class).getAnnotation(EventHandler.class);
+        assertEquals(EventPriority.HIGHEST, annotation.priority());
+        assertTrue(annotation.ignoreCancelled());
     }
 
     /**
