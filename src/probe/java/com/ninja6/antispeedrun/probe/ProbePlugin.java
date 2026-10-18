@@ -112,6 +112,7 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
 
     /** The player whose next block break has its drops disabled, once; null when not armed. */
     private final AtomicReference<String> noDrops = new AtomicReference<>();
+    private final AtomicReference<String> cancelFrame = new AtomicReference<>();
 
     @Override
     public void onEnable() {
@@ -133,6 +134,8 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             teleport(args);
         } else if (args.length == 9 && (args[0].equals("near") || args[0].equals("remove"))) {
             near(args);
+        } else if (args.length == 4 && args[0].equals("frame")) {
+            frame(args[1], args[2], args[3]);
         } else if (args.length == 3 && args[0].equals("potion-effects")) {
             Player player = Bukkit.getPlayerExact(args[1]);
             if (player != null) player.getScheduler().run(this, task ->
@@ -175,6 +178,79 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                     + "| enter <player> <dimension> <structure> <x> <z> <query>");
         }
         return true;
+    }
+
+    private void frame(String name, String action, String query) {
+        if (action.equals("cancel-next")) {
+            cancelFrame.set(name);
+            log("frame query=" + query + " armed=" + name);
+            return;
+        }
+        Player player = Bukkit.getPlayerExact(name);
+        if (player == null) {
+            log("frame query=" + query + " offline");
+            return;
+        }
+        player.getScheduler().run(this, task -> {
+            org.bukkit.entity.ItemFrame closest = null;
+            double distance = Double.MAX_VALUE;
+            for (Entity entity : player.getNearbyEntities(12, 12, 12)) {
+                if (entity instanceof org.bukkit.entity.ItemFrame found) {
+                    double d = found.getLocation().distanceSquared(player.getLocation());
+                    if (d < distance) { closest = found; distance = d; }
+                }
+            }
+            if (closest == null) {
+                log("frame query=" + query + " none");
+                return;
+            }
+            org.bukkit.entity.ItemFrame chosen = closest;
+            chosen.getScheduler().run(this, frameTask -> {
+                if (action.equals("stage") || action.equals("approach")) {
+                    org.bukkit.block.BlockFace facing = chosen.getFacing();
+                    Location at = chosen.getLocation();
+                    double offset = action.equals("stage") ? 2.5 : 0.75;
+                    Location to = at.clone().add(facing.getModX() * offset, 0, facing.getModZ() * offset);
+                    to.setY(at.getBlockY() - 1);
+                    player.teleportAsync(to, PlayerTeleportEvent.TeleportCause.PLUGIN).thenAccept(moved ->
+                            log("frame query=" + query + " moved=" + moved + " facing=" + facing
+                                    + " to=" + to.getX() + "," + to.getY() + "," + to.getZ()));
+                } else {
+                    log("frame query=" + query + " item=" + chosen.getItem().getType()
+                            + " natural=" + naturalFrame(chosen));
+                }
+            }, null);
+        }, null);
+    }
+
+    private static boolean naturalFrame(org.bukkit.entity.ItemFrame frame) {
+        return frame.getPersistentDataContainer().has(new NamespacedKey("antispeedrun", "natural-elytra-frame"),
+                org.bukkit.persistence.PersistentDataType.BYTE);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void frameSpawn(EntityAddToWorldEvent event) {
+        if (event.getEntity() instanceof org.bukkit.entity.ItemFrame frame
+                && frame.getItem().getType() == Material.ELYTRA) {
+            Location at = frame.getLocation();
+            log("elytra-spawn x=" + at.getBlockX() + " y=" + at.getBlockY() + " z=" + at.getBlockZ()
+                    + " natural=" + naturalFrame(frame));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void cancelFrame(io.papermc.paper.event.player.PlayerItemFrameChangeEvent event) {
+        String armed = cancelFrame.get();
+        if (event.getPlayer().getName().equals(armed) && cancelFrame.compareAndSet(armed, null)) {
+            event.setCancelled(true);
+            log("frame-cancel player=" + armed);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void frameChanged(io.papermc.paper.event.player.PlayerItemFrameChangeEvent event) {
+        log("frame-change player=" + event.getPlayer().getName() + " action=" + event.getAction()
+                + " item=" + event.getItemStack().getType() + " cancelled=" + event.isCancelled());
     }
 
     /**

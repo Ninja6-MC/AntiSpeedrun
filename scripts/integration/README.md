@@ -212,6 +212,13 @@ Server behaviours that already cost a cycle:
 
 
 
+`elytra_collection` loads newly located End Cities and checks that actual generated ship
+frames receive provenance. A real player removes the original Elytra, including a cancelled
+attempt first, then refills the frame. Unmarked frames and loose gifts cannot earn credit;
+the successful collector and an operator-restored credit can pick up Elytra. The probe uses
+`/asrprobe frame <player> inspect|cancel-next|stage|approach <query>` for observation, protection-plugin cancellation and approaches from the frame's actual facing,
+and the player's normal attack and interact packets for removals and refills.
+
 `potion_brewing` checks real brewing with two players: converting a gifted Speed potion to
 splash earns nothing, hand-loading Sugar credits only its loader, a player without the
 credit cannot pick up Speed, and brewing Speed themselves permits that same pickup. A

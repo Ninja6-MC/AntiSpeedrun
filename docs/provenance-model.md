@@ -425,6 +425,34 @@ recorded here so that any future proposal to reintroduce stack tagging must addr
 rather than rediscover it.
 
 
+## Optional personal Elytra collection
+
+`item-progression.require-elytra-collection: true` requires each player to remove an Elytra
+personally from an untouched, naturally generated End Ship item frame before acquiring or
+equipping Elytra. The option is **off by default**, independent of
+`require-personal-credit`, and follows `personal-credit-scope` and the existing item bypasses.
+Item progression must be enabled. The normal item-tier requirements still apply to the
+collecting player: finding a ship does not waive its advancement, playtime or account-age
+requirements. Each ship has one original Elytra, so later players on a shared server must
+find another ship.
+
+**Upgrade limitation:** only ships generated while this version is installed carry provable
+frame provenance. Even an untouched ship generated before installation or upgrade cannot
+earn the credit. Existing loaded frames are never inferred natural from their location,
+contents, nearby blocks or structure membership. Find a newly generated ship, or have an
+operator restore the player's credit with `/asr credit grant <player> elytra`. A vanilla
+advancement grant does not restore this credit while the option applies.
+
+The recorder always runs, including while the option is off. Natural End City world generation
+marks the generated Elytra frame entity, without tagging the Elytra stack. Player-placed,
+command-generated and refilled frames cannot earn credit. Rotation preserves the original
+frame; a successful removal consumes its marker. Cancellation grants nothing and preserves
+its marker. At the item-frame gate only the missing collection requirement is temporarily
+waived for that original removal; the uncancelled event then stores `elytra` with source
+`action`, backed by `minecraft:end/elytra`, before pickup. Gifts, chest withdrawals and
+refilled frames remain subject to the collection requirement. The credit survives restart
+in `personal-credits.yml`; `/asr credit revoke <player> elytra` removes it.
+
 ## Personal potion effects
 
 The optional `potion-progression.enabled` gate is off by default. Unlike material tiers,

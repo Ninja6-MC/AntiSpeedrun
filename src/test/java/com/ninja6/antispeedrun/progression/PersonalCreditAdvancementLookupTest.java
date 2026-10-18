@@ -276,4 +276,29 @@ class PersonalCreditAdvancementLookupTest {
     void protectedKeysMatchConfig() {
         assertEquals(PossessionAdvancements.CREDITED, PersonalCreditAdvancementLookup.protectedKeys());
     }
+    @Test
+    void elytraCollectionUsesItsOwnToggleAndPermissionScope() {
+        PluginConfig base = settings(false, false, CreditScope.PERMISSION);
+        PluginConfig.ItemProgression items = base.itemProgression();
+        config.set(new PluginConfig(base.profile(), base.dimensionGates(),
+                new PluginConfig.ItemProgression(items.enabled(), items.dropRecallEnabled(),
+                        items.gateDispensers(), items.gateNestedBundles(), items.feedbackCooldownSeconds(),
+                        items.rejectionMessage(), items.gatedItems(), false, false, CreditScope.PERMISSION, true),
+                base.trimProgression(), base.idleReminder(), base.progressCard(), base.journeyBook(),
+                base.bossScaling(), base.antiCheese(), base.villagerProgression(), base.warnings()));
+        String key = "minecraft:end/elytra";
+        vanilla.put(key, State.EARNED);
+        assertEquals(State.EARNED, lookup.state(player, key));
+        permissions.add(PersonalCreditAdvancementLookup.REQUIRED_PERMISSION);
+        assertEquals(State.NOT_EARNED, lookup.state(player, key));
+        credits.record(id, PersonalCredit.ELYTRA, CreditSource.ACTION);
+        vanilla.put(key, State.NOT_EARNED);
+        assertEquals(State.EARNED, lookup.state(player, key));
+        vanilla.put(key, State.UNRESOLVABLE);
+        assertEquals(State.UNRESOLVABLE, lookup.state(player, key));
+        config.set(settings(true, true));
+        vanilla.put(key, State.NOT_EARNED);
+        assertEquals(State.NOT_EARNED, lookup.state(player, key));
+    }
+
 }

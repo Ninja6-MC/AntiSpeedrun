@@ -38,6 +38,9 @@ public final class CreditedActions {
      */
     public static Optional<String> action(String key, PluginConfig.ItemProgression items) {
         Objects.requireNonNull(items, "items");
+        if ("minecraft:end/elytra".equals(key) && items.requireElytraCollection()) {
+            return Optional.of("collect an Elytra yourself from an untouched natural End Ship frame");
+        }
         if (key == null || !items.requirePersonalCredit()) {
             return Optional.empty();
         }
@@ -47,6 +50,7 @@ public final class CreditedActions {
                 case KILL_SHULKER -> "kill a shulker yourself";
                 case KILL_WITHER -> "kill a Wither yourself";
                 case KILL_EVOKER -> "kill an Evoker yourself";
+                case ELYTRA -> "collect an Elytra yourself from an untouched natural End Ship frame";
                 case MINED_IRON -> items.countStructureLoot()
                         ? "mine iron ore (or loot iron from a chest you open first)" : "mine iron ore";
                 case SMELTED_IRON -> "smelt iron in a furnace you loaded yourself";

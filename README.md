@@ -150,6 +150,13 @@ keep their configuration. Apply `SMP_STANDARD` to opt in to item and trim gating
 or enable either section individually; applying a preset replaces the whole file
 after taking a backup. Personal-action credits still apply to dimension gates.
 
+Optional personal Elytra collection is enabled with
+`item-progression.require-elytra-collection: true` while item progression is enabled.
+Each player must collect an original Elytra from a newly generated End Ship; older unmarked
+ships cannot earn credit. See the [collection and upgrade notes](docs/provenance-model.md#optional-personal-elytra-collection)
+before enabling it on an existing world. Operators can restore a credit with
+`/asr credit grant <player> elytra`.
+
 ## Documentation
 
 - [Administration guide](docs/administration.md) -- installation, first start, commands

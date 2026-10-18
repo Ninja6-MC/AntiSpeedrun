@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the personal-credit toggle and scope.
 - Config schema version 2 preserves existing tiers and defaults missing credit lists to
   `[]`; migration changes only the version stamp in a version 1 file.
+- Optional personal Elytra collection from an original natural End Ship frame, off by default.
+  Existing unmarked ships cannot earn credit; generate new ships or restore the credit with
+  `/asr credit grant <player> elytra`. Player-placed and refilled frames cannot earn it.
 
 ## [0.4.1] - 2026-10-16
 

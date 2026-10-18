@@ -95,6 +95,9 @@ public final class PossessionAdvancements {
             check("villager-progression.required-advancement",
                     List.of(villagers.requiredAdvancement()), warnings);
         }
+        if (items.requireElytraCollection()) {
+            warnings.removeIf(warning -> warning.contains("\"minecraft:end/elytra\""));
+        }
         return warnings;
     }
 

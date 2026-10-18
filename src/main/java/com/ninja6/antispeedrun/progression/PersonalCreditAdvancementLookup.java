@@ -72,9 +72,10 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
         this.config = Objects.requireNonNull(config, "config");
     }
 
-    /** The advancement keys answered from credits while the toggle is on. */
+    /** The keys controlled by require-personal-credit; Elytra has its own optional switch. */
     public static Set<String> protectedKeys() {
-        return REQUIRED.keySet();
+        return REQUIRED.keySet().stream().filter(key -> !key.equals("minecraft:end/elytra"))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     @Override
@@ -92,7 +93,9 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
             return vanilla;
         }
         PluginConfig.ItemProgression settings = config.get().itemProgression();
-        if (!applies(player, settings)) {
+        if (!(key.equals("minecraft:end/elytra")
+                ? settings.elytraCollectionApplies(player.hasPermission(REQUIRED_PERMISSION))
+                : applies(player, settings))) {
             return vanilla;
         }
         UUID id = player.getUniqueId();
