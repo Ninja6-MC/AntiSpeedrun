@@ -210,3 +210,9 @@ Server behaviours that already cost a cycle:
   `minecraft:ancient_cities` set (spacing 24, separation 8, salt 20083232) from the seed
   `/seed` reports, which `trims.city_chunk` reproduces, so the probe enters a generated city.
 
+
+
+`potion_brewing` checks real brewing with two players: converting a gifted Speed potion to
+splash earns nothing, hand-loading Sugar credits only its loader, a player without the
+credit cannot pick up Speed, and brewing Speed themselves permits that same pickup. A
+mixed Speed-and-Poison drink withholds Speed while retaining Poison.
