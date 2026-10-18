@@ -150,6 +150,15 @@ const ops = {
     return { held: bot.heldItem ? bot.heldItem.name : null }
   },
 
+  // Hold use long enough to drink a potion; the server decides whether it was consumed.
+  async drink () {
+    bot.activateItem()
+    await sleep(2200)
+    bot.deactivateItem()
+    await sleep(300)
+    return { held: bot.heldItem ? bot.heldItem.name : null }
+  },
+
   // Names of the blocks in one column, bottom to top, as this client sees them.
   async column ({ x, z, ymin, ymax }) {
     const names = []
@@ -288,7 +297,7 @@ const ops = {
   // A furnace opens through openBlock: openContainer takes storage blocks only.
   async open_block ({ x, y, z }) {
     const block = blockAt(x, y, z)
-    window = block.name.endsWith('furnace') ? await bot.openBlock(block) : await bot.openContainer(block)
+    window = (block.name.endsWith('furnace') || block.name === 'brewing_stand') ? await bot.openBlock(block) : await bot.openContainer(block)
     return { slots: window.containerItems().map((item) => ({ slot: item.slot, name: item.name, count: item.count })) }
   },
 

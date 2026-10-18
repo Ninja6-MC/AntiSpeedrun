@@ -218,3 +218,8 @@ attempt first, then refills the frame. Unmarked frames and loose gifts cannot ea
 the successful collector and an operator-restored credit can pick up Elytra. The probe uses
 `/asrprobe frame <player> inspect|cancel-next|stage|approach <query>` for observation, protection-plugin cancellation and approaches from the frame's actual facing,
 and the player's normal attack and interact packets for removals and refills.
+
+`potion_brewing` checks real brewing with two players: converting a gifted Speed potion to
+splash earns nothing, hand-loading Sugar credits only its loader, a player without the
+credit cannot pick up Speed, and brewing Speed themselves permits that same pickup. A
+mixed Speed-and-Poison drink withholds Speed while retaining Poison.

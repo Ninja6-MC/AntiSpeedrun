@@ -362,3 +362,17 @@ villager-progression:
   # something this gate does not ask for. Plain text; tags show as written. A legacy § code
   # is refused at load and the default is used.
   hint: "Cure a Zombie Villager (Zombie Doctor)"
+
+# Optional personal brewing gate, independent of material tiers. Uses item bypasses and
+# personal-credit-scope; records brewing even while disabled. Turtle Master gates only
+# Resistance: Slowness, healing and other harmful effects are never restricted.
+potion-progression:
+  enabled: false
+  gated-effects:
+    - fire_resistance
+    - strength
+    - speed
+    - invisibility
+    - turtle_master
+    - regeneration
+    - slow_falling

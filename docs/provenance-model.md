@@ -452,3 +452,33 @@ waived for that original removal; the uncancelled event then stores `elytra` wit
 `action`, backed by `minecraft:end/elytra`, before pickup. Gifts, chest withdrawals and
 refilled frames remain subject to the collection requirement. The credit survives restart
 in `personal-credits.yml`; `/asr credit revoke <player> elytra` removes it.
+
+## Personal potion effects
+
+The optional `potion-progression.enabled` gate is off by default. Unlike material tiers,
+it keys on beneficial effect IDs: a player earns each effect by hand-loading the ingredient
+that first introduces that effect during a successful brew. Bottle collection, hopper input,
+redstone extension, glowstone amplification and conversion of a gifted potion into splash or
+lingering form earn no effect already present. Brewing always records, including while the
+gate is off. The separate versioned `brewed-effects.yml` stores player UUIDs and effect IDs;
+no bottle carries an owner or provenance tag.
+
+The brewing stand keeps an ingredient-loader claim in its persistent block data. Each brew
+consumes one claimed ingredient; another player loading ingredients replaces the claim with
+their own count. Bottle loaders and output collectors receive nothing. Hand-loading Blaze
+Powder directly into the ingredient slot can earn Strength; shift-clicking Blaze Powder is
+not credited because the same gesture can feed the fuel slot. NPC loaders never count.
+
+The configured default effects are Fire Resistance, Strength, Speed, Invisibility, Turtle
+Master (the `resistance` effect), Regeneration and Slow Falling. Healing and harmful effects
+cannot be configured as gated. Turtle Master's Slowness always remains effective. Mixed
+custom potions retain every ungated effect: individual effect events filter the gated
+benefit rather than cancelling the entire mixture. Tipped arrows follow that same rule.
+
+Acquisition checks cover ground pickup, container withdrawal and merchant results. Drinking,
+splash and lingering application also check each recipient's credit, so sharing or dispensing
+a potion cannot grant its benefit to an unqualified recipient. A pure gated splash has its
+intensity set to zero for that recipient; a pure gated cloud excludes that recipient. Mixed
+sources are filtered effect by effect. Item bypass permissions and temporary bypass grants
+apply, as does `item-progression.personal-credit-scope`; the potion switch is independent of
+the material-tier and personal-credit master switches. Feedback uses the item cooldown.
