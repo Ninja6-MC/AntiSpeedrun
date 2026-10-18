@@ -9,7 +9,8 @@ import java.util.Optional;
  *
  * <p>{@code story/smelt_iron} is two credits here, {@link #MINED_IRON} and {@link #SMELTED_IRON},
  * because the Amendment defines it as two sub-credits earned separately and in either order. Every
- * other credit maps to exactly one advancement.
+ * other possession credit maps to exactly one advancement. Independent credits have no vanilla
+ * advancement and are requested through {@code require-credits}.
  */
 public enum PersonalCredit {
 
@@ -32,7 +33,12 @@ public enum PersonalCredit {
     MINE_DIAMOND("mine-diamond", "minecraft:story/mine_diamond", true),
 
     /** {@code nether/obtain_blaze_rod}: the player killed a blaze. */
-    OBTAIN_BLAZE_ROD("obtain-blaze-rod", "minecraft:nether/obtain_blaze_rod", false);
+    OBTAIN_BLAZE_ROD("obtain-blaze-rod", "minecraft:nether/obtain_blaze_rod", false),
+
+    /** Plugin-defined kill credits; event earners are configured separately. */
+    KILL_SHULKER("kill-shulker", null, false),
+    KILL_WITHER("kill-wither", null, false),
+    KILL_EVOKER("kill-evoker", null, false);
 
     private final String id;
     private final String advancement;
@@ -49,7 +55,18 @@ public enum PersonalCredit {
         return id;
     }
 
-    /** The advancement key this credit stands in for. */
+    /** Internal lookup key for an explicit credit requirement, never sent to Bukkit. */
+    public String requirementKey() {
+        return "antispeedrun:credit/" + id;
+    }
+
+    /** The credit named by an internal requirement key, if any. */
+    public static Optional<PersonalCredit> fromRequirementKey(String key) {
+        return key != null && key.startsWith("antispeedrun:credit/")
+                ? fromId(key.substring("antispeedrun:credit/".length())) : Optional.empty();
+    }
+
+    /** The advancement key this credit stands in for, or null for independent credits. */
     public String advancement() {
         return advancement;
     }

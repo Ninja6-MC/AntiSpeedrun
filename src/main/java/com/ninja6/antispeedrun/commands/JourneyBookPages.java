@@ -12,6 +12,7 @@ import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.config.PluginConfig.ItemTier;
 import com.ninja6.antispeedrun.progression.Milestone;
 import com.ninja6.antispeedrun.progression.MilestoneRequirement;
+import com.ninja6.antispeedrun.storage.PersonalCredit;
 
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
@@ -297,7 +298,11 @@ public final class JourneyBookPages {
             lines.add(Paragraph.text(BODY, "Open from the start."));
             return lines;
         }
-        for (String key : requirement.advancements()) {
+        for (String key : requirement.lookupKeys()) {
+            if (PersonalCredit.fromRequirementKey(key).isPresent()
+                    && !items.requirePersonalCredit()) {
+                continue;
+            }
             lines.add(CreditedActions.sentence(key, items)
                     .map(action -> Paragraph.text(BODY, "- " + action))
                     .orElseGet(() -> advancement(key)));
@@ -309,6 +314,9 @@ public final class JourneyBookPages {
             int days = requirement.accountAgeDays();
             lines.add(Paragraph.text(BODY, "- " + days + (days == 1 ? " day" : " days")
                     + " on this server"));
+        }
+        if (lines.isEmpty()) {
+            lines.add(Paragraph.text(BODY, "Open from the start."));
         }
         return lines;
     }

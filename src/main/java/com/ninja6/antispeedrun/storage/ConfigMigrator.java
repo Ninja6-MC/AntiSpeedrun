@@ -98,7 +98,9 @@ public final class ConfigMigrator {
                     // Shipped true in v0.1.x but enforced by nothing; see the class comment.
                     List.of(new Reset("anti-cheese", "block-bed-anchor-boss-damage"),
                             new Reset("anti-cheese", "block-exit-portal-crystal-place"),
-                            new Reset("anti-cheese", "block-gateway-pre-dragon"))));
+                            new Reset("anti-cheese", "block-gateway-pre-dragon"))),
+            // Absent require-credits means []; preserve all existing and custom tier text.
+            new Step(2, List.of(), List.of()));
 
     private static final List<String> VERSION_HEADER = List.of(
             "# Schema version of this file, kept current by the plugin. Do not edit or remove it:",

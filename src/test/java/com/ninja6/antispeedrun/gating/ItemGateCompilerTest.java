@@ -79,6 +79,19 @@ class ItemGateCompilerTest {
     // -------------------------------------------------------------------------------------------
 
     @Test
+    void creditRequirementsParticipateInCollisionPrecedence() throws Exception {
+        String prefix = "item-progression:\n  enabled: true\n  gated-items:\n";
+        String one = "    first:\n      items: [SHULKER_BOX]\n      require-credits: [kill-shulker]\n";
+        String two = "    second:\n      items: [SHULKER_BOX]\n      require-credits: [kill-shulker, kill-wither]\n";
+        assertEquals("second", tierOf(compile(yaml(prefix + one + two)), TestMaterial.SHULKER_BOX));
+        assertEquals("second", tierOf(compile(yaml(prefix + two + one)), TestMaterial.SHULKER_BOX));
+        String incomparable = two.replace("[kill-shulker, kill-wither]", "[kill-evoker]");
+        GateCollisionException failure = assertThrows(GateCollisionException.class,
+                () -> compile(yaml(prefix + one + incomparable)));
+        assertTrue(failure.getMessage().contains("credits="));
+    }
+
+    @Test
     @DisplayName("all bundled tier tables gate uncolored and every dyed shulker box")
     void shulkerColorsInEveryPreset() throws Exception {
         List<String> paths = new ArrayList<>(List.of("/config.yml"));

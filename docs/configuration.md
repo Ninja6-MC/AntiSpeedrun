@@ -176,7 +176,7 @@ is not versioned.
 
 | Key | Default | Notes |
 | :--- | :--- | :--- |
-| `config-version` | `1` | The schema version of the file, written by the plugin. Do not edit or remove it. See [section 3.2](#32-upgrading-an-older-configyml). |
+| `config-version` | `2` | The schema version of the file, written by the plugin. Do not edit or remove it. See [section 3.2](#32-upgrading-an-older-configyml). |
 
 | Key | Default | Notes |
 | :--- | :--- | :--- |
@@ -254,6 +254,21 @@ advancement. While `count-structure-loot` is also on they name the loot alternat
 the book adds that loot counts only from a chest the player opens first, so a friend
 should not open it for them.
 
+Item tiers can require a personal action without a vanilla advancement using
+`require-credits: [kill-shulker]`. The IDs `kill-shulker`, `kill-wither` and `kill-evoker`
+are available for configuration and `/asr credit grant|revoke`; their automatic kill
+recorders are separate features. Existing credit IDs also work, including the individual
+`mined-iron` and `smelted-iron` sub-credits. The command alias `smelt-iron` is not a credit
+ID in configuration: list both sub-credits instead. All listed credits are required.
+These requirements use `require-personal-credit` and `personal-credit-scope`: when the
+toggle is off or the viewer is outside the scope, explicit credits impose no requirement.
+They persist in `personal-credits.yml` and appear as actions in generated guidance.
+Unlike vanilla advancements, explicit credits are never waived for lack of an advancement.
+
+Schema version 2 adds this optional list. Migration from version 1 changes only the version
+stamp, preserving custom tier text, comments and requirements; absent lists default to `[]`.
+No existing item gains a new credit requirement during the upgrade.
+
 Each tier under `gated-items` takes:
 
 | Key | Default | Notes |
@@ -262,6 +277,7 @@ Each tier under `gated-items` takes:
 | `exclude-materials` | `[]` | Material names removed from the tier. |
 | `items` | `[]` | Exact material names. |
 | `require-advancements` | `[]` | List of advancement keys, all required. There is no built-in default, so an empty list requires nothing for the tier. |
+| `require-credits` | `[]` | List of personal credit IDs, all required alongside advancement and time requirements. Unknown IDs or malformed lists reject the load while item progression is enabled; otherwise they warn. |
 | `require-playtime-hours` | `0` | Decimal hours. |
 | `require-account-age-days` | `0` | Whole days. |
 | `hint` | empty | Plain text shown as `{REQUIREMENT}`. |
