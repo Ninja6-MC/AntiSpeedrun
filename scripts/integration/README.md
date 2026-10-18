@@ -67,6 +67,7 @@ for the first time, a trial vault unlocked with a key, suspicious sand brushed),
 | `credit_iron_pickaxe` | Crafting one in a crafting table earns `iron-tools`; a gifted one, a looted one and one a Crafter block makes do not. |
 | `credit_stone_pickaxe` | Crafting one earns `upgrade-tools`; a gifted one does not. |
 | `credit_diamond` | Natural diamond ore mined with an iron pickaxe earns `mine-diamond`; with a stone pickaxe, with silk touch, in creative mode and with the break's drops disabled (`/asrprobe nodrops`) it does not, nor do gifted diamonds or ore the player placed. An unopened chest and a trial vault yielding a diamond earn it from loot, which stops counting while `count-structure-loot` is off. Diamonds taken from a chest the helper opened first earn nothing (the helper is credited). Breaking an unopened loot chest and brushing desert-pyramid suspicious sand credit nobody; what each produced is noted in `results.json` and recorded in the Amendment of `docs/provenance-model.md`. |
+| `credit_wither` | Actual melee participation earns `kill-wither` only when the Wither dies; a nearby spectator earns nothing. Nether Star and Beacon pickup follows that credit. Actual beacon pulses follow credit revocation, permission scope, administrative bypass and the item master switch. |
 | `credit_blaze` | Gifted blaze rods earn no `obtain-blaze-rod`; killing a blaze does. |
 | `credit_npc` | The player carrying `NPC` metadata, as an NPC plugin sets it, mines natural stone and earns nothing; without it, the same break earns `mine-stone`. |
 

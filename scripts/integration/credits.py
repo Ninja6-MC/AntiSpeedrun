@@ -276,6 +276,103 @@ class CreditProbes(Probes):
         self.park_helper()
         self.stand(DIG)
 
+    def credit_wither(self):
+        rule = "Wither rewards"
+        with open(self.config_path, encoding="utf-8") as handle:
+            original = handle.read()
+
+        def fixture(text):
+            text = set_key(text, ITEMS, "require-personal-credit", "true")
+            text = set_key(text, ITEMS, "personal-credit-scope", "ALL")
+            return text.replace("  gated-items:\n", "  gated-items:\n    wither-probe:\n"
+                                "      items: [NETHER_STAR, BEACON]\n"
+                                "      require-credits: [kill-wither]\n", 1)
+
+        def pickup(material, allowed):
+            self.tidy()
+            self.tp(OVERWORLD, CX + 0.5, CY, CZ + 0.5)
+            mark = self.server.mark()
+            self.run(f'execute in {OVERWORLD} run summon item {CX + 0.5} {CY} {CZ + 0.5} '
+                     f'{{Item:{{id:"minecraft:{material}",count:1}},PickupDelay:0}}')
+            time.sleep(3)
+            held = self.count(material)
+            lines = self.server.lines_since(mark, rf"ASRPROBE pickup player={self.player} item={material.upper()}")
+            self.results.check(rule, f"{material}: {'qualified' if allowed else 'unqualified'} pickup",
+                               held == (1 if allowed else 0) and bool(lines), f"held={held}, attempts={lines}")
+
+        def withdraw(material, allowed):
+            self.tidy()
+            self.setblock(CHEST, f'chest{{Items:[{{Slot:0b,id:"minecraft:{material}",count:1}}]}}')
+            self.stand(CHEST)
+            self.client.request("open_block", x=CHEST[0], y=CHEST[1], z=CHEST[2])
+            after = self.client.request("window_click", slot=0, button=0, mode=1)
+            self.client.request("close_window")
+            time.sleep(0.5)
+            held = self.count(material)
+            left = sum(slot["count"] for slot in after["slots"] if slot["name"] == material)
+            self.results.check(rule, f"{material}: {'qualified' if allowed else 'unqualified'} withdrawal",
+                               held == (1 if allowed else 0) and left == (0 if allowed else 1),
+                               f"held={held}, left={left}")
+            self.setblock(CHEST, "air")
+
+        def pulse(label, cancelled):
+            self.run(f"effect clear {self.player} minecraft:speed")
+            mark = self.server.mark()
+            match = self.server.wait_for(rf"ASRPROBE beacon player={self.player} cancelled=(?P<cancelled>\S+)",
+                                         15, since=mark)
+            self.results.check(rule, label, match.group("cancelled") == str(cancelled).lower(), match.group(0))
+
+        try:
+            self.reload(fixture)
+            self.baseline()
+            self.baseline(player=HELPER)
+            pickup("nether_star", False)
+            pickup("beacon", False)
+            withdraw("nether_star", False)
+            withdraw("beacon", False)
+            self.tp(OVERWORLD, CX + 0.5, CY, CZ + 2.5)
+            self.tp(OVERWORLD, CX + 4.5, CY, CZ + 2.5, player=HELPER)
+            self.run(f'execute in {OVERWORLD} run summon wither {CX + 0.5} {CY} {CZ + 0.5} '
+                     '{NoAI:1b,Invul:0,Tags:["asrp"],PersistenceRequired:1b}')
+            time.sleep(2)
+            self.run(f"give {self.player} minecraft:wooden_sword")
+            time.sleep(0.5)
+            self.client.request("hold", item="wooden_sword")
+            self.client.request("attack", entity="wither")
+            time.sleep(1)
+            self.expect("damage before death earns no credit", "kill-wither", False)
+            self.run("kill @e[type=minecraft:wither,tag=asrp]")
+            time.sleep(2)
+            self.expect("contributor earns credit on death", "kill-wither", True, "action")
+            self.expect("nearby spectator earns nothing", "kill-wither", False, player=HELPER)
+            pickup("nether_star", True)
+            pickup("beacon", True)
+            withdraw("nether_star", True)
+            withdraw("beacon", True)
+
+            # A real beacon emits periodic pulses, observed after cancellation settles.
+            self.run(f"execute in {OVERWORLD} run fill {CX - 1} {CY - 1} {CZ - 1} "
+                     f"{CX + 1} {CY - 1} {CZ + 1} minecraft:iron_block")
+            self.run(f"execute in {OVERWORLD} run fill {CX} {CY + 1} {CZ} {CX} 319 {CZ} minecraft:air")
+            self.run(f'execute in {OVERWORLD} run setblock {CX} {CY} {CZ} '
+                     'minecraft:beacon{primary_effect:"minecraft:speed"}')
+            self.tp(OVERWORLD, CX + 2.5, CY, CZ + 0.5)
+            pulse("contributor receives beacon effect", False)
+            self.credit("revoke", "kill-wither")
+            pulse("revoking credit blocks next beacon pulse without reload", True)
+            self.reload(lambda text: set_key(text, ITEMS, "personal-credit-scope", "PERMISSION"))
+            pulse("outside permission scope receives beacon effect", False)
+            self.reload(lambda text: set_key(text, ITEMS, "personal-credit-scope", "ALL"))
+            self.server.query(f"asr bypass {self.player} 30s", r"[Bb]ypass", timeout=15)
+            pulse("administrative bypass receives beacon effect", False)
+            self.server.query(f"asr bypass {self.player} off", r"[Bb]ypass", timeout=15)
+            self.reload(lambda text: set_key(text, ITEMS, "enabled", "false"))
+            pulse("disabled item progression receives beacon effect", False)
+        finally:
+            self.run("kill @e[type=minecraft:wither,tag=asrp]")
+            self.setblock((CX, CY, CZ), "air")
+            self.reload(lambda text: original)
+
     # ------------------------------------------------------------------ iron tier: mine_stone
 
     def credit_iron_tier(self):
@@ -765,7 +862,7 @@ class CreditProbes(Probes):
 
 
 PROBES = ("credit_iron_tier", "credit_nether", "credit_iron_pickaxe", "credit_stone_pickaxe", "credit_diamond",
-          "credit_blaze", "credit_npc")
+          "credit_blaze", "credit_npc", "credit_wither")
 
 
 def helper_client(client, log_path):

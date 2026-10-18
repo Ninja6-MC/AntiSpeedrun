@@ -269,6 +269,29 @@ Schema version 2 adds this optional list. Migration from version 1 changes only 
 stamp, preserving custom tier text, comments and requirements; absent lists default to `[]`.
 No existing item gains a new credit requirement during the upgrade.
 
+To require Wither participation for Nether Stars and Beacons, uncomment the optional
+`wither-tier` example under `item-progression.gated-items` in any shipped profile, or add:
+
+```yaml
+    wither-tier:
+      items: [NETHER_STAR, BEACON]
+      require-credits: [kill-wither]
+      hint: "Help kill a Wither yourself"
+```
+
+Enable `item-progression.enabled` and `require-personal-credit`, then reload. This gate
+is off in every shipped profile. Beacon effects use the Beacon material's active tier,
+including its other configured requirements, personal-credit scope and item bypasses.
+Disabling item progression also disables the effect gate. Revoking a credit blocks future
+pulses; an effect already applied expires on its normal timer.
+
+Every real player who deals positive, uncancelled damage to a Wither earns `kill-wither`
+when that Wither dies, including projectile damage attributed to its player shooter.
+Nearby spectators, NPCs and players whose damage was cancelled or zero earn nothing.
+Contributors are kept on the Wither across unloads and restarts; death records credits
+for offline contributors too. Recording runs even while the gate is off. Existing
+`/asr credit grant|revoke <player> kill-wither` commands manage the persisted credit.
+
 Each tier under `gated-items` takes:
 
 | Key | Default | Notes |

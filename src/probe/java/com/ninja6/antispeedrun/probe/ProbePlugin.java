@@ -48,6 +48,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDispenseLootEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.entity.EntityPortalEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryType;
@@ -516,6 +517,15 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         player.teleportAsync(to, PlayerTeleportEvent.TeleportCause.PLUGIN).thenAccept(
                 moved -> log("teleport player=" + player.getName() + " world=" + world.getName()
                         + " result=" + moved));
+    }
+
+    /** Observes actual beacon pulses after the reward gate settles. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onBeaconEffect(EntityPotionEffectEvent event) {
+        if (event.getCause() == EntityPotionEffectEvent.Cause.BEACON
+                && event.getNewEffect() != null && event.getEntity() instanceof Player player) {
+            log("beacon player=" + player.getName() + " cancelled=" + event.isCancelled());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

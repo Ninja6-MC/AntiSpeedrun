@@ -24,6 +24,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockDispenseArmorEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -885,6 +886,15 @@ public final class ItemProgressionListener implements Listener {
             return;
         }
         recall.claim(item.getLocation(), now).ifPresent(owner -> recall.stamp(item, owner));
+    }
+
+    /** Beacon pulses use the same live tier, credit scope and bypasses as taking a Beacon. */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBeaconEffect(EntityPotionEffectEvent event) {
+        if (event.getCause() == EntityPotionEffectEvent.Cause.BEACON
+                && event.getNewEffect() != null && event.getEntity() instanceof Player player) {
+            refuse(player, Material.BEACON, event);
+        }
     }
 
     // -------------------------------------------------------------------------------------------

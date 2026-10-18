@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Wither contributors earn `kill-wither` when their Wither dies, including contributors
+  who have logged out. Contribution survives chunk unloads and restarts.
+- Optional Nether Star and Beacon tier, off in every profile. Uncomment its example to
+  require helping kill a Wither; beacon effects follow the same tier and bypasses.
+
 - Item tiers support `require-credits`, an optional list of personal credit IDs required
   alongside advancements and time. `kill-shulker`, `kill-wither` and `kill-evoker` can be
   configured, persisted, granted and revoked, and are named in generated progression
