@@ -19,8 +19,11 @@ def run_all(server, client, player, results, only=PROBES):
         return lambda text: set_key(text, "item-progression", "require-elytra-collection", value)
     def frame(action="inspect"):
         query = f"f{next(probes._queries)}"
-        return server.query(f"asrprobe frame {player} {action} {query}",
-                            rf"ASRPROBE frame query={query} (?P<rest>[^\r\n]*)").group("rest")
+        observed = server.query(f"asrprobe frame {player} {action} {query}",
+                                rf"ASRPROBE frame query={query} (?P<rest>[^\r\n]*)").group("rest")
+        if observed == "none":
+            results.note(f"frame {query} disappeared near player: {client.request('state')}")
+        return observed
     try:
         probes.run(f"gamemode survival {player}")
         probes.run(f"effect give {player} minecraft:resistance infinite 4 true")
@@ -53,11 +56,23 @@ def run_all(server, client, player, results, only=PROBES):
         if position is None:
             raise ProbeError("no generation-marked End Ship frame found in eight freshly generated cities")
         x, y, z = position
+        # Generation can report a ship beyond the located start's original loaded area.
+        probes.run(f"execute in {END} run forceload add {x - 32} {z - 32} {x + 32} {z + 32}")
+        # Shulker bullets must not move the client away during the frame assertions.
+        probes.run(f"execute in {END} positioned {x} {y} {z} run kill @e[type=minecraft:shulker,distance=..48]")
+        probes.run(f"execute in {END} positioned {x} {y} {z} run kill @e[type=minecraft:shulker_bullet,distance=..48]")
+        probes.run(f"effect clear {player} minecraft:levitation")
         # Keep the player beside the frame on a safe platform without replacing its backing block.
         probes.run(f"execute in {END} run fill {x - 3} {y - 2} {z - 3} {x + 10} {y - 2} {z + 3} minecraft:obsidian")
         probes.tp(END, x + .5, y - 1, z + 2.5)
         frame("stage")
         time.sleep(1)
+        staged = frame()
+        results.check(RULE, "selected natural frame remains loaded beside the staged player",
+                      "item=ELYTRA natural=true" in staged,
+                      f"{staged}; player={client.request('state')}")
+        if "item=ELYTRA natural=true" not in staged:
+            raise ProbeError("the selected natural frame was unavailable after staging")
         client.request("hold", item=None)
         frame("cancel-next")
         client.request("attack", entity="item_frame")
