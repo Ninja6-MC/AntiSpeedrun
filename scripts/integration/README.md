@@ -219,6 +219,10 @@ attempt first, then refills the frame. Unmarked frames and loose gifts cannot ea
 the successful collector and an operator-restored credit can pick up Elytra. The probe uses
 `/asrprobe frame <player> inspect|cancel-next|stage|approach <query>` for observation, protection-plugin cancellation and approaches from the frame's actual facing,
 and the player's normal attack and interact packets for removals and refills.
+Nearby shulkers and their bullets are removed through the region-scheduled probe helper;
+Folia rejects positional entity selectors from the global console. The observer logs each
+frame query's server inventory and player position, nearby Elytra drops and pickup delays,
+and frame-break causes, so a missed pickup can be distinguished from a refused one.
 
 `potion_brewing` checks real brewing with two players: converting a gifted Speed potion to
 splash earns nothing, hand-loading Sugar credits only its loader, a player without the

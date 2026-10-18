@@ -59,8 +59,9 @@ def run_all(server, client, player, results, only=PROBES):
         # Generation can report a ship beyond the located start's original loaded area.
         probes.run(f"execute in {END} run forceload add {x - 32} {z - 32} {x + 32} {z + 32}")
         # Shulker bullets must not move the client away during the frame assertions.
-        probes.run(f"execute in {END} positioned {x} {y} {z} run kill @e[type=minecraft:shulker,distance=..48]")
-        probes.run(f"execute in {END} positioned {x} {y} {z} run kill @e[type=minecraft:shulker_bullet,distance=..48]")
+        for entity in ("shulker", "shulker_bullet"):
+            removed = probes.near(END, x, y, z, 48, entity, remove=True)
+            results.note(f"Removed {removed} {entity} beside the selected End Ship frame.")
         probes.run(f"effect clear {player} minecraft:levitation")
         # Keep the player beside the frame on a safe platform without replacing its backing block.
         probes.run(f"execute in {END} run fill {x - 3} {y - 2} {z - 3} {x + 10} {y - 2} {z + 3} minecraft:obsidian")

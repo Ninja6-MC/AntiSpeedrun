@@ -193,9 +193,17 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             return;
         }
         player.getScheduler().run(this, task -> {
+            log("frame-state query=" + query + " player=" + player.getLocation()
+                    + " inventory=" + java.util.Arrays.stream(player.getInventory().getContents())
+                            .filter(stack -> stack != null && stack.getType() == Material.ELYTRA)
+                            .mapToInt(ItemStack::getAmount).sum());
             org.bukkit.entity.ItemFrame closest = null;
             double distance = Double.MAX_VALUE;
             for (Entity entity : player.getNearbyEntities(12, 12, 12)) {
+                if (entity instanceof Item item && item.getItemStack().getType() == Material.ELYTRA) {
+                    log("frame-drop query=" + query + " at=" + item.getLocation()
+                            + " delay=" + item.getPickupDelay());
+                }
                 if (entity instanceof org.bukkit.entity.ItemFrame found) {
                     double d = found.getLocation().distanceSquared(player.getLocation());
                     if (d < distance) { closest = found; distance = d; }
@@ -224,6 +232,17 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         }, null);
     }
 
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void frameBreak(org.bukkit.event.hanging.HangingBreakEvent event) {
+        if (event.getEntity() instanceof org.bukkit.entity.ItemFrame frame) {
+            Entity remover = event instanceof org.bukkit.event.hanging.HangingBreakByEntityEvent byEntity
+                    ? byEntity.getRemover() : null;
+            log("frame-break at=" + frame.getLocation() + " cause=" + event.getCause()
+                    + " remover=" + (remover == null ? "none" : remover.getType())
+                    + " cancelled=" + event.isCancelled());
+        }
+    }
+
     private static boolean naturalFrame(org.bukkit.entity.ItemFrame frame) {
         return frame.getPersistentDataContainer().has(new NamespacedKey("antispeedrun", "natural-elytra-frame"),
                 org.bukkit.persistence.PersistentDataType.BYTE);
@@ -231,6 +250,9 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void frameSpawn(EntityAddToWorldEvent event) {
+        if (event.getEntity() instanceof Item item && item.getItemStack().getType() == Material.ELYTRA) {
+            log("elytra-drop at=" + item.getLocation() + " delay=" + item.getPickupDelay());
+        }
         if (event.getEntity() instanceof org.bukkit.entity.ItemFrame frame
                 && frame.getItem().getType() == Material.ELYTRA) {
             Location at = frame.getLocation();
