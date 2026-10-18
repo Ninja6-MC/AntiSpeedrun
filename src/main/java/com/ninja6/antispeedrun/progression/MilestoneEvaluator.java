@@ -78,6 +78,13 @@ public final class MilestoneEvaluator {
             }
         }
 
+        for (var credit : requirement.credits()) {
+            // An explicit credit is never waived as an unresolvable vanilla advancement.
+            if (!snapshot.hasEarned(credit.requirementKey())) {
+                missing.add(credit.requirementKey());
+            }
+        }
+
         double missingHours = 0.0D;
         if (requirement.playtimeHours() > 0.0D && snapshot.playtimeHours() < requirement.playtimeHours()) {
             missingHours = requirement.playtimeHours() - snapshot.playtimeHours();

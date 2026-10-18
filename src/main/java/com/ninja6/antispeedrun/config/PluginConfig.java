@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import com.ninja6.antispeedrun.storage.PersonalCredit;
+
 /**
  * An immutable, fully typed snapshot of {@code config.yml}.
  *
@@ -148,7 +150,7 @@ public record PluginConfig(
      * pre-versioning shape and is migrated forward to this by {@code ConfigMigrator} before it is
      * parsed; a file with a higher one was written by a newer build and is refused.
      */
-    public static final int CONFIG_VERSION = 1;
+    public static final int CONFIG_VERSION = 2;
 
     /**
      * Refuses a {@code config-version} this build cannot read. An absent key is accepted: it is the
@@ -344,7 +346,7 @@ public record PluginConfig(
 
     private static ItemTier parseItemTier(String id, ConfigReader r, boolean enforced)
             throws ConfigLoadException {
-        r.expect("match-patterns", "exclude-materials", "items", "require-advancements",
+        r.expect("match-patterns", "exclude-materials", "items", "require-advancements", "require-credits",
                 "require-playtime-hours", "require-account-age-days", "hint");
         return new ItemTier(
                 id,
@@ -352,6 +354,7 @@ public record PluginConfig(
                 r.strings("exclude-materials", List.of()),
                 r.strings("items", List.of()),
                 r.advancementKeys("require-advancements", List.of(), enforced),
+                r.creditIds("require-credits", enforced),
                 r.decimal("require-playtime-hours", 0.0D),
                 r.integer("require-account-age-days", 0),
                 // Interpolated into the item rejection line with its tags escaped, which does not
@@ -699,14 +702,23 @@ public record PluginConfig(
             List<String> excludeMaterials,
             List<String> items,
             List<String> requireAdvancements,
+            List<PersonalCredit> requireCredits,
             double requirePlaytimeHours,
             int requireAccountAgeDays,
             String hint) {
+        public ItemTier(String id, List<String> matchPatterns, List<String> excludeMaterials,
+                        List<String> items, List<String> requireAdvancements,
+                        double requirePlaytimeHours, int requireAccountAgeDays, String hint) {
+            this(id, matchPatterns, excludeMaterials, items, requireAdvancements, List.of(),
+                    requirePlaytimeHours, requireAccountAgeDays, hint);
+        }
+
         public ItemTier {
             Objects.requireNonNull(id, "id");
             matchPatterns = List.copyOf(matchPatterns);
             excludeMaterials = List.copyOf(excludeMaterials);
             items = List.copyOf(items);
+            requireCredits = List.copyOf(requireCredits);
             requireAdvancements = List.copyOf(requireAdvancements);
             Objects.requireNonNull(hint, "hint");
         }

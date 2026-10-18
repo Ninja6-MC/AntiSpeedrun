@@ -23,6 +23,19 @@ class CreditedActionsTest {
     }
 
     @Test
+    void independentCreditsHaveActionWording() {
+        for (var credit : List.of(com.ninja6.antispeedrun.storage.PersonalCredit.KILL_SHULKER,
+                com.ninja6.antispeedrun.storage.PersonalCredit.KILL_WITHER,
+                com.ninja6.antispeedrun.storage.PersonalCredit.KILL_EVOKER)) {
+            String phrase = CreditedActions.action(credit.requirementKey(), ITEMS).orElseThrow();
+            assertTrue(phrase.startsWith("kill a ") || phrase.startsWith("kill an "));
+            assertTrue(phrase.endsWith(" yourself"));
+            assertFalse(phrase.contains("chest"));
+            assertTrue(CreditedActions.action(credit.requirementKey(), items(false, true)).isEmpty());
+        }
+    }
+
+    @Test
     @DisplayName("every credited advancement, and only those, has an action")
     void coversExactlyTheCreditedKeys() {
         for (String key : PossessionAdvancements.POSSESSION_TRIGGERED) {

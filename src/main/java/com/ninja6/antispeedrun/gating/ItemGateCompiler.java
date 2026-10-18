@@ -13,6 +13,7 @@ import java.util.Set;
 
 import com.ninja6.antispeedrun.config.AdvancementKeys;
 import com.ninja6.antispeedrun.config.PluginConfig;
+import com.ninja6.antispeedrun.progression.MilestoneRequirement;
 
 /**
  * Compiles {@code item-progression.gated-items} into an {@link ItemGateTable}.
@@ -258,7 +259,7 @@ public final class ItemGateCompiler {
         int size = claimants.size();
         List<Set<String>> advancements = new ArrayList<>(size);
         for (PluginConfig.ItemTier claimant : claimants) {
-            advancements.add(normalise(claimant.requireAdvancements()));
+            advancements.add(normalise(MilestoneRequirement.of(claimant).lookupKeys()));
         }
 
         // A maximum dominates or equals every other claimant. Maxima can only be tied with one

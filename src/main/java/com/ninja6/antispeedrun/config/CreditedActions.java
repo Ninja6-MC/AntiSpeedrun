@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import com.ninja6.antispeedrun.storage.PersonalCredit;
+
 /**
  * How a player is told what a missing credited advancement asks of them (#216).
  *
@@ -38,6 +40,18 @@ public final class CreditedActions {
         Objects.requireNonNull(items, "items");
         if (key == null || !items.requirePersonalCredit()) {
             return Optional.empty();
+        }
+        var credit = PersonalCredit.fromRequirementKey(key);
+        if (credit.isPresent()) {
+            return Optional.of(switch (credit.get()) {
+                case KILL_SHULKER -> "kill a shulker yourself";
+                case KILL_WITHER -> "kill a Wither yourself";
+                case KILL_EVOKER -> "kill an Evoker yourself";
+                case MINED_IRON -> items.countStructureLoot()
+                        ? "mine iron ore (or loot iron from a chest you open first)" : "mine iron ore";
+                case SMELTED_IRON -> "smelt iron in a furnace you loaded yourself";
+                default -> action(credit.get().advancement(), items).orElseThrow();
+            });
         }
         boolean loot = items.countStructureLoot();
         return Optional.ofNullable(switch (key) {

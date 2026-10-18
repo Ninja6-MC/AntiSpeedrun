@@ -66,6 +66,9 @@ class PersonalCreditAdvancementLookupTest {
         return (Player) Proxy.newProxyInstance(Player.class.getClassLoader(),
                 new Class<?>[] {Player.class}, (proxy, method, args) -> switch (method.getName()) {
                     case "getUniqueId" -> id;
+                    case "isOnline" -> true;
+                    case "getStatistic" -> 0;
+                    case "getFirstPlayed" -> 1_000L;
                     case "hasPermission" -> args[0] instanceof String node && permissions.contains(node);
                     case "hashCode" -> id.hashCode();
                     case "equals" -> proxy == args[0];
@@ -89,6 +92,46 @@ class PersonalCreditAdvancementLookupTest {
                 base.trimProgression(), base.idleReminder(), base.progressCard(),
                 base.journeyBook(), base.bossScaling(), base.antiCheese(),
                 base.villagerProgression(), base.warnings());
+    }
+
+    @Test
+    void managerCapturesCreditOnlyTierAndRefreshesAfterGrantAndRevoke() throws Exception {
+        PluginConfig configured = PluginConfig.from(com.ninja6.antispeedrun.config.MapConfigSection.of(
+                Map.of("item-progression", Map.of("enabled", true, "gated-items", Map.of(
+                        "shulker", Map.of("items", java.util.List.of("SHULKER_BOX"),
+                                "require-credits", java.util.List.of("kill-shulker")))))));
+        config.set(configured);
+        ProgressionManager manager = new ProgressionManager(Logger.getLogger("test"), lookup,
+                new PlayerStateRegistry());
+        MilestoneRequirement requirement = MilestoneRequirement.of(configured.itemProgression().gatedItems().get(0));
+        assertEquals(java.util.List.of(PersonalCredit.KILL_SHULKER.requirementKey()),
+                manager.evaluate(player, configured, requirement).missingAdvancements());
+        credits.record(id, PersonalCredit.KILL_SHULKER, CreditSource.ACTION);
+        manager.invalidate(id);
+        assertEquals(true, manager.evaluate(player, configured, requirement).eligible());
+        credits.revoke(id, PersonalCredit.KILL_SHULKER);
+        manager.invalidate(id);
+        assertEquals(false, manager.evaluate(player, configured, requirement).eligible());
+    }
+
+    @ParameterizedTest
+    @EnumSource(PersonalCredit.class)
+    void explicitCreditUsesStoreAndLiveScope(PersonalCredit credit) {
+        String key = credit.requirementKey();
+        vanilla.put(key, State.UNRESOLVABLE);
+        assertEquals(State.NOT_EARNED, lookup.state(player, key));
+        credits.record(id, credit, CreditSource.ACTION);
+        assertEquals(State.EARNED, lookup.state(player, key));
+        credits.revoke(id, credit);
+        assertEquals(State.NOT_EARNED, lookup.state(player, key));
+        config.set(settings(false, true));
+        assertEquals(State.EARNED, lookup.state(player, key));
+        config.set(settings(true, true, CreditScope.PERMISSION));
+        assertEquals(State.EARNED, lookup.state(player, key));
+        permissions.add(PersonalCreditAdvancementLookup.REQUIRED_PERMISSION);
+        assertEquals(State.NOT_EARNED, lookup.state(player, key));
+        credits.record(UUID.randomUUID(), credit, CreditSource.ACTION);
+        assertEquals(State.NOT_EARNED, lookup.state(player, key));
     }
 
     @BeforeEach
@@ -130,7 +173,8 @@ class PersonalCreditAdvancementLookupTest {
     }
 
     @ParameterizedTest
-    @EnumSource(PersonalCredit.class)
+    @EnumSource(value = PersonalCredit.class, names = {"KILL_SHULKER", "KILL_WITHER", "KILL_EVOKER"},
+            mode = EnumSource.Mode.EXCLUDE)
     @DisplayName("UNRESOLVABLE passes through, credit or not")
     void unresolvablePassesThrough(PersonalCredit credit) {
         vanilla.put(credit.advancement(), State.UNRESOLVABLE);

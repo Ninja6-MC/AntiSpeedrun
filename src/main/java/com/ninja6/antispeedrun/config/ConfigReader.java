@@ -4,9 +4,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 import com.ninja6.antispeedrun.logging.LogLine;
+import com.ninja6.antispeedrun.storage.PersonalCredit;
 
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
@@ -364,6 +366,41 @@ final class ConfigReader {
         boolean emptiedItself() {
             return values.isEmpty() && declared > 0;
         }
+    }
+
+    /** Reads known credit IDs, refusing a malformed requirement while its gate is enabled. */
+    List<PersonalCredit> creditIds(String key, boolean enforced)
+            throws ConfigLoadException {
+        Object raw = section.get(key);
+        if (raw == null && !section.contains(key)) {
+            return List.of();
+        }
+        List<PersonalCredit> credits = new ArrayList<>();
+        if (raw instanceof List<?> entries) {
+            for (Object entry : entries) {
+                var credit = entry instanceof String id
+                        ? PersonalCredit.fromId(id.trim())
+                        : Optional.<PersonalCredit>empty();
+                if (credit.isPresent()) {
+                    if (!credits.contains(credit.get())) {
+                        credits.add(credit.get());
+                    }
+                } else {
+                    invalidCredit(key, "unknown credit " + describe(entry), enforced);
+                }
+            }
+        } else {
+            invalidCredit(key, "expected a list of credit IDs", enforced);
+        }
+        return List.copyOf(credits);
+    }
+
+    private void invalidCredit(String key, String reason, boolean enforced) throws ConfigLoadException {
+        String message = qualify(key) + ": " + reason + "; use known personal credit IDs or [].";
+        if (enforced) {
+            throw new UnenforceableGateException(message);
+        }
+        warnings.add(message + " Ignored because item progression is disabled.");
     }
 
     /**
