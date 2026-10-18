@@ -104,7 +104,7 @@ If early-treasure retention matters more than this analysis assumes, the correct
 
 ## The PDC key register (authoritative)
 
-Four keys exist. Any key not listed here does not exist.
+The keys used for item provenance and personal-action attribution are listed below.
 
 | Key | Container | Lifetime | Owner | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
@@ -112,6 +112,9 @@ Four keys exist. Any key not listed here does not exist.
 | `n6_asr_secondary_dragon` | `EnderDragon` entity | Entity lifetime | — | Marks a plugin-spawned scaling dragon (Epic 6; unrelated to items) |
 | `antispeedrun:furnace-loader` | **`TileState`** of a furnace or blast furnace | Block lifetime | UUID of the player who hand-loaded it, plus a remaining count | Smelting credit (see the Amendment); value `[uuid, remaining]` as a `LONG_ARRAY` `[mostSigBits, leastSigBits, remaining]`, removed once `remaining` reaches 0 |
 | `antispeedrun:placed-blocks` | **Chunk** PDC | Chunk lifetime | — | Registry of player-placed blocks, so mining them earns no credit (see the Amendment) |
+| `antispeedrun:brewing-loader` | **`TileState`** of a brewing stand | Until the claimed ingredients are consumed, replaced or removed | UUID of the ingredient loader, plus remaining count | Brewing attribution as `LONG_ARRAY` `[mostSigBits, leastSigBits, remaining]` |
+| `antispeedrun:natural-elytra-frame` | **`ItemFrame` entity** | Until an uncancelled original removal, replacement or frame break | None | Original natural End Ship Elytra marker as `BYTE` `1`; cancellation and rotation preserve it |
+| `antispeedrun:wither_contributors` | **`Wither` entity** | Until confirmed death; persists across entity unloads and server restarts | Deduplicated contributor UUIDs | Positive, uncancelled player damage as a `LONG_ARRAY` of repeated `[mostSigBits, leastSigBits]` pairs; death removes the marker and records `kill-wither` for every contributor, including offline players |
 
 UUIDs are stored as `PersistentDataType.LONG_ARRAY` holding `[mostSigBits, leastSigBits]`
 (16 bytes), never as `STRING` (36 bytes).

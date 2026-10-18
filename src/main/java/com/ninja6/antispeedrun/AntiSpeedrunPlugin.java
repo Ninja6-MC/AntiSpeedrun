@@ -38,6 +38,7 @@ import com.ninja6.antispeedrun.listeners.EyeThrowListener;
 import com.ninja6.antispeedrun.listeners.BrewingCreditListener;
 import com.ninja6.antispeedrun.listeners.FurnaceLoaderListener;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
+import com.ninja6.antispeedrun.listeners.WitherCreditListener;
 import com.ninja6.antispeedrun.listeners.ElytraCollectionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
 import com.ninja6.antispeedrun.listeners.NaturalTrimLootListener;
@@ -365,6 +366,8 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // The store itself was loaded above, before the lookup that reads it.
         getServer().getPluginManager().registerEvents(
                 new PersonalCreditListener(personalCredits, placedBlocks, creditRefresh), this);
+        getServer().getPluginManager().registerEvents(
+                new WitherCreditListener(this, personalCredits, creditRefresh), this);
         getServer().getPluginManager().registerEvents(new ElytraCollectionListener(this), this);
         // The furnace loader stamp and smelted-iron credit (#214), kept in each furnace's TileState.
         getServer().getPluginManager().registerEvents(

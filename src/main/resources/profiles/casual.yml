@@ -63,6 +63,13 @@ item-progression:
   # stand in for mining iron or diamonds, never for smelting or crafting. Takes effect on reload.
   count-structure-loot: true
   gated-items:
+    # Optional Wither rewards gate (off by default). Uncomment this tier to require helping
+    # kill a Wither before collecting Nether Stars/Beacons or receiving beacon effects.
+    # Item progression and require-personal-credit must be enabled for credit enforcement.
+    # wither-tier:
+    #   items: ["NETHER_STAR", "BEACON"]
+    #   require-credits: ["kill-wither"]
+    #   hint: "Help kill a Wither yourself"
     iron-tier:
       match-patterns:
         - "IRON_*"

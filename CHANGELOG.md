@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Wither contributors earn `kill-wither` when their Wither dies, including contributors
+  who have logged out. Contribution survives chunk unloads and restarts.
+- Optional Nether Star and Beacon tier, off in every profile. Uncomment its example to
+  require helping kill a Wither; beacon effects follow the same tier and bypasses.
+
 - Optional personal brewing progression for configurable beneficial potion effects,
   including splash, lingering and tipped-arrow delivery. The gate starts disabled;
   brewing credits are recorded per player in `brewed-effects.yml`.

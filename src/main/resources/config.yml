@@ -143,6 +143,13 @@ item-progression:
   # whatever you call it -- this is a WARNING, not an error -- but a tier named the same as
   # that key would silently swallow one of the two warnings while the other's cooldown runs.
   gated-items:
+    # Optional Wither rewards gate (off by default). Uncomment this tier to require helping
+    # kill a Wither before collecting Nether Stars/Beacons or receiving beacon effects.
+    # Item progression and require-personal-credit must be enabled for credit enforcement.
+    # wither-tier:
+    #   items: ["NETHER_STAR", "BEACON"]
+    #   require-credits: ["kill-wither"]
+    #   hint: "Help kill a Wither yourself"
     iron-tier:
       # Match modes: PREFIX ("IRON_*"), SUFFIX ("*_IRON_ORE"), CONTAINS ("*_IRON_*").
       # Prefix-only matching leaks the deepslate ore variants - DEEPSLATE_IRON_ORE does
