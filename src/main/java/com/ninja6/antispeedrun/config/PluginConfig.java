@@ -291,7 +291,8 @@ public record PluginConfig(
     private static ItemProgression parseItemProgression(ConfigReader r) throws ConfigLoadException {
         r.expect("enabled", "drop-recall-enabled", "gate-dispensers", "gate-nested-bundles",
                 "feedback-cooldown-seconds", "rejection-message", "require-personal-credit",
-                "count-structure-loot", "personal-credit-scope", "require-elytra-collection", "gated-items");
+                "count-structure-loot", "personal-credit-scope", "require-elytra-collection", "require-shulker-collection",
+                "gate-shulker-boxes", "gated-items");
 
         // Read before the tiers, and handed to each of them: item-progression.enabled: false gates
         // no item at all, so a key a tier names under it is not gating this server would fail to
@@ -305,7 +306,9 @@ public record PluginConfig(
             parsed.add(parseItemTier(id, tiers.child(id), enabled));
         }
 
-        if (enabled && parsed.isEmpty()) {
+        boolean elytraCollection = r.bool("require-elytra-collection", false);
+        boolean shulkerCollection = r.bool("require-shulker-collection", false);
+        if (enabled && parsed.isEmpty() && !elytraCollection && !shulkerCollection) {
             // gated-items is the one section with no code-level default, so this combination is
             // exactly what defaults() produces -- and defaults() is the startup fallback when
             // config.yml cannot be parsed. Without this line a single YAML typo would leave every
@@ -329,7 +332,7 @@ public record PluginConfig(
                 r.bool("require-personal-credit", true),
                 r.bool("count-structure-loot", true),
                 r.enumValue("personal-credit-scope", CreditScope.class, CreditScope.ALL),
-                r.bool("require-elytra-collection", false));
+                elytraCollection, shulkerCollection, r.bool("gate-shulker-boxes", false));
     }
 
     /**
@@ -667,6 +670,8 @@ public record PluginConfig(
      *                                default {@link CreditScope#ALL}
      * @param requireElytraCollection require personal collection from an original natural End Ship
      *                                frame, independently of other credits; default {@code false}
+     * @param requireShulkerCollection require a personal Shulker kill that drops a shell; default false
+     * @param gateShulkerBoxes        also require that credit for every Shulker Box; default false
      */
     public record ItemProgression(
             boolean enabled,
@@ -679,7 +684,9 @@ public record PluginConfig(
             boolean requirePersonalCredit,
             boolean countStructureLoot,
             CreditScope personalCreditScope,
-            boolean requireElytraCollection) {
+            boolean requireElytraCollection,
+            boolean requireShulkerCollection,
+            boolean gateShulkerBoxes) {
         public ItemProgression {
             Objects.requireNonNull(rejectionMessage, "rejectionMessage");
             Objects.requireNonNull(personalCreditScope, "personalCreditScope");
@@ -697,13 +704,31 @@ public record PluginConfig(
             return new ItemProgression(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles,
                     feedbackCooldownSeconds, rejectionMessage, gatedItems,
                     personalCreditApplies(hasRequiredPermission), countStructureLoot, personalCreditScope,
-                    elytraCollectionApplies(hasRequiredPermission));
+                    elytraCollectionApplies(hasRequiredPermission),
+                    shulkerCollectionApplies(hasRequiredPermission), gateShulkerBoxes);
         }
 
         /** Whether personally collecting an Elytra is required for this player. */
         public boolean elytraCollectionApplies(boolean hasRequiredPermission) {
             return requireElytraCollection
                     && (personalCreditScope == CreditScope.ALL || hasRequiredPermission);
+        }
+
+        /** Whether the optional Shulker credit applies to this player. */
+        public boolean shulkerCollectionApplies(boolean hasRequiredPermission) {
+            return requireShulkerCollection
+                    && (personalCreditScope == CreditScope.ALL || hasRequiredPermission);
+        }
+
+        /** Compatibility with callers that only configured the Elytra option. */
+        public ItemProgression(boolean enabled, boolean dropRecallEnabled, boolean gateDispensers,
+                               boolean gateNestedBundles, int feedbackCooldownSeconds,
+                               String rejectionMessage, List<ItemTier> gatedItems,
+                               boolean requirePersonalCredit, boolean countStructureLoot,
+                               CreditScope personalCreditScope, boolean requireElytraCollection) {
+            this(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles, feedbackCooldownSeconds,
+                    rejectionMessage, gatedItems, requirePersonalCredit, countStructureLoot,
+                    personalCreditScope, requireElytraCollection, false, false);
         }
 
         /** Existing callers keep the optional collection requirement switched off. */

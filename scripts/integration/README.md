@@ -228,3 +228,11 @@ and frame-break causes, so a missed pickup can be distinguished from a refused o
 splash earns nothing, hand-loading Sugar credits only its loader, a player without the
 credit cannot pick up Speed, and brewing Speed themselves permits that same pickup. A
 mixed Speed-and-Poison drink withholds Speed while retaining Poison.
+
+
+`shulker_collection` checks actual player attacks and final Shulker death drops, including
+shell-free deaths, environmental kills, NPCs and spectators. The existing `loot` and
+`nodrops` controls modify only tagged Shulker death drops before the recorder runs, making
+both outcomes deterministic. Observation confirms credit before pickup of that original
+drop. Gift pickup and container withdrawals exercise the optional shell/box gates, normal
+tier prerequisites, credit scope, bypass and the disabled switch.

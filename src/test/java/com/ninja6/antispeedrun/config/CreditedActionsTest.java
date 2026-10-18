@@ -29,7 +29,8 @@ class CreditedActionsTest {
                 com.ninja6.antispeedrun.storage.PersonalCredit.KILL_EVOKER)) {
             String phrase = CreditedActions.action(credit.requirementKey(), ITEMS).orElseThrow();
             assertTrue(phrase.startsWith("kill a ") || phrase.startsWith("kill an "));
-            assertTrue(phrase.endsWith(" yourself"));
+            assertTrue(credit == com.ninja6.antispeedrun.storage.PersonalCredit.KILL_SHULKER
+                    ? phrase.endsWith("drops a shell") : phrase.endsWith(" yourself"));
             assertFalse(phrase.contains("chest"));
             assertTrue(CreditedActions.action(credit.requirementKey(), items(false, true)).isEmpty());
         }

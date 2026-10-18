@@ -157,6 +157,11 @@ ships cannot earn credit. See the [collection and upgrade notes](docs/provenance
 before enabling it on an existing world. Operators can restore a credit with
 `/asr credit grant <player> elytra`.
 
+Optional Shulker Shell collection uses `item-progression.require-shulker-collection: true`.
+A player must personally kill a Shulker that drops a shell. Boxes keep their existing tier
+requirements; also enable `gate-shulker-boxes` to require the credit for boxes and all dyes.
+Both options start off. See the [configuration guide](docs/configuration.md).
+
 ## Documentation
 
 - [Administration guide](docs/administration.md) -- installation, first start, commands

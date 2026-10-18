@@ -11,6 +11,7 @@ import harness  # noqa: E402
 import credits  # noqa: E402
 import probes  # noqa: E402
 import trims  # noqa: E402
+import run as integration_run  # noqa: E402
 
 CONFIG = """\
 anti-cheese:
@@ -201,7 +202,7 @@ class StructureLineTest(unittest.TestCase):
 
 class ModuleTest(unittest.TestCase):
     def test_probe_names_are_unique_across_modules(self):
-        names = list(gates.PROBES) + list(credits.PROBES) + list(trims.PROBES) + list(anti_cheese.PROBES)
+        names = [name for module in integration_run.MODULES for name in module.PROBES]
         self.assertEqual(len(names), len(set(names)))
 
     def test_the_results_class_is_shared(self):

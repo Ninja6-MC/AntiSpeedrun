@@ -156,15 +156,19 @@ public final class PersonalCreditListener implements Listener {
                 .ifPresent(credit -> record(player.getUniqueId(), credit, CreditSource.ACTION));
     }
 
-    /** A blaze the player killed. */
+    /** A blaze kill, or a personal Shulker kill whose final drops include a shell. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDeath(EntityDeathEvent event) {
-        if (!PersonalCreditRules.blazeKill(event.getEntityType())) {
+        Player killer = event.getEntity().getKiller();
+        if (killer == null || !creditable(killer)) {
             return;
         }
-        Player killer = event.getEntity().getKiller();
-        if (killer != null && creditable(killer)) {
+        if (PersonalCreditRules.blazeKill(event.getEntityType())) {
             record(killer.getUniqueId(), PersonalCredit.OBTAIN_BLAZE_ROD, CreditSource.ACTION);
+        } else if (ShulkerCollectionRules.earns(event.getEntityType(), true, false,
+                event.getDrops().stream().anyMatch(item -> item != null
+                        && item.getType() == Material.SHULKER_SHELL && item.getAmount() > 0))) {
+            record(killer.getUniqueId(), PersonalCredit.KILL_SHULKER, CreditSource.ACTION);
         }
     }
 

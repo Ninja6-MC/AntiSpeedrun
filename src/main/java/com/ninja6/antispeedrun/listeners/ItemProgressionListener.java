@@ -284,7 +284,8 @@ public final class ItemProgressionListener implements Listener {
         // own drop or their own death pile, and §4 says they may always have it back.
         if (config.itemProgression().dropRecallEnabled()
                 && recall.belongsTo(entity, player.getUniqueId())
-                && !missingElytraCredit(player, material, config)) {
+                && !missingElytraCredit(player, material, config)
+                && !missingShulkerCredit(player, material, config)) {
             return;
         }
         EligibilityResult result = plugin.progression().evaluate(
@@ -298,7 +299,9 @@ public final class ItemProgressionListener implements Listener {
         entity.setPickupDelay(REFUSED_PICKUP_DELAY_TICKS);
         reject(player, config, tier.id(),
                 result.missingAdvancements().contains("minecraft:end/elytra")
-                        && config.itemProgression().requireElytraCollection() ? "" : tier.hint(), result, material);
+                        && config.itemProgression().requireElytraCollection()
+                        || result.missingAdvancements().contains(PersonalCredit.KILL_SHULKER.requirementKey())
+                        && config.itemProgression().requireShulkerCollection() ? "" : tier.hint(), result, material);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -995,7 +998,9 @@ public final class ItemProgressionListener implements Listener {
         event.setCancelled(true);
         reject(player, config, tier.id(),
                 result.missingAdvancements().contains("minecraft:end/elytra")
-                        && config.itemProgression().requireElytraCollection() ? "" : tier.hint(), result, material);
+                        && config.itemProgression().requireElytraCollection()
+                        || result.missingAdvancements().contains(PersonalCredit.KILL_SHULKER.requirementKey())
+                        && config.itemProgression().requireShulkerCollection() ? "" : tier.hint(), result, material);
         return Verdict.REFUSED;
     }
 
@@ -1037,9 +1042,22 @@ public final class ItemProgressionListener implements Listener {
         if (table.isGated(material)) {
             return table.tierFor(material);
         }
+        if (ShulkerCollectionRules.material(material,
+                config.itemProgression().requireShulkerCollection(), config.itemProgression().gateShulkerBoxes())) {
+            return new ItemTier("shulker-collection", List.of(), List.of(), List.of(material.name()),
+                    List.of(), 0, 0, "");
+        }
         return material == Material.ELYTRA && config.itemProgression().requireElytraCollection()
                 ? new ItemTier("elytra-collection", List.of(), List.of(), List.of("ELYTRA"),
                         List.of(), 0, 0, "") : null;
+    }
+
+    private boolean missingShulkerCredit(Player player, Material material, PluginConfig config) {
+        return ShulkerCollectionRules.material(material,
+                config.itemProgression().requireShulkerCollection(), config.itemProgression().gateShulkerBoxes())
+                && config.itemProgression().shulkerCollectionApplies(player.hasPermission(
+                        PersonalCreditAdvancementLookup.REQUIRED_PERMISSION))
+                && !plugin.personalCredits().has(player.getUniqueId(), PersonalCredit.KILL_SHULKER, false);
     }
 
     private boolean missingElytraCredit(Player player, Material material, PluginConfig config) {
@@ -1051,6 +1069,9 @@ public final class ItemProgressionListener implements Listener {
 
     private EligibilityResult collectionResult(Player player, Material material, PluginConfig config,
                                                EligibilityResult result, boolean collecting) {
+        if (missingShulkerCredit(player, material, config)) {
+            result = ShulkerCollectionRules.evaluate(result, true, false);
+        }
         if (material != Material.ELYTRA) {
             return result;
         }
