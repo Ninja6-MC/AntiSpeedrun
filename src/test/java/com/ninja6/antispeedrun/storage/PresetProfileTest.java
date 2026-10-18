@@ -67,6 +67,8 @@ class PresetProfileTest {
             configs.add(preset(profile));
         }
         for (PluginConfig config : configs) {
+            assertTrue(!config.itemProgression().requireShulkerCollection());
+            assertTrue(!config.itemProgression().gateShulkerBoxes());
             for (PluginConfig.ItemTier tier : config.itemProgression().gatedItems()) {
                 assertTrue(!tier.items().contains("NETHER_STAR") && !tier.items().contains("BEACON"),
                         config.profile() + " must leave Wither reward gating off by default");

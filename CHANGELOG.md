@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Optional personal Shulker Shell collection, earned by killing a Shulker that actually
+  drops a shell. Shell and optional all-color box checks preserve existing tiers, scope
+  and bypasses. Both options are off in every shipped profile.
+
 - Wither contributors earn `kill-wither` when their Wither dies, including contributors
   who have logged out. Contribution survives chunk unloads and restarts.
 - Optional Nether Star and Beacon tier, off in every profile. Uncomment its example to

@@ -485,3 +485,25 @@ intensity set to zero for that recipient; a pure gated cloud excludes that recip
 sources are filtered effect by effect. Item bypass permissions and temporary bypass grants
 apply, as does `item-progression.personal-credit-scope`; the potion switch is independent of
 the material-tier and personal-credit master switches. Feedback uses the item cooldown.
+
+
+## Optional personal Shulker collection
+
+`item-progression.require-shulker-collection` starts false. With item progression enabled,
+it adds `kill-shulker` to the ordinary requirements for Shulker Shell acquisition. A real
+player earns that action credit only on a personal Shulker kill whose final
+`EntityDeathEvent` drops include a positive Shulker Shell stack. The MONITOR recorder runs
+after drop modifiers and before spawned drops can be picked up. Shell-free kills, NPC
+killers, nearby spectators and deaths without a player killer earn nothing.
+
+The recorder runs even with the gate off. The credit is per UUID in `personal-credits.yml`,
+with source `action`; there is no item ownership tag or new PDC key. Existing scope,
+permissions and temporary item bypasses apply, independently of `require-personal-credit`.
+Revoking `kill-shulker` closes the optional gate without a reload. Own-drop recall does not
+waive a missing collection credit.
+
+Shulker Boxes stay free of this additional credit by default, so storage gifts retain their
+ordinary tier behavior. The separate `gate-shulker-boxes` option, also false by default,
+adds the requirement to the undyed box and all sixteen colors while collection is enabled.
+The optional check adds to existing tiers; it cannot replace their advancement or time
+requirements or create a second, colliding material tier.

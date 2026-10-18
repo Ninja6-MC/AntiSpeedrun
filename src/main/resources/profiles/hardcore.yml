@@ -56,6 +56,9 @@ dimension-gates:
 # 2. Anti-Boosting & Item Progression Gating
 item-progression:
   enabled: true
+  # Optional personal kill credit; boxes keep their ordinary tiers unless opted in too.
+  require-shulker-collection: false
+  gate-shulker-boxes: false
   drop-recall-enabled: true
   gate-dispensers: true
   gate-nested-bundles: true

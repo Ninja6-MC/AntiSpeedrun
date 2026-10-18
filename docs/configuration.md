@@ -221,6 +221,8 @@ so that progression is advancement-driven by default.
 | `rejection-message` | A built-in message | MiniMessage with `{ITEM}` and `{REQUIREMENT}` placeholders. |
 | `require-personal-credit` | `true` | Answer the six possession-triggered advancements from personal credits. Applies to every gate, dimension gates included, whatever `enabled` says. |
 | `require-elytra-collection` | `false` | Require personal collection from an original natural End Ship frame before acquiring or equipping Elytra. Independent of `require-personal-credit`, follows `personal-credit-scope`, and needs item progression enabled. Ships generated before installation cannot earn credit; see the [upgrade limitation](provenance-model.md#optional-personal-elytra-collection). |
+| `require-shulker-collection` | `false` | Add personal `kill-shulker` credit to shell acquisition. Independent of the personal-credit master, follows its scope, and requires item progression enabled. |
+| `gate-shulker-boxes` | `false` | Also add that credit to undyed and all dyed Shulker Boxes while Shulker collection is enabled. Existing tier requirements remain. |
 | `count-structure-loot` | `true` | Loot the player generates may stand in for mining iron or diamonds, never for smelting or crafting. |
 | `personal-credit-scope` | `ALL` | Who `require-personal-credit` applies to. `ALL`: every player. `PERMISSION`: only holders of `antispeedrun.credit.required`; everyone else is gated on vanilla advancements, as with the toggle off. |
 | `gated-items` | none | A map of tier id to tier. There is no code default: with none declared, no item is gated. |
@@ -254,6 +256,20 @@ an item refusal with no `hint` name the action that earns each of these six (for
 advancement. While `count-structure-loot` is also on they name the loot alternative, and
 the book adds that loot counts only from a chest the player opens first, so a friend
 should not open it for them.
+
+Set `item-progression.require-shulker-collection: true` to require `kill-shulker` for
+Shulker Shell pickup and withdrawal. The option is off by default and independent of
+`require-personal-credit`; item progression must be enabled. The same personal-credit scope,
+item bypasses and normal tier requirements still apply. Credit is recorded only when a real
+player kills a Shulker and its final death-event drops contain a shell, before pickup.
+Kills with no shell drop, environmental deaths and NPC killers earn nothing. Recording
+continues while the gate is off, and `/asr credit grant|revoke <player> kill-shulker` restores
+or removes the persistent credit.
+
+Shulker Boxes, including every dyed color, keep only their existing tier requirements by
+default. Also set `item-progression.gate-shulker-boxes: true` to add the same collection
+credit to boxes. This switch takes effect only while `require-shulker-collection` is true;
+it never removes an operator's existing advancement, credit or time requirements.
 
 Item tiers can require a personal action without a vanilla advancement using
 `require-credits: [kill-shulker]`. The IDs `kill-shulker`, `kill-wither` and `kill-evoker`

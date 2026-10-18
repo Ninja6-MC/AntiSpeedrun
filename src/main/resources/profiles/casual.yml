@@ -42,6 +42,8 @@ dimension-gates:
 
 # 2. Anti-Boosting & Item Progression Gating
 item-progression:
+  require-shulker-collection: false
+  gate-shulker-boxes: false
   # OFF for CASUAL. The tier table below is kept intact and unused, so an operator who
   # wants the gates back only has to flip this one key -- deleting the tiers would make
   # that a re-authoring job instead.

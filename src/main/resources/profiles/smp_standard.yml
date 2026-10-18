@@ -40,6 +40,9 @@ dimension-gates:
 # 2. Anti-Boosting & Item Progression Gating (Minecraft Tag & Pattern Resolution)
 item-progression:
   enabled: true
+  # Optional personal kill credit; boxes keep their ordinary tiers unless opted in too.
+  require-shulker-collection: false
+  gate-shulker-boxes: false
   # Gating is a pure function of (player advancements, material). Naturally generated loot
   # is not special-cased: see docs/provenance-model.md for why the exemption was removed
   # rather than fixed. gate-natural-structure-chests, gate-player-placed-chests and

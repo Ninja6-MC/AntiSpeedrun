@@ -683,6 +683,36 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         }
     }
 
+    /** The existing loot/nodrops controls also cover tagged Shulker death drops. */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void armShulkerDrops(org.bukkit.event.entity.EntityDeathEvent event) {
+        if (event.getEntityType() != org.bukkit.entity.EntityType.SHULKER
+                || !event.getEntity().getScoreboardTags().contains(TAG)) {
+            return;
+        }
+        ItemStack loot = nextLoot.getAndSet(null);
+        if (loot != null) {
+            event.getDrops().clear();
+            event.getDrops().add(loot.clone());
+        }
+        Player killer = event.getEntity().getKiller();
+        String armed = noDrops.get();
+        if (killer != null && killer.getName().equals(armed) && noDrops.compareAndSet(armed, null)) {
+            event.getDrops().clear();
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void shulkerDeath(org.bukkit.event.entity.EntityDeathEvent event) {
+        if (event.getEntityType() == org.bukkit.entity.EntityType.SHULKER) {
+            Player killer = event.getEntity().getKiller();
+            var target = (AntiSpeedrunPlugin) Bukkit.getPluginManager().getPlugin("AntiSpeedrun");
+            log("shulker-death killer=" + (killer == null ? "none" : killer.getName())
+                    + " drops=" + items(event.getDrops()) + " credited=" + (killer != null
+                    && target.personalCredits().has(killer.getUniqueId(), PersonalCredit.KILL_SHULKER, false)));
+        }
+    }
+
     /** The same for a vault's dispensed loot. */
     @EventHandler(priority = EventPriority.LOWEST)
     public void armDispensed(BlockDispenseLootEvent event) {

@@ -41,13 +41,17 @@ public final class CreditedActions {
         if ("minecraft:end/elytra".equals(key) && items.requireElytraCollection()) {
             return Optional.of("collect an Elytra yourself from an untouched natural End Ship frame");
         }
+        if (PersonalCredit.KILL_SHULKER.requirementKey().equals(key)
+                && items.requireShulkerCollection()) {
+            return Optional.of("kill a shulker yourself that drops a shell");
+        }
         if (key == null || !items.requirePersonalCredit()) {
             return Optional.empty();
         }
         var credit = PersonalCredit.fromRequirementKey(key);
         if (credit.isPresent()) {
             return Optional.of(switch (credit.get()) {
-                case KILL_SHULKER -> "kill a shulker yourself";
+                case KILL_SHULKER -> "kill a shulker yourself that drops a shell";
                 case KILL_WITHER -> "kill a Wither yourself";
                 case KILL_EVOKER -> "kill an Evoker yourself";
                 case ELYTRA -> "collect an Elytra yourself from an untouched natural End Ship frame";
