@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Optional personal brewing progression for configurable beneficial potion effects,
+  including splash, lingering and tipped-arrow delivery. The gate starts disabled;
+  brewing credits are recorded per player in `brewed-effects.yml`.
+
 ## [0.4.1] - 2026-10-16
 
 0.4.0 was tagged but never published, so 0.4.1 is the first release after 0.3.1 and also

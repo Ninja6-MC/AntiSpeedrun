@@ -83,6 +83,7 @@ public record PluginConfig(
         BossScaling bossScaling,
         AntiCheese antiCheese,
         VillagerProgression villagerProgression,
+        PotionProgression potionProgression,
         List<String> warnings) {
 
     /** Canonical compact constructor: defensively copies the only collection held directly. */
@@ -97,7 +98,19 @@ public record PluginConfig(
         Objects.requireNonNull(bossScaling, "bossScaling");
         Objects.requireNonNull(antiCheese, "antiCheese");
         Objects.requireNonNull(villagerProgression, "villagerProgression");
+        Objects.requireNonNull(potionProgression, "potionProgression");
         warnings = List.copyOf(warnings);
+    }
+
+    /** Compatibility constructor for callers using only the original sections. */
+    public PluginConfig(Profile profile, DimensionGates dimensionGates, ItemProgression itemProgression,
+                        TrimProgression trimProgression, IdleReminder idleReminder, ProgressCard progressCard,
+                        JourneyBook journeyBook, BossScaling bossScaling, AntiCheese antiCheese,
+                        VillagerProgression villagerProgression, List<String> warnings) {
+        this(profile, dimensionGates, itemProgression, trimProgression, idleReminder, progressCard,
+                journeyBook, bossScaling, antiCheese, villagerProgression,
+                new PotionProgression(false, List.of("fire_resistance", "strength", "speed",
+                        "invisibility", "resistance", "regeneration", "slow_falling")), warnings);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -188,7 +201,7 @@ public record PluginConfig(
         ConfigReader r = new ConfigReader(root, "", warnings);
         r.expect(VERSION_KEY, "profile", "dimension-gates", "item-progression", "trim-progression",
                 "idle-reminder", "progress-card", "journey-book", "boss-scaling", "anti-cheese",
-                "villager-progression");
+                "villager-progression", "potion-progression");
 
         Profile profile = r.enumValue("profile", Profile.class, Profile.CORE);
         DimensionGates dimensionGates = parseDimensionGates(r.child("dimension-gates"));
@@ -207,7 +220,7 @@ public record PluginConfig(
 
         return new PluginConfig(profile, dimensionGates, itemProgression, trimProgression,
                 idleReminder, progressCard, journeyBook, bossScaling, antiCheese,
-                villagerProgression, warnings);
+                villagerProgression, parsePotionProgression(r.child("potion-progression")), warnings);
     }
 
     /**
@@ -456,6 +469,28 @@ public record PluginConfig(
                 r.bool("block-gateway-pre-dragon", false),
                 r.atLeast("outer-end-radius", 500, 1),
                 r.atLeast("outer-end-poll-seconds", 2, 1));
+    }
+
+    /** Settings for the optional effect gate; independent of material tiers. */
+    public record PotionProgression(boolean enabled, List<String> gatedEffects) {
+        public PotionProgression {
+            gatedEffects = List.copyOf(gatedEffects);
+        }
+    }
+
+    private static PotionProgression parsePotionProgression(ConfigReader r) {
+        r.expect("enabled", "gated-effects");
+        List<String> effects = new ArrayList<>();
+        for (String value : r.strings("gated-effects", List.of("fire_resistance", "strength",
+                "speed", "invisibility", "turtle_master", "regeneration", "slow_falling"))) {
+            String effect = BrewingEffects.canonical(value);
+            if (effect != null) {
+                effects.add(effect);
+            } else {
+                r.note("Ignoring unknown, healing or harmful gated-effects entry: " + value);
+            }
+        }
+        return new PotionProgression(r.bool("enabled", false), effects);
     }
 
     private static VillagerProgression parseVillagerProgression(ConfigReader r)

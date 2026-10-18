@@ -133,6 +133,17 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             teleport(args);
         } else if (args.length == 9 && (args[0].equals("near") || args[0].equals("remove"))) {
             near(args);
+        } else if (args.length == 3 && args[0].equals("potion-effects")) {
+            Player player = Bukkit.getPlayerExact(args[1]);
+            if (player != null) player.getScheduler().run(this, task ->
+                    log("potion-effects query=" + args[2]
+                            + " speed=" + player.hasPotionEffect(org.bukkit.potion.PotionEffectType.SPEED)
+                            + " poison=" + player.hasPotionEffect(org.bukkit.potion.PotionEffectType.POISON)), null);
+        } else if (args.length == 3 && args[0].equals("brewed")) {
+            Player player = Bukkit.getPlayerExact(args[1]);
+            var target = (AntiSpeedrunPlugin) Bukkit.getPluginManager().getPlugin("AntiSpeedrun");
+            log("brewed query=" + args[2] + " speed=" + (player != null
+                    && target.brewedEffects().hasBrewed(player.getUniqueId(), "speed")));
         } else if (args.length == 3 && args[0].equals("credits")) {
             credits(args[1], args[2]);
         } else if (args.length == 6 && args[0].equals("container")) {

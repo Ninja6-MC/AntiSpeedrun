@@ -35,12 +35,14 @@ import com.ninja6.antispeedrun.listeners.AncientCityListener;
 import com.ninja6.antispeedrun.listeners.AntiCheeseListener;
 import com.ninja6.antispeedrun.listeners.BossCombatListener;
 import com.ninja6.antispeedrun.listeners.EyeThrowListener;
+import com.ninja6.antispeedrun.listeners.BrewingCreditListener;
 import com.ninja6.antispeedrun.listeners.FurnaceLoaderListener;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
 import com.ninja6.antispeedrun.listeners.NaturalTrimLootListener;
 import com.ninja6.antispeedrun.listeners.OuterEndBoundaryListener;
 import com.ninja6.antispeedrun.listeners.PersonalCreditListener;
+import com.ninja6.antispeedrun.listeners.PotionProgressionListener;
 import com.ninja6.antispeedrun.listeners.PlacedBlockListener;
 import com.ninja6.antispeedrun.listeners.PlayerIdleListener;
 import com.ninja6.antispeedrun.listeners.ProgressionGateListener;
@@ -60,6 +62,7 @@ import com.ninja6.antispeedrun.storage.ConfigMigrator;
 import com.ninja6.antispeedrun.storage.DimensionUnlockStore;
 import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
+import com.ninja6.antispeedrun.storage.BrewedEffectStore;
 import com.ninja6.antispeedrun.storage.PersonalCreditStore;
 import com.ninja6.antispeedrun.storage.PlacedBlockRegistry;
 import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
@@ -149,6 +152,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
 
     /** The personal-action credits each player has earned (#213), keyed by UUID. */
     private volatile PersonalCreditStore personalCredits;
+    private volatile BrewedEffectStore brewedEffects;
 
     /** Which trim structures each player has explored (#18, #221), keyed by UUID. */
     private volatile ExploredStructureStore exploredStructures;
@@ -212,8 +216,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         VersionedStateFile fightFile = stateFile("dragon-fights.yml");
         VersionedStateFile portalLockFile = stateFile("portal-locks.yml");
         VersionedStateFile exploredFile = stateFile("explored-structures.yml");
+        VersionedStateFile brewedFile = stateFile("brewed-effects.yml");
         VersionedStateFile creditFile = stateFile("personal-credits.yml");
-        if (!migrateStateFiles(List.of(unlockFile, fightFile, portalLockFile, exploredFile, creditFile))) {
+        if (!migrateStateFiles(List.of(unlockFile, fightFile, portalLockFile, exploredFile, creditFile, brewedFile))) {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -229,6 +234,11 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                     + "has been left in place and will be preserved under a .corrupt name before "
                     + "the next credit is written.");
         }
+
+        this.brewedEffects = new BrewedEffectStore(
+                getLogger(), brewedFile,
+                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
+        brewedEffects.loadNow();
 
         this.playerState = new PlayerStateRegistry();
         // The announced-milestone record lives in each player's PDC, so it needs nothing but this
@@ -357,6 +367,10 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // The furnace loader stamp and smelted-iron credit (#214), kept in each furnace's TileState.
         getServer().getPluginManager().registerEvents(
                 new FurnaceLoaderListener(this, personalCredits, creditRefresh), this);
+        getServer().getPluginManager().registerEvents(
+                new BrewingCreditListener(this, brewedEffects), this);
+        getServer().getPluginManager().registerEvents(
+                new PotionProgressionListener(this, brewedEffects), this);
 
         AntiSpeedrunCommand admin = new AntiSpeedrunCommand(this);
         PluginCommand antispeedrun = getCommand("antispeedrun");
@@ -467,6 +481,11 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     public PlacedBlockRegistry placedBlocks() {
         return placedBlocks;
+    }
+
+    /** Personal effect credits, keyed by player UUID and safe to read from any region. */
+    public BrewedEffectStore brewedEffects() {
+        return brewedEffects;
     }
 
     /**
