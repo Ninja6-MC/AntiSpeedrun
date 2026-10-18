@@ -38,7 +38,10 @@ public enum PersonalCredit {
     /** Plugin-defined kill credits; event earners are configured separately. */
     KILL_SHULKER("kill-shulker", null, false),
     KILL_WITHER("kill-wither", null, false),
-    KILL_EVOKER("kill-evoker", null, false);
+    KILL_EVOKER("kill-evoker", null, false),
+
+    /** An untouched, generation-marked End Ship frame collected personally. */
+    ELYTRA("elytra", "minecraft:end/elytra", false);
 
     private final String id;
     private final String advancement;

@@ -85,6 +85,7 @@ public record PluginConfig(
         BossScaling bossScaling,
         AntiCheese antiCheese,
         VillagerProgression villagerProgression,
+        PotionProgression potionProgression,
         List<String> warnings) {
 
     /** Canonical compact constructor: defensively copies the only collection held directly. */
@@ -99,7 +100,19 @@ public record PluginConfig(
         Objects.requireNonNull(bossScaling, "bossScaling");
         Objects.requireNonNull(antiCheese, "antiCheese");
         Objects.requireNonNull(villagerProgression, "villagerProgression");
+        Objects.requireNonNull(potionProgression, "potionProgression");
         warnings = List.copyOf(warnings);
+    }
+
+    /** Compatibility constructor for callers using only the original sections. */
+    public PluginConfig(Profile profile, DimensionGates dimensionGates, ItemProgression itemProgression,
+                        TrimProgression trimProgression, IdleReminder idleReminder, ProgressCard progressCard,
+                        JourneyBook journeyBook, BossScaling bossScaling, AntiCheese antiCheese,
+                        VillagerProgression villagerProgression, List<String> warnings) {
+        this(profile, dimensionGates, itemProgression, trimProgression, idleReminder, progressCard,
+                journeyBook, bossScaling, antiCheese, villagerProgression,
+                new PotionProgression(false, List.of("fire_resistance", "strength", "speed",
+                        "invisibility", "resistance", "regeneration", "slow_falling")), warnings);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -190,7 +203,7 @@ public record PluginConfig(
         ConfigReader r = new ConfigReader(root, "", warnings);
         r.expect(VERSION_KEY, "profile", "dimension-gates", "item-progression", "trim-progression",
                 "idle-reminder", "progress-card", "journey-book", "boss-scaling", "anti-cheese",
-                "villager-progression");
+                "villager-progression", "potion-progression");
 
         Profile profile = r.enumValue("profile", Profile.class, Profile.CORE);
         DimensionGates dimensionGates = parseDimensionGates(r.child("dimension-gates"));
@@ -209,7 +222,7 @@ public record PluginConfig(
 
         return new PluginConfig(profile, dimensionGates, itemProgression, trimProgression,
                 idleReminder, progressCard, journeyBook, bossScaling, antiCheese,
-                villagerProgression, warnings);
+                villagerProgression, parsePotionProgression(r.child("potion-progression")), warnings);
     }
 
     /**
@@ -278,7 +291,7 @@ public record PluginConfig(
     private static ItemProgression parseItemProgression(ConfigReader r) throws ConfigLoadException {
         r.expect("enabled", "drop-recall-enabled", "gate-dispensers", "gate-nested-bundles",
                 "feedback-cooldown-seconds", "rejection-message", "require-personal-credit",
-                "count-structure-loot", "personal-credit-scope", "gated-items");
+                "count-structure-loot", "personal-credit-scope", "require-elytra-collection", "gated-items");
 
         // Read before the tiers, and handed to each of them: item-progression.enabled: false gates
         // no item at all, so a key a tier names under it is not gating this server would fail to
@@ -315,7 +328,8 @@ public record PluginConfig(
                 parsed,
                 r.bool("require-personal-credit", true),
                 r.bool("count-structure-loot", true),
-                r.enumValue("personal-credit-scope", CreditScope.class, CreditScope.ALL));
+                r.enumValue("personal-credit-scope", CreditScope.class, CreditScope.ALL),
+                r.bool("require-elytra-collection", false));
     }
 
     /**
@@ -459,6 +473,28 @@ public record PluginConfig(
                 r.bool("block-gateway-pre-dragon", false),
                 r.atLeast("outer-end-radius", 500, 1),
                 r.atLeast("outer-end-poll-seconds", 2, 1));
+    }
+
+    /** Settings for the optional effect gate; independent of material tiers. */
+    public record PotionProgression(boolean enabled, List<String> gatedEffects) {
+        public PotionProgression {
+            gatedEffects = List.copyOf(gatedEffects);
+        }
+    }
+
+    private static PotionProgression parsePotionProgression(ConfigReader r) {
+        r.expect("enabled", "gated-effects");
+        List<String> effects = new ArrayList<>();
+        for (String value : r.strings("gated-effects", List.of("fire_resistance", "strength",
+                "speed", "invisibility", "turtle_master", "regeneration", "slow_falling"))) {
+            String effect = BrewingEffects.canonical(value);
+            if (effect != null) {
+                effects.add(effect);
+            } else {
+                r.note("Ignoring unknown, healing or harmful gated-effects entry: " + value);
+            }
+        }
+        return new PotionProgression(r.bool("enabled", false), effects);
     }
 
     private static VillagerProgression parseVillagerProgression(ConfigReader r)
@@ -629,6 +665,8 @@ public record PluginConfig(
      *                                diamond, never for smelting or crafting; default {@code true}
      * @param personalCreditScope     which players {@code requirePersonalCredit} applies to;
      *                                default {@link CreditScope#ALL}
+     * @param requireElytraCollection require personal collection from an original natural End Ship
+     *                                frame, independently of other credits; default {@code false}
      */
     public record ItemProgression(
             boolean enabled,
@@ -640,7 +678,8 @@ public record PluginConfig(
             List<ItemTier> gatedItems,
             boolean requirePersonalCredit,
             boolean countStructureLoot,
-            CreditScope personalCreditScope) {
+            CreditScope personalCreditScope,
+            boolean requireElytraCollection) {
         public ItemProgression {
             Objects.requireNonNull(rejectionMessage, "rejectionMessage");
             Objects.requireNonNull(personalCreditScope, "personalCreditScope");
@@ -657,7 +696,25 @@ public record PluginConfig(
         public ItemProgression forViewer(boolean hasRequiredPermission) {
             return new ItemProgression(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles,
                     feedbackCooldownSeconds, rejectionMessage, gatedItems,
-                    personalCreditApplies(hasRequiredPermission), countStructureLoot, personalCreditScope);
+                    personalCreditApplies(hasRequiredPermission), countStructureLoot, personalCreditScope,
+                    elytraCollectionApplies(hasRequiredPermission));
+        }
+
+        /** Whether personally collecting an Elytra is required for this player. */
+        public boolean elytraCollectionApplies(boolean hasRequiredPermission) {
+            return requireElytraCollection
+                    && (personalCreditScope == CreditScope.ALL || hasRequiredPermission);
+        }
+
+        /** Existing callers keep the optional collection requirement switched off. */
+        public ItemProgression(boolean enabled, boolean dropRecallEnabled, boolean gateDispensers,
+                               boolean gateNestedBundles, int feedbackCooldownSeconds,
+                               String rejectionMessage, List<ItemTier> gatedItems,
+                               boolean requirePersonalCredit, boolean countStructureLoot,
+                               CreditScope personalCreditScope) {
+            this(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles, feedbackCooldownSeconds,
+                    rejectionMessage, gatedItems, requirePersonalCredit, countStructureLoot,
+                    personalCreditScope, false);
         }
 
         /** With {@link CreditScope#ALL}, the scope every server had before the setting existed. */

@@ -104,7 +104,7 @@ If early-treasure retention matters more than this analysis assumes, the correct
 
 ## The PDC key register (authoritative)
 
-Four keys exist. Any key not listed here does not exist.
+The keys used for item provenance and personal-action attribution are listed below.
 
 | Key | Container | Lifetime | Owner | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
@@ -112,6 +112,9 @@ Four keys exist. Any key not listed here does not exist.
 | `n6_asr_secondary_dragon` | `EnderDragon` entity | Entity lifetime | — | Marks a plugin-spawned scaling dragon (Epic 6; unrelated to items) |
 | `antispeedrun:furnace-loader` | **`TileState`** of a furnace or blast furnace | Block lifetime | UUID of the player who hand-loaded it, plus a remaining count | Smelting credit (see the Amendment); value `[uuid, remaining]` as a `LONG_ARRAY` `[mostSigBits, leastSigBits, remaining]`, removed once `remaining` reaches 0 |
 | `antispeedrun:placed-blocks` | **Chunk** PDC | Chunk lifetime | — | Registry of player-placed blocks, so mining them earns no credit (see the Amendment) |
+| `antispeedrun:brewing-loader` | **`TileState`** of a brewing stand | Until the claimed ingredients are consumed, replaced or removed | UUID of the ingredient loader, plus remaining count | Brewing attribution as `LONG_ARRAY` `[mostSigBits, leastSigBits, remaining]` |
+| `antispeedrun:natural-elytra-frame` | **`ItemFrame` entity** | Until an uncancelled original removal, replacement or frame break | None | Original natural End Ship Elytra marker as `BYTE` `1`; cancellation and rotation preserve it |
+| `antispeedrun:wither_contributors` | **`Wither` entity** | Until confirmed death; persists across entity unloads and server restarts | Deduplicated contributor UUIDs | Positive, uncancelled player damage as a `LONG_ARRAY` of repeated `[mostSigBits, leastSigBits]` pairs; death removes the marker and records `kill-wither` for every contributor, including offline players |
 
 UUIDs are stored as `PersistentDataType.LONG_ARRAY` holding `[mostSigBits, leastSigBits]`
 (16 bytes), never as `STRING` (36 bytes).
@@ -423,3 +426,62 @@ Provenance does not survive crafting or smelting, because those produce a fresh 
 Under this model that is irrelevant — no `ItemStack` carries provenance at all — but it is
 recorded here so that any future proposal to reintroduce stack tagging must address it
 rather than rediscover it.
+
+
+## Optional personal Elytra collection
+
+`item-progression.require-elytra-collection: true` requires each player to remove an Elytra
+personally from an untouched, naturally generated End Ship item frame before acquiring or
+equipping Elytra. The option is **off by default**, independent of
+`require-personal-credit`, and follows `personal-credit-scope` and the existing item bypasses.
+Item progression must be enabled. The normal item-tier requirements still apply to the
+collecting player: finding a ship does not waive its advancement, playtime or account-age
+requirements. Each ship has one original Elytra, so later players on a shared server must
+find another ship.
+
+**Upgrade limitation:** only ships generated while this version is installed carry provable
+frame provenance. Even an untouched ship generated before installation or upgrade cannot
+earn the credit. Existing loaded frames are never inferred natural from their location,
+contents, nearby blocks or structure membership. Find a newly generated ship, or have an
+operator restore the player's credit with `/asr credit grant <player> elytra`. A vanilla
+advancement grant does not restore this credit while the option applies.
+
+The recorder always runs, including while the option is off. Natural End City world generation
+marks the generated Elytra frame entity, without tagging the Elytra stack. Player-placed,
+command-generated and refilled frames cannot earn credit. Rotation preserves the original
+frame; a successful removal consumes its marker. Cancellation grants nothing and preserves
+its marker. At the item-frame gate only the missing collection requirement is temporarily
+waived for that original removal; the uncancelled event then stores `elytra` with source
+`action`, backed by `minecraft:end/elytra`, before pickup. Gifts, chest withdrawals and
+refilled frames remain subject to the collection requirement. The credit survives restart
+in `personal-credits.yml`; `/asr credit revoke <player> elytra` removes it.
+
+## Personal potion effects
+
+The optional `potion-progression.enabled` gate is off by default. Unlike material tiers,
+it keys on beneficial effect IDs: a player earns each effect by hand-loading the ingredient
+that first introduces that effect during a successful brew. Bottle collection, hopper input,
+redstone extension, glowstone amplification and conversion of a gifted potion into splash or
+lingering form earn no effect already present. Brewing always records, including while the
+gate is off. The separate versioned `brewed-effects.yml` stores player UUIDs and effect IDs;
+no bottle carries an owner or provenance tag.
+
+The brewing stand keeps an ingredient-loader claim in its persistent block data. Each brew
+consumes one claimed ingredient; another player loading ingredients replaces the claim with
+their own count. Bottle loaders and output collectors receive nothing. Hand-loading Blaze
+Powder directly into the ingredient slot can earn Strength; shift-clicking Blaze Powder is
+not credited because the same gesture can feed the fuel slot. NPC loaders never count.
+
+The configured default effects are Fire Resistance, Strength, Speed, Invisibility, Turtle
+Master (the `resistance` effect), Regeneration and Slow Falling. Healing and harmful effects
+cannot be configured as gated. Turtle Master's Slowness always remains effective. Mixed
+custom potions retain every ungated effect: individual effect events filter the gated
+benefit rather than cancelling the entire mixture. Tipped arrows follow that same rule.
+
+Acquisition checks cover ground pickup, container withdrawal and merchant results. Drinking,
+splash and lingering application also check each recipient's credit, so sharing or dispensing
+a potion cannot grant its benefit to an unqualified recipient. A pure gated splash has its
+intensity set to zero for that recipient; a pure gated cloud excludes that recipient. Mixed
+sources are filtered effect by effect. Item bypass permissions and temporary bypass grants
+apply, as does `item-progression.personal-credit-scope`; the potion switch is independent of
+the material-tier and personal-credit master switches. Feedback uses the item cooldown.

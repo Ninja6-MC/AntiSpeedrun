@@ -98,7 +98,8 @@ class CreditArgumentTest {
         @DisplayName("the credit words are every id, then smelt-iron, then all")
         void words() {
             assertEquals(List.of("mine-stone", "mined-iron", "smelted-iron", "iron-tools",
-                    "upgrade-tools", "mine-diamond", "obtain-blaze-rod", "kill-shulker", "kill-wither", "kill-evoker", "smelt-iron", "all"),
+                    "upgrade-tools", "mine-diamond", "obtain-blaze-rod", "kill-shulker", "kill-wither",
+                    "kill-evoker", "elytra", "smelt-iron", "all"),
                     CreditArgument.creditWords());
             for (String word : CreditArgument.creditWords()) {
                 assertTrue(CreditArgument.credits(word).isPresent(), word);
