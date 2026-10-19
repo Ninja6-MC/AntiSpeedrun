@@ -309,6 +309,34 @@ Contributors are kept on the Wither across unloads and restarts; death records c
 for offline contributors too. Recording runs even while the gate is off. Existing
 `/asr credit grant|revoke <player> kill-wither` commands manage the persisted credit.
 
+Totems have a separate optional `totem-tier` example in every shipped profile. They are
+no longer listed in the bundled `end-tier`, and the example is commented out, so fresh
+configs leave Totems ungated. To enable the personal Evoker requirement, enable item
+progression and `require-personal-credit`, then uncomment:
+
+```yaml
+    totem-tier:
+      items: ["TOTEM_OF_UNDYING"]
+      require-credits: ["kill-evoker"]
+      hint: "Kill an Evoker yourself (raid kills count)"
+```
+
+A real player's personal Evoker kill records `kill-evoker` before item pickup. Raid Evokers
+count, and unlike Shulker credit no particular death drop is required. NPCs, spectators
+and deaths without a player killer earn nothing. Recording runs with the gate off. The
+credit persists in `personal-credits.yml`; `/asr credit grant|revoke <player> kill-evoker`
+restores or removes it. The tier uses the existing scope, bypass and explicit-credit rules.
+
+**Upgrade and opt-in:** upgrades preserve the operator's entire existing tier table.
+An older `end-tier` may still list `TOTEM_OF_UNDYING`, and upgrading does not silently
+remove it or add the optional tier. Before adding or uncommenting `totem-tier`, remove the
+Totem from its old tier's `items` (and any custom matching pattern), or explicitly exclude
+it there. Keeping the old End requirements alongside the new personal credit can create
+an incomparable tier collision; reload rejects that configuration. Applying a shipped
+preset replaces the table after taking a backup, so its Totem is already separated; the
+optional tier still needs enabling. Carry other custom requirements into the new tier
+explicitly if the server should retain them.
+
 Each tier under `gated-items` takes:
 
 | Key | Default | Notes |

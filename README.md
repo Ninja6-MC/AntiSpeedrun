@@ -162,6 +162,11 @@ A player must personally kill a Shulker that drops a shell. Boxes keep their exi
 requirements; also enable `gate-shulker-boxes` to require the credit for boxes and all dyes.
 Both options start off. See the [configuration guide](docs/configuration.md).
 
+Totems have their own optional tier requiring a personal Evoker kill; raid kills count.
+The example is off by default and replaces the bundled End-tier Totem entry in new configs.
+Existing custom tables are preserved; follow the [upgrade and opt-in instructions](docs/configuration.md#43-item-progression)
+before enabling it in an older config.
+
 ## Documentation
 
 - [Administration guide](docs/administration.md) -- installation, first start, commands

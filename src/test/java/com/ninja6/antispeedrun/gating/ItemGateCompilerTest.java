@@ -115,6 +115,48 @@ class ItemGateCompilerTest {
         assertTrue(warnings.isEmpty(), warnings.toString());
     }
 
+    @Test
+    void optionalTotemTierIsOffAndCollisionFreeInEveryProfile() throws Exception {
+        List<String> paths = new ArrayList<>(List.of("/config.yml"));
+        for (PluginConfig.Profile profile : com.ninja6.antispeedrun.storage.ProfileApplier.applicable()) {
+            paths.add("/" + com.ninja6.antispeedrun.storage.ProfileApplier.resourcePath(profile));
+        }
+        for (String path : paths) {
+            try (InputStream in = getClass().getResourceAsStream(path)) {
+                assertNotNull(in);
+                String text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                assertNull(compile(yaml(text)).tierFor(TestMaterial.TOTEM_OF_UNDYING), path);
+                String enabled = text.replace("    # totem-tier:", "    totem-tier:")
+                        .replace("    #   items: [\"TOTEM_OF_UNDYING\"]", "      items: [\"TOTEM_OF_UNDYING\"]")
+                        .replace("    #   require-credits: [\"kill-evoker\"]", "      require-credits: [\"kill-evoker\"]")
+                        .replace("    #   hint: \"Kill an Evoker yourself (raid kills count)\"",
+                                "      hint: \"Kill an Evoker yourself (raid kills count)\"");
+                PluginConfig.ItemTier tier = compile(yaml(enabled)).tierFor(TestMaterial.TOTEM_OF_UNDYING);
+                assertNotNull(tier, path);
+                assertEquals("totem-tier", tier.id());
+                assertEquals(List.of(com.ninja6.antispeedrun.storage.PersonalCredit.KILL_EVOKER), tier.requireCredits());
+                assertTrue(tier.hint().contains("raid kills count"));
+            }
+        }
+        assertTrue(warnings.isEmpty(), warnings.toString());
+    }
+
+    @Test
+    void customOldTotemTierSurvivesMigrationAndMustBeRemovedBeforeOptIn() throws Exception {
+        String old = "config-version: 1\nitem-progression:\n  enabled: true\n  gated-items:\n"
+                + "    end-tier:\n      items: [TOTEM_OF_UNDYING, ELYTRA] # custom\n"
+                + "      require-advancements: [minecraft:nether/find_fortress]\n";
+        var migrated = com.ninja6.antispeedrun.storage.ConfigMigrator.migrateText(old);
+        assertEquals(old.replace("config-version: 1", "config-version: 2"), migrated.text());
+        assertEquals("end-tier", tierOf(compile(yaml(migrated.text())), TestMaterial.TOTEM_OF_UNDYING));
+        String optional = "    totem-tier:\n      items: [TOTEM_OF_UNDYING]\n"
+                + "      require-credits: [kill-evoker]\n";
+        assertThrows(GateCollisionException.class, () -> compile(yaml(migrated.text() + optional)));
+        String optedIn = migrated.text().replace("[TOTEM_OF_UNDYING, ELYTRA]", "[ELYTRA]") + optional;
+        assertEquals("totem-tier", tierOf(compile(yaml(optedIn)), TestMaterial.TOTEM_OF_UNDYING));
+        assertTrue(warnings.isEmpty(), warnings.toString());
+    }
+
     @Nested
     @DisplayName("the shipped config.yml")
     class Shipped {

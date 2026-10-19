@@ -507,3 +507,20 @@ ordinary tier behavior. The separate `gate-shulker-boxes` option, also false by 
 adds the requirement to the undyed box and all sixteen colors while collection is enabled.
 The optional check adds to existing tiers; it cannot replace their advancement or time
 requirements or create a second, colliding material tier.
+
+
+## Optional personal Evoker/Totem credit
+
+Every real player's personal Evoker kill earns `kill-evoker` with source `action` in
+`personal-credits.yml`, including raid kills and deaths with no Totem drop. The existing
+MONITOR death recorder grants it before spawned items can be picked up. Environmental
+kills, NPCs and spectators earn nothing; there is no item tag or additional PDC key.
+Recording remains active while enforcement is off.
+
+The shipped Totem tier is a commented example requiring only this credit, with a hint
+that raid kills count. Totems are removed from the bundled End tier, so new configs do
+not require End progression or a kill until that example is enabled. Existing custom
+configurations are preserved on upgrade. An operator must remove/exclude their old Totem
+entry before opting in to the separate tier, or deliberately move any retained requirements
+to the new tier. Applying a preset replaces the table with the separated, still-disabled
+example. See the [configuration guide](configuration.md#43-item-progression) before opt-in.
