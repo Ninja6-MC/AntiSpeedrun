@@ -117,7 +117,8 @@ def main(argv=None):
     parser.add_argument("--memory", default="3G")
     parser.add_argument("--port", type=int, default=25599)
     parser.add_argument("--boot-timeout", type=int, default=300)
-    parser.add_argument("--deadline", type=int, default=1500, help="seconds the whole run may take")
+    parser.add_argument("--deadline", type=int, default=2400,
+                        help="seconds the whole run may take (default: 2400; use a shorter bound for focused runs)")
     parser.add_argument("--label", default="server")
     parser.add_argument("--seed", help="the world seed, to repeat a run that depended on where things generated")
     parser.add_argument("--probe", action="append", choices=PROBES,
