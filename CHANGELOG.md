@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Personal Evoker kills now earn `kill-evoker`, including raid kills and kills without
+  a Totem drop. The separate optional Totem tier starts off in every shipped profile.
+
+
 - Optional personal Shulker Shell collection, earned by killing a Shulker that actually
   drops a shell. Shell and optional all-color box checks preserve existing tiers, scope
   and bypasses. Both options are off in every shipped profile.

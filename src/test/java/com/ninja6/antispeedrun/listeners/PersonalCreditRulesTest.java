@@ -152,6 +152,16 @@ class PersonalCreditRulesTest {
     }
 
     @Test
+    void evokerKillsAreIndependentOfRaidMembershipAndDeathDrops() {
+        assertTrue(PersonalCreditRules.evokerKill(EntityType.EVOKER));
+        assertFalse(PersonalCreditRules.evokerKill(EntityType.VINDICATOR));
+        assertFalse(PersonalCreditRules.evokerKill(EntityType.PILLAGER));
+        assertFalse(PersonalCreditRules.evokerKill(EntityType.ILLUSIONER));
+        assertFalse(PersonalCreditRules.creditable(false, false));
+        assertFalse(PersonalCreditRules.creditable(true, true));
+    }
+
+    @Test
     @DisplayName("only real players are credited; NPC-marked players and other entities are not")
     void realPlayersOnly() {
         assertTrue(PersonalCreditRules.creditable(true, false));

@@ -643,6 +643,15 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         if (entity.getScoreboardTags().contains(TAG)) {
             tracked.put(entity.getUniqueId(), entity);
         }
+        if (entity instanceof org.bukkit.entity.Evoker evoker
+                && entity.getScoreboardTags().contains("raid-fixture")) {
+            org.bukkit.Raid raid = evoker.getWorld().locateNearestRaid(evoker.getLocation(), 128);
+            if (raid != null) {
+                evoker.setRaid(raid);
+                evoker.setWave(1);
+            }
+            log("evoker-raid joined=" + (evoker.getRaid() != null));
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -683,10 +692,11 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         }
     }
 
-    /** The existing loot/nodrops controls also cover tagged Shulker death drops. */
+    /** The existing loot/nodrops controls also cover tagged Shulker and Evoker deaths. */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void armShulkerDrops(org.bukkit.event.entity.EntityDeathEvent event) {
-        if (event.getEntityType() != org.bukkit.entity.EntityType.SHULKER
+        if ((event.getEntityType() != org.bukkit.entity.EntityType.SHULKER
+                && event.getEntityType() != org.bukkit.entity.EntityType.EVOKER)
                 || !event.getEntity().getScoreboardTags().contains(TAG)) {
             return;
         }
@@ -711,6 +721,34 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                     + " drops=" + items(event.getDrops()) + " credited=" + (killer != null
                     && target.personalCredits().has(killer.getUniqueId(), PersonalCredit.KILL_SHULKER, false)));
         }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void evokerDeath(org.bukkit.event.entity.EntityDeathEvent event) {
+        if (event.getEntity() instanceof org.bukkit.entity.Evoker evoker) {
+            Player killer = evoker.getKiller();
+            var target = (AntiSpeedrunPlugin) Bukkit.getPluginManager().getPlugin("AntiSpeedrun");
+            log("evoker-death killer=" + (killer == null ? "none" : killer.getName())
+                    + " raid=" + (evoker.getRaid() != null) + " drops=" + items(event.getDrops())
+                    + " credited=" + (killer != null && target.personalCredits()
+                            .has(killer.getUniqueId(), PersonalCredit.KILL_EVOKER, false)));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void raidOmen(org.bukkit.event.entity.EntityPotionEffectEvent event) {
+        if (event.getEntity() instanceof Player player && event.getNewEffect() != null) {
+            String type = event.getNewEffect().getType().getName();
+            if (type.equals("BAD_OMEN") || type.equals("RAID_OMEN")) {
+                log("raid-omen player=" + player.getName() + " type=" + type
+                        + " duration=" + event.getNewEffect().getDuration());
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void raidTriggered(org.bukkit.event.raid.RaidTriggerEvent event) {
+        log("raid-trigger player=" + event.getPlayer().getName() + " id=" + event.getRaid().getId());
     }
 
     /** The same for a vault's dispensed loot. */

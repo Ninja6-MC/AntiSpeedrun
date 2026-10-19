@@ -141,6 +141,12 @@ item-progression:
   # whatever you call it -- this is a WARNING, not an error -- but a tier named the same as
   # that key would silently swallow one of the two warnings while the other's cooldown runs.
   gated-items:
+    # Optional Totem gate (off by default). Remove any old Totem tier entry before enabling.
+    # Item progression and require-personal-credit must be enabled for credit enforcement.
+    # totem-tier:
+    #   items: ["TOTEM_OF_UNDYING"]
+    #   require-credits: ["kill-evoker"]
+    #   hint: "Kill an Evoker yourself (raid kills count)"
     # Optional Wither rewards gate (off by default). Uncomment this tier to require helping
     # kill a Wither before collecting Nether Stars/Beacons or receiving beacon effects.
     # Item progression and require-personal-credit must be enabled for credit enforcement.
@@ -229,7 +235,6 @@ item-progression:
         - "DRAGON_BREATH"
         - "DRAGON_HEAD"
         - "DRAGON_EGG"
-        - "TOTEM_OF_UNDYING"
       require-advancements:
         - "minecraft:nether/obtain_blaze_rod"
         - "minecraft:nether/find_fortress"

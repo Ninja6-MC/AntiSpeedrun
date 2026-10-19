@@ -236,3 +236,12 @@ shell-free deaths, environmental kills, NPCs and spectators. The existing `loot`
 both outcomes deterministic. Observation confirms credit before pickup of that original
 drop. Gift pickup and container withdrawals exercise the optional shell/box gates, normal
 tier prerequisites, credit scope, bypass and the disabled switch.
+
+
+`evoker_totems` checks default Totem availability, optional-tier gift and withdrawal refusal,
+ordinary and drop-independent personal kill credit, NPC/environmental/spectator controls,
+scoping, bypass and disabled enforcement. It creates an occupied village bed and triggers a
+real raid with Raid Omen, then attaches the tagged test Evoker to that active raid before a
+real player kills it. The observer reports actual raid membership and persisted credit at
+death. Unit checks compile every profile with the optional tier off and on, and verify that
+an old custom Totem entry survives migration and must be separated before opt-in.
