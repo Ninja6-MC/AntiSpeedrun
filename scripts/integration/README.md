@@ -150,8 +150,16 @@ earlier `results.json` before it starts; `cache/` (the pinned Via jars) is kept:
 The exit status is 0 only when every check passed. Any exception, not only a probe failure,
 is recorded as a failed `harness` check, so `results.json` is always written. A probe that
 cannot reach the state it asserts on (a boss that never spawns, a hit that never lands) is a
-failure, never a pass. The whole run is bounded by `--deadline` (25 minutes by default); when
-it passes, the server and client are killed. Both are also killed on any exception.
+failure, never a pass. The whole run is bounded by `--deadline` (2,400 seconds / 40 minutes
+by default), including server startup and every collection-credit probe. When it expires,
+the server and client are killed and the run reports a failing deadline result. Both are
+also killed on any exception. Focused runs can select a shorter bound, for example
+`--probe evoker_totems --deadline 600`.
+
+CI gives the gameplay step 45 minutes, leaving five minutes beyond the harness budget for
+cleanup and reporting. Its 55-minute job limit leaves another ten minutes around that
+step for setup, downloads and result/log uploads. Keep these enclosing limits above the
+harness deadline when changing the full-suite budget.
 
 A check that fails today because of an open bug passes `known_issue=<n>` and lists the issue in
 `KNOWN_ISSUES` in `probes.py`. It is still run and recorded, with status `known-failure`, but
