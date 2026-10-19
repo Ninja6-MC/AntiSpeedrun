@@ -150,6 +150,23 @@ keep their configuration. Apply `SMP_STANDARD` to opt in to item and trim gating
 or enable either section individually; applying a preset replaces the whole file
 after taking a backup. Personal-action credits still apply to dimension gates.
 
+Optional personal Elytra collection is enabled with
+`item-progression.require-elytra-collection: true` while item progression is enabled.
+Each player must collect an original Elytra from a newly generated End Ship; older unmarked
+ships cannot earn credit. See the [collection and upgrade notes](docs/provenance-model.md#optional-personal-elytra-collection)
+before enabling it on an existing world. Operators can restore a credit with
+`/asr credit grant <player> elytra`.
+
+Optional Shulker Shell collection uses `item-progression.require-shulker-collection: true`.
+A player must personally kill a Shulker that drops a shell. Boxes keep their existing tier
+requirements; also enable `gate-shulker-boxes` to require the credit for boxes and all dyes.
+Both options start off. See the [configuration guide](docs/configuration.md).
+
+Totems have their own optional tier requiring a personal Evoker kill; raid kills count.
+The example is off by default and replaces the bundled End-tier Totem entry in new configs.
+Existing custom tables are preserved; follow the [upgrade and opt-in instructions](docs/configuration.md#43-item-progression)
+before enabling it in an older config.
+
 ## Documentation
 
 - [Administration guide](docs/administration.md) -- installation, first start, commands

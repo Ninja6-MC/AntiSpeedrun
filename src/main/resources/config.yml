@@ -1,7 +1,7 @@
 # Schema version of this file, kept current by the plugin. Do not edit or remove it:
 # on start an older file is migrated forward (the old one is saved to backups/ first)
 # and a file from a newer version is refused.
-config-version: 1
+config-version: 2
 
 # AntiSpeedrun - Unified Anti-Speedrun, Progression Gates, Anti-Boosting & Boss Combat
 # Configuration Profiles: CORE, CASUAL, SMP_STANDARD, HARDCORE, or CUSTOM
@@ -109,6 +109,9 @@ dimension-gates:
 # 2. Anti-Boosting & Item Progression Gating (Minecraft Tag & Pattern Resolution)
 item-progression:
   enabled: false
+  # Optional personal kill credit; boxes keep their ordinary tiers unless opted in too.
+  require-shulker-collection: false
+  gate-shulker-boxes: false
   # Gating is a pure function of (player advancements, material). Naturally generated loot
   # is not special-cased: see docs/provenance-model.md for why the exemption was removed
   # rather than fixed. gate-natural-structure-chests, gate-player-placed-chests and
@@ -126,6 +129,9 @@ item-progression:
   # every gate that requires one of them, the dimension gates included, even while enabled
   # above is false. /advancement grant and revoke no longer change them. Nothing carries over
   # from vanilla advancements already earned. See docs/provenance-model.md.
+  # Optional: collect your own Elytra from a newly generated End Ship frame.
+  # Older unmarked ships cannot earn credit; see docs/provenance-model.md.
+  require-elytra-collection: false
   require-personal-credit: true
   # Loot the player generates themselves (a structure chest they open first, a trial vault) may
   # stand in for mining iron or diamonds, never for smelting or crafting. Takes effect on reload.
@@ -140,6 +146,19 @@ item-progression:
   # whatever you call it -- this is a WARNING, not an error -- but a tier named the same as
   # that key would silently swallow one of the two warnings while the other's cooldown runs.
   gated-items:
+    # Optional Totem gate (off by default). Remove any old Totem tier entry before enabling.
+    # Item progression and require-personal-credit must be enabled for credit enforcement.
+    # totem-tier:
+    #   items: ["TOTEM_OF_UNDYING"]
+    #   require-credits: ["kill-evoker"]
+    #   hint: "Kill an Evoker yourself (raid kills count)"
+    # Optional Wither rewards gate (off by default). Uncomment this tier to require helping
+    # kill a Wither before collecting Nether Stars/Beacons or receiving beacon effects.
+    # Item progression and require-personal-credit must be enabled for credit enforcement.
+    # wither-tier:
+    #   items: ["NETHER_STAR", "BEACON"]
+    #   require-credits: ["kill-wither"]
+    #   hint: "Help kill a Wither yourself"
     iron-tier:
       # Match modes: PREFIX ("IRON_*"), SUFFIX ("*_IRON_ORE"), CONTAINS ("*_IRON_*").
       # Prefix-only matching leaks the deepslate ore variants - DEEPSLATE_IRON_ORE does
@@ -221,7 +240,6 @@ item-progression:
         - "DRAGON_BREATH"
         - "DRAGON_HEAD"
         - "DRAGON_EGG"
-        - "TOTEM_OF_UNDYING"
       require-advancements:
         - "minecraft:nether/obtain_blaze_rod"
         - "minecraft:nether/find_fortress"
@@ -314,7 +332,8 @@ boss-scaling:
 anti-cheese:
   enabled: true
   # Cancels DamageType.BAD_RESPAWN_POINT (bed and respawn anchor explosions) against the Ender
-  # Dragon and the Wither. TNT, arrows and melee are untouched. Off until the v0.2.0 playtest.
+  # Dragon and the Wither. TNT, arrows and melee are untouched.
+  # Off by default pending survival playtest findings.
   block-bed-anchor-boss-damage: false
   # Caps what one hit can do to the Ender Dragon or the Wither, measured after armour and
   # resistance. Off by default: set it to true to enforce max-single-hit-boss-damage.
@@ -332,9 +351,11 @@ anti-cheese:
   # Refuses an End Crystal placed on the exit portal's centre column (0, 0), the duplication
   # exploit. The four ritual positions on the portal rim, (+-3, 0) and (0, +-3), are untouched,
   # so resummoning still works.
-  # Off until the v0.2.0 playtest.
+  # Off by default pending survival playtest findings.
   block-exit-portal-crystal-place: false
-  block-gateway-pre-dragon: false      # Off until the v0.2.0 playtest. Block bridging, pearling & chorus fruit to the Outer End
+  # Block bridging, pearling and chorus fruit to the Outer End before the first dragon dies.
+  # Off by default pending survival playtest findings.
+  block-gateway-pre-dragon: false
   outer-end-radius: 500                # Boundary enforced until the world's first dragon dies
   outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
 
@@ -356,3 +377,17 @@ villager-progression:
   # something this gate does not ask for. Plain text; tags show as written. A legacy § code
   # is refused at load and the default is used.
   hint: "Cure a Zombie Villager (Zombie Doctor)"
+
+# Optional personal brewing gate, independent of material tiers. Uses item bypasses and
+# personal-credit-scope; records brewing even while disabled. Turtle Master gates only
+# Resistance: Slowness, healing and other harmful effects are never restricted.
+potion-progression:
+  enabled: false
+  gated-effects:
+    - fire_resistance
+    - strength
+    - speed
+    - invisibility
+    - turtle_master
+    - regeneration
+    - slow_falling

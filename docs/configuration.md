@@ -176,7 +176,7 @@ is not versioned.
 
 | Key | Default | Notes |
 | :--- | :--- | :--- |
-| `config-version` | `1` | The schema version of the file, written by the plugin. Do not edit or remove it. See [section 3.2](#32-upgrading-an-older-configyml). |
+| `config-version` | `2` | The schema version of the file, written by the plugin. Do not edit or remove it. See [section 3.2](#32-upgrading-an-older-configyml). |
 
 | Key | Default | Notes |
 | :--- | :--- | :--- |
@@ -220,6 +220,9 @@ so that progression is advancement-driven by default.
 | `feedback-cooldown-seconds` | `3` | Minimum `0`. Throttle between refusal messages. |
 | `rejection-message` | A built-in message | MiniMessage with `{ITEM}` and `{REQUIREMENT}` placeholders. |
 | `require-personal-credit` | `true` | Answer the six possession-triggered advancements from personal credits. Applies to every gate, dimension gates included, whatever `enabled` says. |
+| `require-elytra-collection` | `false` | Require personal collection from an original natural End Ship frame before acquiring or equipping Elytra. Independent of `require-personal-credit`, follows `personal-credit-scope`, and needs item progression enabled. Ships generated before installation cannot earn credit; see the [upgrade limitation](provenance-model.md#optional-personal-elytra-collection). |
+| `require-shulker-collection` | `false` | Add personal `kill-shulker` credit to shell acquisition. Independent of the personal-credit master, follows its scope, and requires item progression enabled. |
+| `gate-shulker-boxes` | `false` | Also add that credit to undyed and all dyed Shulker Boxes while Shulker collection is enabled. Existing tier requirements remain. |
 | `count-structure-loot` | `true` | Loot the player generates may stand in for mining iron or diamonds, never for smelting or crafting. |
 | `personal-credit-scope` | `ALL` | Who `require-personal-credit` applies to. `ALL`: every player. `PERMISSION`: only holders of `antispeedrun.credit.required`; everyone else is gated on vanilla advancements, as with the toggle off. |
 | `gated-items` | none | A map of tier id to tier. There is no code default: with none declared, no item is gated. |
@@ -254,6 +257,86 @@ advancement. While `count-structure-loot` is also on they name the loot alternat
 the book adds that loot counts only from a chest the player opens first, so a friend
 should not open it for them.
 
+Set `item-progression.require-shulker-collection: true` to require `kill-shulker` for
+Shulker Shell pickup and withdrawal. The option is off by default and independent of
+`require-personal-credit`; item progression must be enabled. The same personal-credit scope,
+item bypasses and normal tier requirements still apply. Credit is recorded only when a real
+player kills a Shulker and its final death-event drops contain a shell, before pickup.
+Kills with no shell drop, environmental deaths and NPC killers earn nothing. Recording
+continues while the gate is off, and `/asr credit grant|revoke <player> kill-shulker` restores
+or removes the persistent credit.
+
+Shulker Boxes, including every dyed color, keep only their existing tier requirements by
+default. Also set `item-progression.gate-shulker-boxes: true` to add the same collection
+credit to boxes. This switch takes effect only while `require-shulker-collection` is true;
+it never removes an operator's existing advancement, credit or time requirements.
+
+Item tiers can require a personal action without a vanilla advancement using
+`require-credits: [kill-shulker]`. The IDs `kill-shulker`, `kill-wither` and `kill-evoker`
+are available for configuration and `/asr credit grant|revoke`; their automatic kill
+recorders are separate features. Existing credit IDs also work, including the individual
+`mined-iron` and `smelted-iron` sub-credits. The command alias `smelt-iron` is not a credit
+ID in configuration: list both sub-credits instead. All listed credits are required.
+These requirements use `require-personal-credit` and `personal-credit-scope`: when the
+toggle is off or the viewer is outside the scope, explicit credits impose no requirement.
+They persist in `personal-credits.yml` and appear as actions in generated guidance.
+Unlike vanilla advancements, explicit credits are never waived for lack of an advancement.
+
+Schema version 2 adds this optional list. Migration from version 1 changes only the version
+stamp, preserving custom tier text, comments and requirements; absent lists default to `[]`.
+No existing item gains a new credit requirement during the upgrade.
+
+To require Wither participation for Nether Stars and Beacons, uncomment the optional
+`wither-tier` example under `item-progression.gated-items` in any shipped profile, or add:
+
+```yaml
+    wither-tier:
+      items: [NETHER_STAR, BEACON]
+      require-credits: [kill-wither]
+      hint: "Help kill a Wither yourself"
+```
+
+Enable `item-progression.enabled` and `require-personal-credit`, then reload. This gate
+is off in every shipped profile. Beacon effects use the Beacon material's active tier,
+including its other configured requirements, personal-credit scope and item bypasses.
+Disabling item progression also disables the effect gate. Revoking a credit blocks future
+pulses; an effect already applied expires on its normal timer.
+
+Every real player who deals positive, uncancelled damage to a Wither earns `kill-wither`
+when that Wither dies, including projectile damage attributed to its player shooter.
+Nearby spectators, NPCs and players whose damage was cancelled or zero earn nothing.
+Contributors are kept on the Wither across unloads and restarts; death records credits
+for offline contributors too. Recording runs even while the gate is off. Existing
+`/asr credit grant|revoke <player> kill-wither` commands manage the persisted credit.
+
+Totems have a separate optional `totem-tier` example in every shipped profile. They are
+no longer listed in the bundled `end-tier`, and the example is commented out, so fresh
+configs leave Totems ungated. To enable the personal Evoker requirement, enable item
+progression and `require-personal-credit`, then uncomment:
+
+```yaml
+    totem-tier:
+      items: ["TOTEM_OF_UNDYING"]
+      require-credits: ["kill-evoker"]
+      hint: "Kill an Evoker yourself (raid kills count)"
+```
+
+A real player's personal Evoker kill records `kill-evoker` before item pickup. Raid Evokers
+count, and unlike Shulker credit no particular death drop is required. NPCs, spectators
+and deaths without a player killer earn nothing. Recording runs with the gate off. The
+credit persists in `personal-credits.yml`; `/asr credit grant|revoke <player> kill-evoker`
+restores or removes it. The tier uses the existing scope, bypass and explicit-credit rules.
+
+**Upgrade and opt-in:** upgrades preserve the operator's entire existing tier table.
+An older `end-tier` may still list `TOTEM_OF_UNDYING`, and upgrading does not silently
+remove it or add the optional tier. Before adding or uncommenting `totem-tier`, remove the
+Totem from its old tier's `items` (and any custom matching pattern), or explicitly exclude
+it there. Keeping the old End requirements alongside the new personal credit can create
+an incomparable tier collision; reload rejects that configuration. Applying a shipped
+preset replaces the table after taking a backup, so its Totem is already separated; the
+optional tier still needs enabling. Carry other custom requirements into the new tier
+explicitly if the server should retain them.
+
 Each tier under `gated-items` takes:
 
 | Key | Default | Notes |
@@ -262,6 +345,7 @@ Each tier under `gated-items` takes:
 | `exclude-materials` | `[]` | Material names removed from the tier. |
 | `items` | `[]` | Exact material names. |
 | `require-advancements` | `[]` | List of advancement keys, all required. There is no built-in default, so an empty list requires nothing for the tier. |
+| `require-credits` | `[]` | List of personal credit IDs, all required alongside advancement and time requirements. Unknown IDs or malformed lists reject the load while item progression is enabled; otherwise they warn. |
 | `require-playtime-hours` | `0` | Decimal hours. |
 | `require-account-age-days` | `0` | Whole days. |
 | `hint` | empty | Plain text shown as `{REQUIREMENT}`. |

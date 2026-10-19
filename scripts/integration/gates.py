@@ -253,6 +253,42 @@ class GateProbes(Probes):
         self.progression(NETHER_GATE)
         self.portal_case(rule, "control: an eligible player walking into a Nether portal", True)
 
+    def explicit_credits(self):
+        rule = "item gate: explicit credits"
+        with open(self.config_path, encoding="utf-8") as handle:
+            original = handle.read()
+
+        def fixture(text):
+            text = set_key(text, ITEMS, "require-personal-credit", "true")
+            text = set_key(text, ITEMS, "personal-credit-scope", "ALL")
+            text, count = re.subn(r"(?m)^  gated-items:\s*$",
+                                 "  gated-items:\n    explicit-probe:\n      items: [BEACON]\n"
+                                 "      require-credits: [kill-shulker, kill-wither, kill-evoker]",
+                                 text, count=1)
+            if count != 1:
+                raise ProbeError("item-progression.gated-items fixture anchor missing")
+            return text
+
+        try:
+            self.reload(fixture)
+            self.progression()
+            self.pickup_case(rule, "no explicit credits", "beacon", False)
+            self.credit("grant", "kill-shulker")
+            self.credit("grant", "kill-wither")
+            self.pickup_case(rule, "two of three required credits", "beacon", False)
+            self.credit("grant", "kill-evoker")
+            self.pickup_case(rule, "all credits granted without reload", "beacon", True)
+            self.credit("revoke", "kill-evoker")
+            self.pickup_case(rule, "one credit revoked without reload", "beacon", False)
+            self.reload(lambda text: set_key(text, ITEMS, "personal-credit-scope", "PERMISSION"))
+            self.pickup_case(rule, "player outside permission scope", "beacon", True)
+            self.reload(lambda text: set_key(set_key(text, ITEMS, "personal-credit-scope", "ALL"),
+                                             ITEMS, "require-personal-credit", "false"))
+            self.pickup_case(rule, "personal credits disabled", "beacon", True)
+        finally:
+            self.reload(lambda text: original)
+            self.credit("revoke", "all")
+
     def credit_unlock(self):
         rule = "dimension gate: credit-driven unlock"
         # No reload and no rejoin between the credit and the walk: the credit itself has to drop
@@ -664,7 +700,7 @@ class GateProbes(Probes):
         self.run(f"execute in {OVERWORLD} run kill @e[type=minecraft:item]")
 
 
-PROBES = ("portals", "credit_unlock", "vehicles", "operator", "bypass", "teleports", "login", "pickups", "containers",
+PROBES = ("portals", "explicit_credits", "credit_unlock", "vehicles", "operator", "bypass", "teleports", "login", "pickups", "containers",
           "container_break", "merchant", "recall", "reload_active")
 
 

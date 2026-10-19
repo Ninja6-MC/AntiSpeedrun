@@ -32,6 +32,16 @@ class CreditArgumentTest {
         return CreditArgument.parse(args);
     }
 
+    @Test
+    void independentCreditsCanBeGrantedAndRevoked() {
+        for (String id : List.of("kill-shulker", "kill-wither", "kill-evoker")) {
+            assertTrue(CreditArgument.parse(new String[] {"credit", "grant", "Steve", id})
+                    instanceof CreditArgument.Change);
+            assertTrue(CreditArgument.parse(new String[] {"credit", "revoke", "Steve", id})
+                    instanceof CreditArgument.Change);
+        }
+    }
+
     @Nested
     @DisplayName("parsing")
     class Parsing {
@@ -88,7 +98,8 @@ class CreditArgumentTest {
         @DisplayName("the credit words are every id, then smelt-iron, then all")
         void words() {
             assertEquals(List.of("mine-stone", "mined-iron", "smelted-iron", "iron-tools",
-                    "upgrade-tools", "mine-diamond", "obtain-blaze-rod", "smelt-iron", "all"),
+                    "upgrade-tools", "mine-diamond", "obtain-blaze-rod", "kill-shulker", "kill-wither",
+                    "kill-evoker", "elytra", "smelt-iron", "all"),
                     CreditArgument.creditWords());
             for (String word : CreditArgument.creditWords()) {
                 assertTrue(CreditArgument.credits(word).isPresent(), word);

@@ -67,6 +67,7 @@ for the first time, a trial vault unlocked with a key, suspicious sand brushed),
 | `credit_iron_pickaxe` | Crafting one in a crafting table earns `iron-tools`; a gifted one, a looted one and one a Crafter block makes do not. |
 | `credit_stone_pickaxe` | Crafting one earns `upgrade-tools`; a gifted one does not. |
 | `credit_diamond` | Natural diamond ore mined with an iron pickaxe earns `mine-diamond`; with a stone pickaxe, with silk touch, in creative mode and with the break's drops disabled (`/asrprobe nodrops`) it does not, nor do gifted diamonds or ore the player placed. An unopened chest and a trial vault yielding a diamond earn it from loot, which stops counting while `count-structure-loot` is off. Diamonds taken from a chest the helper opened first earn nothing (the helper is credited). Breaking an unopened loot chest and brushing desert-pyramid suspicious sand credit nobody; what each produced is noted in `results.json` and recorded in the Amendment of `docs/provenance-model.md`. |
+| `credit_wither` | Actual melee participation earns `kill-wither` only when the Wither dies; a nearby spectator earns nothing. Nether Star and Beacon pickup follows that credit. Actual beacon pulses follow credit revocation, permission scope, administrative bypass and the item master switch. |
 | `credit_blaze` | Gifted blaze rods earn no `obtain-blaze-rod`; killing a blaze does. |
 | `credit_npc` | The player carrying `NPC` metadata, as an NPC plugin sets it, mines natural stone and earns nothing; without it, the same break earns `mine-stone`. |
 
@@ -149,8 +150,16 @@ earlier `results.json` before it starts; `cache/` (the pinned Via jars) is kept:
 The exit status is 0 only when every check passed. Any exception, not only a probe failure,
 is recorded as a failed `harness` check, so `results.json` is always written. A probe that
 cannot reach the state it asserts on (a boss that never spawns, a hit that never lands) is a
-failure, never a pass. The whole run is bounded by `--deadline` (25 minutes by default); when
-it passes, the server and client are killed. Both are also killed on any exception.
+failure, never a pass. The whole run is bounded by `--deadline` (2,400 seconds / 40 minutes
+by default), including server startup and every collection-credit probe. When it expires,
+the server and client are killed and the run reports a failing deadline result. Both are
+also killed on any exception. Focused runs can select a shorter bound, for example
+`--probe evoker_totems --deadline 600`.
+
+CI gives the gameplay step 45 minutes, leaving five minutes beyond the harness budget for
+cleanup and reporting. Its 55-minute job limit leaves another ten minutes around that
+step for setup, downloads and result/log uploads. Keep these enclosing limits above the
+harness deadline when changing the full-suite budget.
 
 A check that fails today because of an open bug passes `known_issue=<n>` and lists the issue in
 `KNOWN_ISSUES` in `probes.py`. It is still run and recorded, with status `known-failure`, but
@@ -210,3 +219,37 @@ Server behaviours that already cost a cycle:
   `minecraft:ancient_cities` set (spacing 24, separation 8, salt 20083232) from the seed
   `/seed` reports, which `trims.city_chunk` reproduces, so the probe enters a generated city.
 
+
+
+`elytra_collection` loads newly located End Cities and checks that actual generated ship
+frames receive provenance. A real player removes the original Elytra, including a cancelled
+attempt first, then refills the frame. Unmarked frames and loose gifts cannot earn credit;
+the successful collector and an operator-restored credit can pick up Elytra. The probe uses
+`/asrprobe frame <player> inspect|cancel-next|stage|approach <query>` for observation, protection-plugin cancellation and approaches from the frame's actual facing,
+and the player's normal attack and interact packets for removals and refills.
+Nearby shulkers and their bullets are removed through the region-scheduled probe helper;
+Folia rejects positional entity selectors from the global console. The observer logs each
+frame query's server inventory and player position, nearby Elytra drops and pickup delays,
+and frame-break causes, so a missed pickup can be distinguished from a refused one.
+
+`potion_brewing` checks real brewing with two players: converting a gifted Speed potion to
+splash earns nothing, hand-loading Sugar credits only its loader, a player without the
+credit cannot pick up Speed, and brewing Speed themselves permits that same pickup. A
+mixed Speed-and-Poison drink withholds Speed while retaining Poison.
+
+
+`shulker_collection` checks actual player attacks and final Shulker death drops, including
+shell-free deaths, environmental kills, NPCs and spectators. The existing `loot` and
+`nodrops` controls modify only tagged Shulker death drops before the recorder runs, making
+both outcomes deterministic. Observation confirms credit before pickup of that original
+drop. Gift pickup and container withdrawals exercise the optional shell/box gates, normal
+tier prerequisites, credit scope, bypass and the disabled switch.
+
+
+`evoker_totems` checks default Totem availability, optional-tier gift and withdrawal refusal,
+ordinary and drop-independent personal kill credit, NPC/environmental/spectator controls,
+scoping, bypass and disabled enforcement. It creates an occupied village bed and triggers a
+real raid with Raid Omen, then attaches the tagged test Evoker to that active raid before a
+real player kills it. The observer reports actual raid membership and persisted credit at
+death. Unit checks compile every profile with the optional tier off and on, and verify that
+an old custom Totem entry survives migration and must be separated before opt-in.

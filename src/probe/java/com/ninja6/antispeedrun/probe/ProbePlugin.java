@@ -48,6 +48,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDispenseLootEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.entity.EntityPortalEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryType;
@@ -112,6 +113,7 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
 
     /** The player whose next block break has its drops disabled, once; null when not armed. */
     private final AtomicReference<String> noDrops = new AtomicReference<>();
+    private final AtomicReference<String> cancelFrame = new AtomicReference<>();
 
     @Override
     public void onEnable() {
@@ -133,6 +135,19 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             teleport(args);
         } else if (args.length == 9 && (args[0].equals("near") || args[0].equals("remove"))) {
             near(args);
+        } else if (args.length == 4 && args[0].equals("frame")) {
+            frame(args[1], args[2], args[3]);
+        } else if (args.length == 3 && args[0].equals("potion-effects")) {
+            Player player = Bukkit.getPlayerExact(args[1]);
+            if (player != null) player.getScheduler().run(this, task ->
+                    log("potion-effects query=" + args[2]
+                            + " speed=" + player.hasPotionEffect(org.bukkit.potion.PotionEffectType.SPEED)
+                            + " poison=" + player.hasPotionEffect(org.bukkit.potion.PotionEffectType.POISON)), null);
+        } else if (args.length == 3 && args[0].equals("brewed")) {
+            Player player = Bukkit.getPlayerExact(args[1]);
+            var target = (AntiSpeedrunPlugin) Bukkit.getPluginManager().getPlugin("AntiSpeedrun");
+            log("brewed query=" + args[2] + " speed=" + (player != null
+                    && target.brewedEffects().hasBrewed(player.getUniqueId(), "speed")));
         } else if (args.length == 3 && args[0].equals("credits")) {
             credits(args[1], args[2]);
         } else if (args.length == 6 && args[0].equals("container")) {
@@ -164,6 +179,101 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                     + "| enter <player> <dimension> <structure> <x> <z> <query>");
         }
         return true;
+    }
+
+    private void frame(String name, String action, String query) {
+        if (action.equals("cancel-next")) {
+            cancelFrame.set(name);
+            log("frame query=" + query + " armed=" + name);
+            return;
+        }
+        Player player = Bukkit.getPlayerExact(name);
+        if (player == null) {
+            log("frame query=" + query + " offline");
+            return;
+        }
+        player.getScheduler().run(this, task -> {
+            log("frame-state query=" + query + " player=" + player.getLocation()
+                    + " inventory=" + java.util.Arrays.stream(player.getInventory().getContents())
+                            .filter(stack -> stack != null && stack.getType() == Material.ELYTRA)
+                            .mapToInt(ItemStack::getAmount).sum());
+            org.bukkit.entity.ItemFrame closest = null;
+            double distance = Double.MAX_VALUE;
+            for (Entity entity : player.getNearbyEntities(12, 12, 12)) {
+                if (entity instanceof Item item && item.getItemStack().getType() == Material.ELYTRA) {
+                    log("frame-drop query=" + query + " at=" + item.getLocation()
+                            + " delay=" + item.getPickupDelay());
+                }
+                if (entity instanceof org.bukkit.entity.ItemFrame found) {
+                    double d = found.getLocation().distanceSquared(player.getLocation());
+                    if (d < distance) { closest = found; distance = d; }
+                }
+            }
+            if (closest == null) {
+                log("frame query=" + query + " none");
+                return;
+            }
+            org.bukkit.entity.ItemFrame chosen = closest;
+            chosen.getScheduler().run(this, frameTask -> {
+                if (action.equals("stage") || action.equals("approach")) {
+                    org.bukkit.block.BlockFace facing = chosen.getFacing();
+                    Location at = chosen.getLocation();
+                    double offset = action.equals("stage") ? 2.5 : 0.75;
+                    Location to = at.clone().add(facing.getModX() * offset, 0, facing.getModZ() * offset);
+                    to.setY(at.getBlockY() - 1);
+                    player.teleportAsync(to, PlayerTeleportEvent.TeleportCause.PLUGIN).thenAccept(moved ->
+                            log("frame query=" + query + " moved=" + moved + " facing=" + facing
+                                    + " to=" + to.getX() + "," + to.getY() + "," + to.getZ()));
+                } else {
+                    log("frame query=" + query + " item=" + chosen.getItem().getType()
+                            + " natural=" + naturalFrame(chosen));
+                }
+            }, null);
+        }, null);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void frameBreak(org.bukkit.event.hanging.HangingBreakEvent event) {
+        if (event.getEntity() instanceof org.bukkit.entity.ItemFrame frame) {
+            Entity remover = event instanceof org.bukkit.event.hanging.HangingBreakByEntityEvent byEntity
+                    ? byEntity.getRemover() : null;
+            log("frame-break at=" + frame.getLocation() + " cause=" + event.getCause()
+                    + " remover=" + (remover == null ? "none" : remover.getType())
+                    + " cancelled=" + event.isCancelled());
+        }
+    }
+
+    private static boolean naturalFrame(org.bukkit.entity.ItemFrame frame) {
+        return frame.getPersistentDataContainer().has(new NamespacedKey("antispeedrun", "natural-elytra-frame"),
+                org.bukkit.persistence.PersistentDataType.BYTE);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void frameSpawn(EntityAddToWorldEvent event) {
+        if (event.getEntity() instanceof Item item && item.getItemStack().getType() == Material.ELYTRA) {
+            log("elytra-drop at=" + item.getLocation() + " delay=" + item.getPickupDelay());
+        }
+        if (event.getEntity() instanceof org.bukkit.entity.ItemFrame frame
+                && frame.getItem().getType() == Material.ELYTRA) {
+            Location at = frame.getLocation();
+            log("elytra-spawn x=" + at.getBlockX() + " y=" + at.getBlockY() + " z=" + at.getBlockZ()
+                    + " natural=" + naturalFrame(frame));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void cancelFrame(io.papermc.paper.event.player.PlayerItemFrameChangeEvent event) {
+        String armed = cancelFrame.get();
+        if (event.getPlayer().getName().equals(armed) && cancelFrame.compareAndSet(armed, null)) {
+            event.setCancelled(true);
+            log("frame-cancel player=" + armed);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void frameChanged(io.papermc.paper.event.player.PlayerItemFrameChangeEvent event) {
+        log("frame-change player=" + event.getPlayer().getName() + " action=" + event.getAction()
+                + " item=" + event.getItemStack().getType() + " cancelled=" + event.isCancelled());
     }
 
     /**
@@ -518,11 +628,29 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                         + " result=" + moved));
     }
 
+    /** Observes actual beacon pulses after the reward gate settles. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onBeaconEffect(EntityPotionEffectEvent event) {
+        if (event.getCause() == EntityPotionEffectEvent.Cause.BEACON
+                && event.getNewEffect() != null && event.getEntity() instanceof Player player) {
+            log("beacon player=" + player.getName() + " cancelled=" + event.isCancelled());
+        }
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onAdded(EntityAddToWorldEvent event) {
         Entity entity = event.getEntity();
         if (entity.getScoreboardTags().contains(TAG)) {
             tracked.put(entity.getUniqueId(), entity);
+        }
+        if (entity instanceof org.bukkit.entity.Evoker evoker
+                && entity.getScoreboardTags().contains("raid-fixture")) {
+            org.bukkit.Raid raid = evoker.getWorld().locateNearestRaid(evoker.getLocation(), 128);
+            if (raid != null) {
+                evoker.setRaid(raid);
+                evoker.setWave(1);
+            }
+            log("evoker-raid joined=" + (evoker.getRaid() != null));
         }
     }
 
@@ -562,6 +690,65 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             event.setDropItems(false);
             log("nodrops player=" + name + " block=" + event.getBlock().getType().name());
         }
+    }
+
+    /** The existing loot/nodrops controls also cover tagged Shulker and Evoker deaths. */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void armShulkerDrops(org.bukkit.event.entity.EntityDeathEvent event) {
+        if ((event.getEntityType() != org.bukkit.entity.EntityType.SHULKER
+                && event.getEntityType() != org.bukkit.entity.EntityType.EVOKER)
+                || !event.getEntity().getScoreboardTags().contains(TAG)) {
+            return;
+        }
+        ItemStack loot = nextLoot.getAndSet(null);
+        if (loot != null) {
+            event.getDrops().clear();
+            event.getDrops().add(loot.clone());
+        }
+        Player killer = event.getEntity().getKiller();
+        String armed = noDrops.get();
+        if (killer != null && killer.getName().equals(armed) && noDrops.compareAndSet(armed, null)) {
+            event.getDrops().clear();
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void shulkerDeath(org.bukkit.event.entity.EntityDeathEvent event) {
+        if (event.getEntityType() == org.bukkit.entity.EntityType.SHULKER) {
+            Player killer = event.getEntity().getKiller();
+            var target = (AntiSpeedrunPlugin) Bukkit.getPluginManager().getPlugin("AntiSpeedrun");
+            log("shulker-death killer=" + (killer == null ? "none" : killer.getName())
+                    + " drops=" + items(event.getDrops()) + " credited=" + (killer != null
+                    && target.personalCredits().has(killer.getUniqueId(), PersonalCredit.KILL_SHULKER, false)));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void evokerDeath(org.bukkit.event.entity.EntityDeathEvent event) {
+        if (event.getEntity() instanceof org.bukkit.entity.Evoker evoker) {
+            Player killer = evoker.getKiller();
+            var target = (AntiSpeedrunPlugin) Bukkit.getPluginManager().getPlugin("AntiSpeedrun");
+            log("evoker-death killer=" + (killer == null ? "none" : killer.getName())
+                    + " raid=" + (evoker.getRaid() != null) + " drops=" + items(event.getDrops())
+                    + " credited=" + (killer != null && target.personalCredits()
+                            .has(killer.getUniqueId(), PersonalCredit.KILL_EVOKER, false)));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void raidOmen(org.bukkit.event.entity.EntityPotionEffectEvent event) {
+        if (event.getEntity() instanceof Player player && event.getNewEffect() != null) {
+            String type = event.getNewEffect().getType().getName();
+            if (type.equals("BAD_OMEN") || type.equals("RAID_OMEN")) {
+                log("raid-omen player=" + player.getName() + " type=" + type
+                        + " duration=" + event.getNewEffect().getDuration());
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void raidTriggered(org.bukkit.event.raid.RaidTriggerEvent event) {
+        log("raid-trigger player=" + event.getPlayer().getName() + " id=" + event.getRaid().getId());
     }
 
     /** The same for a vault's dispensed loot. */

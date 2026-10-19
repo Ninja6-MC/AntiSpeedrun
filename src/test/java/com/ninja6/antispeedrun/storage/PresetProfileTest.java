@@ -60,6 +60,24 @@ class PresetProfileTest {
     }
 
     @Test
+    void witherRewardsAreOptInInEveryProfile() throws Exception {
+        List<PluginConfig> configs = new ArrayList<>();
+        configs.add(shipped());
+        for (Profile profile : ProfileApplier.applicable()) {
+            configs.add(preset(profile));
+        }
+        for (PluginConfig config : configs) {
+            assertTrue(!config.itemProgression().requireShulkerCollection());
+            assertTrue(!config.itemProgression().gateShulkerBoxes());
+            for (PluginConfig.ItemTier tier : config.itemProgression().gatedItems()) {
+                assertTrue(!tier.items().contains("NETHER_STAR") && !tier.items().contains("BEACON"),
+                        config.profile() + " must leave Wither reward gating off by default");
+                assertTrue(!tier.requireCredits().contains(PersonalCredit.KILL_WITHER));
+            }
+        }
+    }
+
+    @Test
     @DisplayName("every preset exists, parses, and declares the profile its filename implies")
     void namesAgree() throws Exception {
         for (Profile profile : ProfileApplier.applicable()) {

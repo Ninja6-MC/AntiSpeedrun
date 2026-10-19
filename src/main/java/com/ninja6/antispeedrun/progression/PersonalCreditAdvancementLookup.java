@@ -38,6 +38,10 @@ import com.ninja6.antispeedrun.storage.PersonalCreditStore;
  *   <li>Every other key, and every key while the toggle is off, is the wrapped lookup's answer.</li>
  * </ul>
  *
+ * <p>Explicit {@code require-credits} keys are answered directly from the store, without asking
+ * vanilla to resolve an advancement. They are satisfied outside the configured scope or while
+ * personal credits are disabled.
+ *
  * <p>Both settings are read from the live snapshot on every call, so {@code /asr reload} changes the
  * answer at once. {@code count-structure-loot} decides only whether a {@code loot} record counts;
  * the record itself is kept either way, so switching it back restores the answer.
@@ -57,7 +61,7 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
     private final Supplier<PluginConfig> config;
 
     /**
-     * @param delegate the server-backed lookup, consulted for every key
+     * @param delegate the server-backed lookup, consulted for advancement keys
      * @param credits  the recorded credits
      * @param config   the live configuration snapshot
      */
@@ -68,20 +72,30 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
         this.config = Objects.requireNonNull(config, "config");
     }
 
-    /** The advancement keys answered from credits while the toggle is on. */
+    /** The keys controlled by require-personal-credit; Elytra has its own optional switch. */
     public static Set<String> protectedKeys() {
-        return REQUIRED.keySet();
+        return REQUIRED.keySet().stream().filter(key -> !key.equals("minecraft:end/elytra"))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     @Override
     public State state(Player player, String key) {
+        var explicit = PersonalCredit.fromRequirementKey(key);
+        if (explicit.isPresent()) {
+            PluginConfig.ItemProgression settings = config.get().itemProgression();
+            return !applies(player, settings)
+                    || credits.has(player.getUniqueId(), explicit.get(), settings.countStructureLoot())
+                    ? State.EARNED : State.NOT_EARNED;
+        }
         State vanilla = delegate.state(player, key);
         Set<PersonalCredit> needed = REQUIRED.get(key);
         if (needed == null || vanilla == State.UNRESOLVABLE) {
             return vanilla;
         }
         PluginConfig.ItemProgression settings = config.get().itemProgression();
-        if (!applies(player, settings)) {
+        if (!(key.equals("minecraft:end/elytra")
+                ? settings.elytraCollectionApplies(player.hasPermission(REQUIRED_PERMISSION))
+                : applies(player, settings))) {
             return vanilla;
         }
         UUID id = player.getUniqueId();
@@ -107,6 +121,9 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
     private static Map<String, Set<PersonalCredit>> required() {
         Map<String, EnumSet<PersonalCredit>> grouped = new HashMap<>();
         for (PersonalCredit credit : PersonalCredit.values()) {
+            if (credit.advancement() == null) {
+                continue;
+            }
             grouped.computeIfAbsent(credit.advancement(), k -> EnumSet.noneOf(PersonalCredit.class))
                     .add(credit);
         }

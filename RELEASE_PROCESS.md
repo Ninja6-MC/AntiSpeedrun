@@ -12,7 +12,8 @@ series and where a build is published.
 * **Development** -- `v0.Y.Z`, with Y incremented for each finished feature group.
   `v0.1.0` is Epics 1-5, `v0.2.0` is Epics 6 and 7, `v0.3.0` is Epic 9 (first published
   as `v0.3.1` because `v0.3.0` was tagged but never published) and `v0.4.0` is Epic 10
-  (first published as `v0.4.1`, for the same reason).
+  (first published as `v0.4.1`, for the same reason). `v0.5.0` is Epic 11
+  (personal collection and brewing progression); its publication is still pending.
   Version numbers follow published builds, not planned feature groups. Config and commands may
   change between development builds. `config.yml` carries a `config-version` and is migrated
   on start (the old file is backed up first), so testers no longer regenerate it. The state
@@ -117,7 +118,7 @@ The tag push starts **Release** (`release.yml`) at the tagged commit.
    `AntiSpeedrun-<version>.jar`. It copies that JAR, writes its `.sha256` file and the
    release notes, checks the JAR (see Step 4), and seals `manifest.json`. The candidate
    is retained as the workflow artifact `release-candidate-<run id>-<attempt>`.
-2. **Candidate Server Boot.** Six jobs download the retained candidate and verify it before
+2. **Candidate Server Boot.** Seven jobs download the retained candidate and verify it before
    using it. Each boots it on one of the pinned Paper and Folia servers of the `Server Boot`
    matrix in `ci.yml` (`scripts/boot-smoke.py`). A passing leg writes a receipt bound to
    the candidate identifier, the manifest digest and every file digest.

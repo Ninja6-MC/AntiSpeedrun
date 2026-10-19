@@ -7,8 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-19
+
+Personal collection and brewing progression, with each new enforcement option off by
+default. Existing dimension gates and configured item requirements continue to apply.
+
+### Added
+- Optional personal potion-effect progression for configurable beneficial effects,
+  including splash, lingering and tipped-arrow delivery. Brewing attribution records
+  eligible effects per player in `brewed-effects.yml`, even while enforcement is off.
+- Optional personal Elytra collection from an original natural End Ship frame. An
+  uncancelled original removal earns the credit; rotation or a cancelled removal does
+  not consume the opportunity, and placed or refilled frames cannot earn it.
+- Personal `kill-wither` credit for every eligible player who deals positive,
+  uncancelled damage before a Wither dies, including offline contributors. Contribution
+  survives chunk unloads and restarts. An optional Nether Star and Beacon tier can
+  require this credit; Beacon effects follow its requirements, scope and bypasses.
+- Personal `kill-shulker` credit for killing a Shulker whose final death-event drops
+  include a shell, recorded before pickup. Optional shell collection and a separate
+  all-color Shulker Box switch preserve other tier requirements.
+- Personal `kill-evoker` credit for an eligible player's Evoker kill, including raid
+  kills and kills without a Totem drop. A separate optional Totem tier uses that credit.
+- Item tiers accept `require-credits` alongside advancement and time requirements.
+  Explicit credits use the existing personal-credit switch and scope, appear in
+  generated guidance, and can be managed with `/asr credit grant|revoke`.
+
+### Changed
+- Config schema version 2 adds optional credit lists. Version 1 migration changes only
+  the version stamp; missing lists default to `[]`, preserving custom tier settings.
+- Bundled End tiers no longer include Totems. Fresh profiles leave them ungated until
+  the separate, commented `totem-tier` example is enabled.
+- Full gameplay probes have a bounded 40-minute default, with a 45-minute CI step and
+  55-minute job for cleanup and uploads. Focused runs retain `--deadline` overrides.
+
 ### Fixed
-- Release publication no longer fails with HTTP 403 when `main` has workflow changes the tagged commit lacks: the GitHub draft names the existing tag and no longer sends a target commit. The tag is also checked again after publishing.
+- GitHub draft creation names the existing release tag without `target_commitish`,
+  addressing the inferred permission trigger in #238. The tag is checked before and
+  after publication. The mechanism remains unconfirmed until a real release proves it;
+  a deleted tag recreated during publication can fail the run after the release is
+  public and requires manual reconciliation. See `RELEASE_PROCESS.md` for recovery.
+
+### Upgrading from 0.4.x
+- Back up `plugins/AntiSpeedrun/` and player data. Existing custom settings and tier
+  tables are kept; an upgrade does not silently enable these new gates or rewrite
+  custom item lists. Kill and brewing credit recording continues with enforcement off.
+- Opt in deliberately: enable `potion-progression.enabled` for potion effects. For
+  Elytra or Shulker collection, enable item progression and the respective collection
+  switch. The Wither and Totem examples also need item progression and
+  `require-personal-credit`; uncomment the chosen tier or add its equivalent.
+- Old End Ship frames have no natural-generation marker and fail closed for earning
+  Elytra credit. Generate new ships or restore earned progress with
+  `/asr credit grant <player> elytra`; existing Elytra credit remains valid.
+- Before enabling `totem-tier`, remove Totems from an old End tier or any custom
+  matching pattern, or exclude them there. Retaining both can create an incomparable
+  tier collision and reject reload. Applying a shipped preset backs up and replaces
+  the table, separating Totems but leaving their optional tier disabled; carry custom
+  requirements into the new tier explicitly if they should remain.
+- Shell collection does not add a credit requirement to gifted storage boxes by
+  default. Set `gate-shulker-boxes: true` as well to cover undyed and all dyed boxes.
+  Existing advancement, credit and time restrictions still apply; choose any explicit
+  Wither, Totem or custom credit tier separately. See `docs/configuration.md`.
 
 ## [0.4.1] - 2026-10-16
 

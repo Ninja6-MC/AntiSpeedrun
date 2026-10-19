@@ -49,6 +49,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PluginConfigTest {
 
     @Test
+    void explicitCreditListsAreTypedOptionalAndFailClosed() throws Exception {
+        String prefix = "item-progression:\n  enabled: true\n  gated-items:\n    custom:\n      items: [BEACON]\n";
+        PluginConfig parsed = PluginConfig.from(yaml(prefix
+                + "      require-credits: [kill-wither, kill-evoker, kill-wither]\n"));
+        assertEquals(List.of(com.ninja6.antispeedrun.storage.PersonalCredit.KILL_WITHER,
+                com.ninja6.antispeedrun.storage.PersonalCredit.KILL_EVOKER),
+                parsed.itemProgression().gatedItems().get(0).requireCredits());
+        assertTrue(PluginConfig.from(yaml(prefix)).itemProgression().gatedItems().get(0)
+                .requireCredits().isEmpty());
+        assertTrue(PluginConfig.from(yaml(prefix + "      require-credits: []\n"))
+                .itemProgression().gatedItems().get(0).requireCredits().isEmpty());
+        for (String malformed : List.of("kill-wither", "{}", "[kill-wihter]",
+                "[kill-wither, wrong]", "[1]", "['']", "[{}]")) {
+            String document = prefix + "      require-credits: " + malformed + "\n";
+            assertThrows(UnenforceableGateException.class, () -> PluginConfig.from(yaml(document)), malformed);
+            PluginConfig disabled = PluginConfig.from(yaml(document.replace("enabled: true", "enabled: false")));
+            assertTrue(disabled.warnings().stream().anyMatch(w -> w.contains("require-credits")), malformed);
+        }
+    }
+
+    @Test
     void pluginTeleportGateDefaultsOnAndCanBeDisabled() throws Exception {
         assertTrue(PluginConfig.defaults().dimensionGates().gatePluginTeleports());
         assertTrue(shipped().dimensionGates().gatePluginTeleports());

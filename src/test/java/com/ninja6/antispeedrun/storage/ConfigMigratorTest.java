@@ -57,6 +57,18 @@ class ConfigMigratorTest {
     }
 
     @Test
+    void versionOneCustomTiersKeepTheirTextAndDefaultToNoCredits() throws Exception {
+        String before = "config-version: 1\n# custom tiers\nitem-progression:\n  enabled: true\n"
+                + "  gated-items:\n    custom:\n      items: [BEACON] # keep\n"
+                + "      require-advancements: [custom:quest]\n";
+        var outcome = ConfigMigrator.migrateText(before);
+        assertEquals(before.replace("config-version: 1", "config-version: 2"), outcome.text());
+        assertTrue(outcome.added().isEmpty());
+        assertTrue(parse(outcome.text()).itemProgression().gatedItems().get(0).requireCredits().isEmpty());
+        assertFalse(ConfigMigrator.migrateText(outcome.text()).migrated());
+    }
+
+    @Test
     @DisplayName("a v0.1.x file with operator edits gains config-version and the missing key, switches off the unenforced rules, and nothing else changes")
     void upgradesV01xShapeWithoutTouchingOperatorValues() throws Exception {
         String before = resource("/config-v0.1.1-edited.yml");
@@ -156,8 +168,8 @@ class ConfigMigratorTest {
                 + "  block-exit-portal-crystal-place: true\n"
                 + "  block-gateway-pre-dragon: true   # on, deliberately\n";
         ConfigMigrator.Outcome outcome = ConfigMigrator.migrateText(current);
-        assertFalse(outcome.migrated());
-        assertEquals(current, outcome.text());
+        assertTrue(outcome.migrated());
+        assertEquals(current.replace("config-version: 1", "config-version: 2"), outcome.text());
         assertEquals(List.of(), outcome.changed());
     }
 
@@ -184,10 +196,10 @@ class ConfigMigratorTest {
                     + "  block-gateway-pre-dragon: true\n";
             String out = ConfigMigrator.migrateText(before).text();
             assertTrue(out.startsWith(start), "the prefix moved: " + out);
-            assertTrue(out.indexOf("config-version: 1") > out.indexOf("---"));
+            assertTrue(out.indexOf("config-version: " + PluginConfig.CONFIG_VERSION) > out.indexOf("---"));
             Object loaded = new Yaml().load(out);
             Map<?, ?> root = (Map<?, ?>) loaded;
-            assertEquals(1, root.get("config-version"), start);
+            assertEquals(PluginConfig.CONFIG_VERSION, root.get("config-version"), start);
             assertEquals("CASUAL", root.get("profile"), start);
             PluginConfig parsed = parse(out);
             assertFalse(parsed.antiCheese().blockGatewayPreDragon(), start);
@@ -221,7 +233,7 @@ class ConfigMigratorTest {
         assertEquals(List.of(), gone.added());
         assertEquals(List.of("anti-cheese.cap-single-hit-boss-damage"), gone.skipped());
         assertFalse(gone.text().contains("anti-cheese"));
-        assertTrue(gone.text().contains("config-version: 1"));
+        assertTrue(gone.text().contains("config-version: " + PluginConfig.CONFIG_VERSION));
 
         ConfigMigrator.Outcome empty = ConfigMigrator.migrateText("anti-cheese: {}\n");
         assertEquals(List.of("anti-cheese.cap-single-hit-boss-damage"), empty.skipped());
@@ -256,7 +268,7 @@ class ConfigMigratorTest {
     @Test
     @DisplayName("a newer, zero, negative or non-numeric config-version is refused")
     void refusesUnreadableVersions() {
-        for (String bad : List.of("2", "99", "0", "-1", "one", "1.5", "''")) {
+        for (String bad : List.of("3", "99", "0", "-1", "one", "1.5", "''")) {
             ConfigVersionException refused = assertThrows(ConfigVersionException.class,
                     () -> ConfigMigrator.migrateText("config-version: " + bad + "\nprofile: CASUAL\n"),
                     "config-version: " + bad);
@@ -267,7 +279,7 @@ class ConfigMigratorTest {
     @Test
     @DisplayName("PluginConfig itself refuses an unreadable config-version and accepts an absent one")
     void pluginConfigChecksVersion() throws Exception {
-        assertThrows(ConfigVersionException.class, () -> parse("config-version: 2\n"));
+        assertThrows(ConfigVersionException.class, () -> parse("config-version: 3\n"));
         assertThrows(ConfigVersionException.class, () -> parse("config-version: banana\n"));
         assertThrows(ConfigVersionException.class, () -> parse("config-version: 0\n"));
         assertTrue(parse("config-version: 1\n").warnings().stream().noneMatch(w -> w.contains("config-version")));

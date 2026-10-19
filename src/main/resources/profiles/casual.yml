@@ -1,7 +1,7 @@
 # Schema version of this file, kept current by the plugin. Do not edit or remove it:
 # on start an older file is migrated forward (the old one is saved to backups/ first)
 # and a file from a newer version is refused.
-config-version: 1
+config-version: 2
 
 # AntiSpeedrun - CASUAL preset
 #
@@ -42,6 +42,8 @@ dimension-gates:
 
 # 2. Anti-Boosting & Item Progression Gating
 item-progression:
+  require-shulker-collection: false
+  gate-shulker-boxes: false
   # OFF for CASUAL. The tier table below is kept intact and unused, so an operator who
   # wants the gates back only has to flip this one key -- deleting the tiers would make
   # that a re-authoring job instead.
@@ -63,6 +65,19 @@ item-progression:
   # stand in for mining iron or diamonds, never for smelting or crafting. Takes effect on reload.
   count-structure-loot: true
   gated-items:
+    # Optional Totem gate (off by default). Remove any old Totem tier entry before enabling.
+    # Item progression and require-personal-credit must be enabled for credit enforcement.
+    # totem-tier:
+    #   items: ["TOTEM_OF_UNDYING"]
+    #   require-credits: ["kill-evoker"]
+    #   hint: "Kill an Evoker yourself (raid kills count)"
+    # Optional Wither rewards gate (off by default). Uncomment this tier to require helping
+    # kill a Wither before collecting Nether Stars/Beacons or receiving beacon effects.
+    # Item progression and require-personal-credit must be enabled for credit enforcement.
+    # wither-tier:
+    #   items: ["NETHER_STAR", "BEACON"]
+    #   require-credits: ["kill-wither"]
+    #   hint: "Help kill a Wither yourself"
     iron-tier:
       match-patterns:
         - "IRON_*"
@@ -130,7 +145,6 @@ item-progression:
         - "DRAGON_BREATH"
         - "DRAGON_HEAD"
         - "DRAGON_EGG"
-        - "TOTEM_OF_UNDYING"
       require-advancements:
         - "minecraft:nether/obtain_blaze_rod"
       require-playtime-hours: 0

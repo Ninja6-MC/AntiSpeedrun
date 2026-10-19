@@ -132,6 +132,11 @@ public final class PersonalCreditRules {
         return type == EntityType.BLAZE;
     }
 
+    /** Any personal Evoker kill counts, including a raid; no drop condition applies. */
+    public static boolean evokerKill(EntityType type) {
+        return type == EntityType.EVOKER;
+    }
+
     /**
      * Whether an actor may be credited at all: a real player, not an entity an NPC plugin marks
      * with {@code NPC} metadata.

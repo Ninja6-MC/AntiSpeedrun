@@ -31,8 +31,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import Client, ProbeError, Server  # noqa: E402
 import anti_cheese  # noqa: E402
 import credits  # noqa: E402
+import potions  # noqa: E402
 import gates  # noqa: E402
 import trims  # noqa: E402
+import elytra  # noqa: E402
+import shulkers  # noqa: E402
+import evokers  # noqa: E402
 from probes import Probes, Results  # noqa: E402
 
 USER_AGENT = "AntiSpeedrun-CI/1.0 (+https://github.com/Ninja6-MC/AntiSpeedrun)"
@@ -49,7 +53,7 @@ PLAYER = "AsrProbe"
 # The gate probes run first: they set the player's progression case by case. The credit probes
 # set the player's credits the same way, the trim probes its advancements, and the anti-cheese
 # probes then grant every advancement and credit once and leave them so.
-MODULES = (gates, credits, trims, anti_cheese)
+MODULES = (gates, credits, potions, trims, elytra, shulkers, evokers, anti_cheese)
 PROBES = tuple(name for module in MODULES for name in module.PROBES)
 SERVER_BUILD = re.compile(r"This server is running (?P<build>[^\r\n]+)")
 PLUGIN_VERSION = re.compile(r"Enabling AntiSpeedrun v(?P<version>\S+)")
@@ -113,7 +117,8 @@ def main(argv=None):
     parser.add_argument("--memory", default="3G")
     parser.add_argument("--port", type=int, default=25599)
     parser.add_argument("--boot-timeout", type=int, default=300)
-    parser.add_argument("--deadline", type=int, default=1500, help="seconds the whole run may take")
+    parser.add_argument("--deadline", type=int, default=2400,
+                        help="seconds the whole run may take (default: 2400; use a shorter bound for focused runs)")
     parser.add_argument("--label", default="server")
     parser.add_argument("--seed", help="the world seed, to repeat a run that depended on where things generated")
     parser.add_argument("--probe", action="append", choices=PROBES,

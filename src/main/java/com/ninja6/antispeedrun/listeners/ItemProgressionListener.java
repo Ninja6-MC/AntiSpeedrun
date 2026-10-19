@@ -24,9 +24,11 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockDispenseArmorEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.TradeSelectEvent;
 import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
@@ -45,10 +47,11 @@ import org.bukkit.util.BoundingBox;
 
 import com.ninja6.antispeedrun.AntiSpeedrunPlugin;
 import com.ninja6.antispeedrun.config.PluginConfig;
-import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
 import com.ninja6.antispeedrun.config.PluginConfig.ItemTier;
 import com.ninja6.antispeedrun.gating.ItemGateTable;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
+import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
+import com.ninja6.antispeedrun.storage.PersonalCredit;
 import com.ninja6.antispeedrun.progression.PlayerStateMap;
 import com.ninja6.antispeedrun.storage.DimensionUnlock;
 
@@ -98,7 +101,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * <p>Plus the three handlers that maintain §4 drop recall, which decides nothing and gates nothing;
  * see {@link DropRecall}.
  *
- * <h2>There is deliberately no {@code InventoryDragEvent} handler</h2>
+ * <h2>Container withdrawals do not need an inventory-drag handler</h2>
  *
  * #9 asks that inventory dragging be "100% blocked", and this class does not do it, so the reason
  * is recorded here rather than left as an omission.
@@ -124,7 +127,8 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
  * <p>This is the argument {@code docs/provenance-model.md} already used to close #10: under
  * material-only gating, moving a diamond between containers leaves it a diamond, and an exploit
  * described against the provenance model does not survive the switch. #9's drag criterion is the
- * same criterion viewed from the same angle.
+ * same criterion viewed from the same angle. The optional Elytra collection rule separately
+ * checks drags into armor slots, because those equip an item rather than withdraw it.
  *
  * <h2>What the provenance record removed from this class</h2>
  *
@@ -279,18 +283,25 @@ public final class ItemProgressionListener implements Listener {
         // Before the eligibility check, because it is a definitive exemption: this is the player's
         // own drop or their own death pile, and §4 says they may always have it back.
         if (config.itemProgression().dropRecallEnabled()
-                && recall.belongsTo(entity, player.getUniqueId())) {
+                && recall.belongsTo(entity, player.getUniqueId())
+                && !missingElytraCredit(player, material, config)
+                && !missingShulkerCredit(player, material, config)) {
             return;
         }
         EligibilityResult result = plugin.progression().evaluate(
                 player, config, ItemGateRules.requirement(tier));
+        result = collectionResult(player, material, config, result, false);
         if (result.eligible()) {
             return;
         }
 
         event.setCancelled(true);
         entity.setPickupDelay(REFUSED_PICKUP_DELAY_TICKS);
-        reject(player, config, tier.id(), tier.hint(), result, material);
+        reject(player, config, tier.id(),
+                result.missingAdvancements().contains("minecraft:end/elytra")
+                        && config.itemProgression().requireElytraCollection()
+                        || result.missingAdvancements().contains(PersonalCredit.KILL_SHULKER.requirementKey())
+                        && config.itemProgression().requireShulkerCollection() ? "" : tier.hint(), result, material);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -318,6 +329,9 @@ public final class ItemProgressionListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        if (refuseElytraEquip(event, player)) {
             return;
         }
         ItemStack bundle = switch (InventoryGestures.bundleSource(event.getAction())) {
@@ -358,6 +372,46 @@ public final class ItemProgressionListener implements Listener {
         // item-gate side before this gate existed.
         if (mendingWithdrawal(topType, subject, rawSlot)) {
             refuseMending(player, moving, verdict, event);
+        }
+    }
+
+    /** The optional collection gate also covers equipping a previously held Elytra. */
+    private boolean refuseElytraEquip(InventoryClickEvent event, Player player) {
+        if (!plugin.configuration().itemProgression().elytraCollectionApplies(player.hasPermission(
+                PersonalCreditAdvancementLookup.REQUIRED_PERMISSION))) {
+            return false;
+        }
+        org.bukkit.inventory.PlayerInventory inventory = player.getInventory();
+        ItemStack clicked = event.getCurrentItem();
+        boolean ownView = event.getView().getTopInventory().getType() == InventoryType.CRAFTING;
+        ItemStack chest = inventory.getChestplate();
+        boolean empty = chest == null || chest.getType().isAir();
+        ItemStack equipped = switch (TrimLockRules.equipSource(event.getSlotType(), event.getAction(),
+                event.getClick(), ownView, event.getClickedInventory() == inventory, empty)) {
+            case CURSOR -> event.getCursor();
+            case CLICKED -> clicked;
+            case HOTBAR -> event.getHotbarButton() >= 0 ? inventory.getItem(event.getHotbarButton()) : null;
+            case OFF_HAND -> inventory.getItemInOffHand();
+            case NONE -> null;
+        };
+        return equipped != null && equipped.getType() == Material.ELYTRA
+                && refuse(player, Material.ELYTRA, event) == Verdict.REFUSED;
+    }
+
+    /** Only the optional Elytra equip rule applies to armor-slot drags. */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onElytraEquipDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)
+                || event.getOldCursor().getType() != Material.ELYTRA
+                || !plugin.configuration().itemProgression().elytraCollectionApplies(player.hasPermission(
+                        PersonalCreditAdvancementLookup.REQUIRED_PERMISSION))) {
+            return;
+        }
+        for (int raw : event.getRawSlots()) {
+            if (event.getView().getSlotType(raw) == InventoryType.SlotType.ARMOR) {
+                refuse(player, Material.ELYTRA, event);
+                return;
+            }
         }
     }
 
@@ -598,7 +652,7 @@ public final class ItemProgressionListener implements Listener {
      * <p>A frame that loses its item with no player behind it — an explosion, or the block it hangs
      * on being removed — drops the item on the ground, where {@link #onAttemptPickup} applies.
      */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onItemFrameChange(PlayerItemFrameChangeEvent event) {
         if (event.getAction() != ItemFrameChangeAction.REMOVE) {
             return;
@@ -607,7 +661,7 @@ public final class ItemProgressionListener implements Listener {
         if (framed.getType().isAir()) {
             return;
         }
-        refuse(event.getPlayer(), framed.getType(), event);
+        refuse(event.getPlayer(), framed.getType(), event, ElytraCollectionListener.qualifies(event));
     }
 
     // -------------------------------------------------------------------------------------------
@@ -887,6 +941,15 @@ public final class ItemProgressionListener implements Listener {
         recall.claim(item.getLocation(), now).ifPresent(owner -> recall.stamp(item, owner));
     }
 
+    /** Beacon pulses use the same live tier, credit scope and bypasses as taking a Beacon. */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBeaconEffect(EntityPotionEffectEvent event) {
+        if (event.getCause() == EntityPotionEffectEvent.Cause.BEACON
+                && event.getNewEffect() != null && event.getEntity() instanceof Player player) {
+            refuse(player, Material.BEACON, event);
+        }
+    }
+
     // -------------------------------------------------------------------------------------------
     // The shared spine
     // -------------------------------------------------------------------------------------------
@@ -914,6 +977,10 @@ public final class ItemProgressionListener implements Listener {
      *         far the check got, so {@link #refuseMending} can reuse the waiver
      */
     private Verdict refuse(Player player, Material material, Cancellable event) {
+        return refuse(player, material, event, false);
+    }
+
+    private Verdict refuse(Player player, Material material, Cancellable event, boolean collecting) {
         PluginConfig config = plugin.configuration();
         ItemTier tier = gatedTier(material, config);
         if (tier == null) {
@@ -924,11 +991,16 @@ public final class ItemProgressionListener implements Listener {
         }
         EligibilityResult result = plugin.progression().evaluate(
                 player, config, ItemGateRules.requirement(tier));
+        result = collectionResult(player, material, config, result, collecting);
         if (result.eligible()) {
             return Verdict.ADMITTED;
         }
         event.setCancelled(true);
-        reject(player, config, tier.id(), tier.hint(), result, material);
+        reject(player, config, tier.id(),
+                result.missingAdvancements().contains("minecraft:end/elytra")
+                        && config.itemProgression().requireElytraCollection()
+                        || result.missingAdvancements().contains(PersonalCredit.KILL_SHULKER.requirementKey())
+                        && config.itemProgression().requireShulkerCollection() ? "" : tier.hint(), result, material);
         return Verdict.REFUSED;
     }
 
@@ -967,7 +1039,48 @@ public final class ItemProgressionListener implements Listener {
             return null;
         }
         ItemGateTable<Material> table = plugin.itemGates();
-        return table.isGated(material) ? table.tierFor(material) : null;
+        if (table.isGated(material)) {
+            return table.tierFor(material);
+        }
+        if (ShulkerCollectionRules.material(material,
+                config.itemProgression().requireShulkerCollection(), config.itemProgression().gateShulkerBoxes())) {
+            return new ItemTier("shulker-collection", List.of(), List.of(), List.of(material.name()),
+                    List.of(), 0, 0, "");
+        }
+        return material == Material.ELYTRA && config.itemProgression().requireElytraCollection()
+                ? new ItemTier("elytra-collection", List.of(), List.of(), List.of("ELYTRA"),
+                        List.of(), 0, 0, "") : null;
+    }
+
+    private boolean missingShulkerCredit(Player player, Material material, PluginConfig config) {
+        return ShulkerCollectionRules.material(material,
+                config.itemProgression().requireShulkerCollection(), config.itemProgression().gateShulkerBoxes())
+                && config.itemProgression().shulkerCollectionApplies(player.hasPermission(
+                        PersonalCreditAdvancementLookup.REQUIRED_PERMISSION))
+                && !plugin.personalCredits().has(player.getUniqueId(), PersonalCredit.KILL_SHULKER, false);
+    }
+
+    private boolean missingElytraCredit(Player player, Material material, PluginConfig config) {
+        return material == Material.ELYTRA
+                && config.itemProgression().elytraCollectionApplies(player.hasPermission(
+                        PersonalCreditAdvancementLookup.REQUIRED_PERMISSION))
+                && !plugin.personalCredits().has(player.getUniqueId(), PersonalCredit.ELYTRA, false);
+    }
+
+    private EligibilityResult collectionResult(Player player, Material material, PluginConfig config,
+                                               EligibilityResult result, boolean collecting) {
+        if (missingShulkerCredit(player, material, config)) {
+            result = ShulkerCollectionRules.evaluate(result, true, false);
+        }
+        if (material != Material.ELYTRA) {
+            return result;
+        }
+        boolean required = config.itemProgression().elytraCollectionApplies(player.hasPermission(
+                PersonalCreditAdvancementLookup.REQUIRED_PERMISSION));
+        return ElytraCollectionRules.evaluate(result, required,
+                !missingElytraCredit(player, material, config), collecting,
+                config.itemProgression().personalCreditApplies(player.hasPermission(
+                        PersonalCreditAdvancementLookup.REQUIRED_PERMISSION)));
     }
 
     /**

@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import com.ninja6.antispeedrun.storage.PersonalCredit;
+
 /**
  * An immutable, fully typed snapshot of {@code config.yml}.
  *
@@ -83,6 +85,7 @@ public record PluginConfig(
         BossScaling bossScaling,
         AntiCheese antiCheese,
         VillagerProgression villagerProgression,
+        PotionProgression potionProgression,
         List<String> warnings) {
 
     /** Canonical compact constructor: defensively copies the only collection held directly. */
@@ -97,7 +100,19 @@ public record PluginConfig(
         Objects.requireNonNull(bossScaling, "bossScaling");
         Objects.requireNonNull(antiCheese, "antiCheese");
         Objects.requireNonNull(villagerProgression, "villagerProgression");
+        Objects.requireNonNull(potionProgression, "potionProgression");
         warnings = List.copyOf(warnings);
+    }
+
+    /** Compatibility constructor for callers using only the original sections. */
+    public PluginConfig(Profile profile, DimensionGates dimensionGates, ItemProgression itemProgression,
+                        TrimProgression trimProgression, IdleReminder idleReminder, ProgressCard progressCard,
+                        JourneyBook journeyBook, BossScaling bossScaling, AntiCheese antiCheese,
+                        VillagerProgression villagerProgression, List<String> warnings) {
+        this(profile, dimensionGates, itemProgression, trimProgression, idleReminder, progressCard,
+                journeyBook, bossScaling, antiCheese, villagerProgression,
+                new PotionProgression(false, List.of("fire_resistance", "strength", "speed",
+                        "invisibility", "resistance", "regeneration", "slow_falling")), warnings);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -148,7 +163,7 @@ public record PluginConfig(
      * pre-versioning shape and is migrated forward to this by {@code ConfigMigrator} before it is
      * parsed; a file with a higher one was written by a newer build and is refused.
      */
-    public static final int CONFIG_VERSION = 1;
+    public static final int CONFIG_VERSION = 2;
 
     /**
      * Refuses a {@code config-version} this build cannot read. An absent key is accepted: it is the
@@ -188,7 +203,7 @@ public record PluginConfig(
         ConfigReader r = new ConfigReader(root, "", warnings);
         r.expect(VERSION_KEY, "profile", "dimension-gates", "item-progression", "trim-progression",
                 "idle-reminder", "progress-card", "journey-book", "boss-scaling", "anti-cheese",
-                "villager-progression");
+                "villager-progression", "potion-progression");
 
         Profile profile = r.enumValue("profile", Profile.class, Profile.CORE);
         DimensionGates dimensionGates = parseDimensionGates(r.child("dimension-gates"));
@@ -207,7 +222,7 @@ public record PluginConfig(
 
         return new PluginConfig(profile, dimensionGates, itemProgression, trimProgression,
                 idleReminder, progressCard, journeyBook, bossScaling, antiCheese,
-                villagerProgression, warnings);
+                villagerProgression, parsePotionProgression(r.child("potion-progression")), warnings);
     }
 
     /**
@@ -276,7 +291,8 @@ public record PluginConfig(
     private static ItemProgression parseItemProgression(ConfigReader r) throws ConfigLoadException {
         r.expect("enabled", "drop-recall-enabled", "gate-dispensers", "gate-nested-bundles",
                 "feedback-cooldown-seconds", "rejection-message", "require-personal-credit",
-                "count-structure-loot", "personal-credit-scope", "gated-items");
+                "count-structure-loot", "personal-credit-scope", "require-elytra-collection", "require-shulker-collection",
+                "gate-shulker-boxes", "gated-items");
 
         // Read before the tiers, and handed to each of them: item-progression.enabled: false gates
         // no item at all, so a key a tier names under it is not gating this server would fail to
@@ -290,7 +306,9 @@ public record PluginConfig(
             parsed.add(parseItemTier(id, tiers.child(id), enabled));
         }
 
-        if (enabled && parsed.isEmpty()) {
+        boolean elytraCollection = r.bool("require-elytra-collection", false);
+        boolean shulkerCollection = r.bool("require-shulker-collection", false);
+        if (enabled && parsed.isEmpty() && !elytraCollection && !shulkerCollection) {
             // gated-items is the one section with no code-level default, so this combination is
             // exactly what defaults() produces -- and defaults() is the startup fallback when
             // config.yml cannot be parsed. Without this line a single YAML typo would leave every
@@ -313,7 +331,8 @@ public record PluginConfig(
                 parsed,
                 r.bool("require-personal-credit", true),
                 r.bool("count-structure-loot", true),
-                r.enumValue("personal-credit-scope", CreditScope.class, CreditScope.ALL));
+                r.enumValue("personal-credit-scope", CreditScope.class, CreditScope.ALL),
+                elytraCollection, shulkerCollection, r.bool("gate-shulker-boxes", false));
     }
 
     /**
@@ -344,7 +363,7 @@ public record PluginConfig(
 
     private static ItemTier parseItemTier(String id, ConfigReader r, boolean enforced)
             throws ConfigLoadException {
-        r.expect("match-patterns", "exclude-materials", "items", "require-advancements",
+        r.expect("match-patterns", "exclude-materials", "items", "require-advancements", "require-credits",
                 "require-playtime-hours", "require-account-age-days", "hint");
         return new ItemTier(
                 id,
@@ -352,6 +371,7 @@ public record PluginConfig(
                 r.strings("exclude-materials", List.of()),
                 r.strings("items", List.of()),
                 r.advancementKeys("require-advancements", List.of(), enforced),
+                r.creditIds("require-credits", enforced),
                 r.decimal("require-playtime-hours", 0.0D),
                 r.integer("require-account-age-days", 0),
                 // Interpolated into the item rejection line with its tags escaped, which does not
@@ -456,6 +476,28 @@ public record PluginConfig(
                 r.bool("block-gateway-pre-dragon", false),
                 r.atLeast("outer-end-radius", 500, 1),
                 r.atLeast("outer-end-poll-seconds", 2, 1));
+    }
+
+    /** Settings for the optional effect gate; independent of material tiers. */
+    public record PotionProgression(boolean enabled, List<String> gatedEffects) {
+        public PotionProgression {
+            gatedEffects = List.copyOf(gatedEffects);
+        }
+    }
+
+    private static PotionProgression parsePotionProgression(ConfigReader r) {
+        r.expect("enabled", "gated-effects");
+        List<String> effects = new ArrayList<>();
+        for (String value : r.strings("gated-effects", List.of("fire_resistance", "strength",
+                "speed", "invisibility", "turtle_master", "regeneration", "slow_falling"))) {
+            String effect = BrewingEffects.canonical(value);
+            if (effect != null) {
+                effects.add(effect);
+            } else {
+                r.note("Ignoring unknown, healing or harmful gated-effects entry: " + value);
+            }
+        }
+        return new PotionProgression(r.bool("enabled", false), effects);
     }
 
     private static VillagerProgression parseVillagerProgression(ConfigReader r)
@@ -626,6 +668,10 @@ public record PluginConfig(
      *                                diamond, never for smelting or crafting; default {@code true}
      * @param personalCreditScope     which players {@code requirePersonalCredit} applies to;
      *                                default {@link CreditScope#ALL}
+     * @param requireElytraCollection require personal collection from an original natural End Ship
+     *                                frame, independently of other credits; default {@code false}
+     * @param requireShulkerCollection require a personal Shulker kill that drops a shell; default false
+     * @param gateShulkerBoxes        also require that credit for every Shulker Box; default false
      */
     public record ItemProgression(
             boolean enabled,
@@ -637,7 +683,10 @@ public record PluginConfig(
             List<ItemTier> gatedItems,
             boolean requirePersonalCredit,
             boolean countStructureLoot,
-            CreditScope personalCreditScope) {
+            CreditScope personalCreditScope,
+            boolean requireElytraCollection,
+            boolean requireShulkerCollection,
+            boolean gateShulkerBoxes) {
         public ItemProgression {
             Objects.requireNonNull(rejectionMessage, "rejectionMessage");
             Objects.requireNonNull(personalCreditScope, "personalCreditScope");
@@ -654,7 +703,43 @@ public record PluginConfig(
         public ItemProgression forViewer(boolean hasRequiredPermission) {
             return new ItemProgression(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles,
                     feedbackCooldownSeconds, rejectionMessage, gatedItems,
-                    personalCreditApplies(hasRequiredPermission), countStructureLoot, personalCreditScope);
+                    personalCreditApplies(hasRequiredPermission), countStructureLoot, personalCreditScope,
+                    elytraCollectionApplies(hasRequiredPermission),
+                    shulkerCollectionApplies(hasRequiredPermission), gateShulkerBoxes);
+        }
+
+        /** Whether personally collecting an Elytra is required for this player. */
+        public boolean elytraCollectionApplies(boolean hasRequiredPermission) {
+            return requireElytraCollection
+                    && (personalCreditScope == CreditScope.ALL || hasRequiredPermission);
+        }
+
+        /** Whether the optional Shulker credit applies to this player. */
+        public boolean shulkerCollectionApplies(boolean hasRequiredPermission) {
+            return requireShulkerCollection
+                    && (personalCreditScope == CreditScope.ALL || hasRequiredPermission);
+        }
+
+        /** Compatibility with callers that only configured the Elytra option. */
+        public ItemProgression(boolean enabled, boolean dropRecallEnabled, boolean gateDispensers,
+                               boolean gateNestedBundles, int feedbackCooldownSeconds,
+                               String rejectionMessage, List<ItemTier> gatedItems,
+                               boolean requirePersonalCredit, boolean countStructureLoot,
+                               CreditScope personalCreditScope, boolean requireElytraCollection) {
+            this(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles, feedbackCooldownSeconds,
+                    rejectionMessage, gatedItems, requirePersonalCredit, countStructureLoot,
+                    personalCreditScope, requireElytraCollection, false, false);
+        }
+
+        /** Existing callers keep the optional collection requirement switched off. */
+        public ItemProgression(boolean enabled, boolean dropRecallEnabled, boolean gateDispensers,
+                               boolean gateNestedBundles, int feedbackCooldownSeconds,
+                               String rejectionMessage, List<ItemTier> gatedItems,
+                               boolean requirePersonalCredit, boolean countStructureLoot,
+                               CreditScope personalCreditScope) {
+            this(enabled, dropRecallEnabled, gateDispensers, gateNestedBundles, feedbackCooldownSeconds,
+                    rejectionMessage, gatedItems, requirePersonalCredit, countStructureLoot,
+                    personalCreditScope, false);
         }
 
         /** With {@link CreditScope#ALL}, the scope every server had before the setting existed. */
@@ -699,14 +784,23 @@ public record PluginConfig(
             List<String> excludeMaterials,
             List<String> items,
             List<String> requireAdvancements,
+            List<PersonalCredit> requireCredits,
             double requirePlaytimeHours,
             int requireAccountAgeDays,
             String hint) {
+        public ItemTier(String id, List<String> matchPatterns, List<String> excludeMaterials,
+                        List<String> items, List<String> requireAdvancements,
+                        double requirePlaytimeHours, int requireAccountAgeDays, String hint) {
+            this(id, matchPatterns, excludeMaterials, items, requireAdvancements, List.of(),
+                    requirePlaytimeHours, requireAccountAgeDays, hint);
+        }
+
         public ItemTier {
             Objects.requireNonNull(id, "id");
             matchPatterns = List.copyOf(matchPatterns);
             excludeMaterials = List.copyOf(excludeMaterials);
             items = List.copyOf(items);
+            requireCredits = List.copyOf(requireCredits);
             requireAdvancements = List.copyOf(requireAdvancements);
             Objects.requireNonNull(hint, "hint");
         }
