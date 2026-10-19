@@ -114,7 +114,7 @@ class TotemProbes(CreditProbes):
             self.results.check(RULE, "personal Evoker kill counts without a Totem drop",
                                "drops=none" in event and "credited=true" in event, event)
             self.expect("personal Evoker kill earns credit", "kill-evoker", True, "action")
-            self.expect("spectator remains uncredited", "kill-evoker", False, player=HELPER)
+            self.expect("non-killing helper remains uncredited", "kill-evoker", False, player=HELPER)
             gate.pickup_case(RULE, "own Evoker kill unlocks Totem pickup without End advancements", "totem_of_undying", True)
             self.withdraw(True)
             self.credit("revoke", "kill-evoker")
