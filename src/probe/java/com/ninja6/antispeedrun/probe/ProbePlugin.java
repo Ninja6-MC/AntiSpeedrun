@@ -1,6 +1,7 @@
 package com.ninja6.antispeedrun.probe;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -67,6 +68,9 @@ import org.bukkit.generator.structure.StructurePiece;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.MerchantRecipe;
+import org.bukkit.inventory.meta.BookMeta;
+import org.bukkit.inventory.meta.BundleMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -130,6 +134,8 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             health(args[1].toUpperCase(Locale.ROOT), args[2]);
         } else if (args.length == 3 && args[0].equals("where")) {
             where(args[1], args[2]);
+        } else if (args.length == 3 && args[0].equals("inventory")) {
+            inventory(args[1], args[2]);
         } else if ((args.length == 6 || args.length == 7 && args[6].equals("expect"))
                 && args[0].equals("teleport")) {
             teleport(args);
@@ -169,7 +175,7 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         } else if (args.length == 7 && args[0].equals("enter")) {
             enter(args);
         } else {
-            log("usage health <entity-type> <query> | where <player> <query> "
+            log("usage health <entity-type> <query> | where <player> <query> | inventory <player> <query> "
                     + "| teleport <player> <world> <x> <y> <z> [expect] "
                     + "| near|remove <dimension> <x> <y> <z> <radius> <entity-type> <item-or-any> <query> "
                     + "| credits <player> <query> | container <dimension> <x> <y> <z> <query> "
@@ -179,6 +185,41 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                     + "| enter <player> <dimension> <structure> <x> <z> <query>");
         }
         return true;
+    }
+
+    /** Reads the server's inventory, including book metadata and bundle contents, on its owner. */
+    private void inventory(String name, String query) {
+        Player player = Bukkit.getPlayerExact(name);
+        if (player == null) {
+            log("inventory query=" + query + " offline");
+            return;
+        }
+        player.getScheduler().run(this, task -> {
+            int guides = 0;
+            int bundledDiamonds = 0;
+            BookMeta guide = null;
+            NamespacedKey marker = new NamespacedKey("antispeedrun", "journey-book");
+            for (ItemStack item : player.getInventory().getContents()) {
+                if (item == null) continue;
+                if (item.getItemMeta() instanceof BookMeta book
+                        && book.getPersistentDataContainer().has(marker, PersistentDataType.BYTE)) {
+                    guides += item.getAmount();
+                    guide = book;
+                }
+                if (item.getItemMeta() instanceof BundleMeta bundle) {
+                    for (ItemStack nested : bundle.getItems()) {
+                        if (nested.getType() == Material.DIAMOND) bundledDiamonds += nested.getAmount();
+                    }
+                }
+            }
+            String text = guide == null ? "" : String.join("\n", guide.getPages());
+            String encoded = Base64.getEncoder().encodeToString(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            log("inventory query=" + query + " guides=" + guides + " bundled-diamonds=" + bundledDiamonds
+                    + " pages=" + (guide == null ? 0 : guide.getPageCount())
+                    + " title=" + (guide == null ? "none" : guide.getTitle().replace(' ', '_'))
+                    + " author=" + (guide == null ? "none" : guide.getAuthor().replace(' ', '_'))
+                    + " text=" + (encoded.isEmpty() ? "none" : encoded));
+        }, null);
     }
 
     private void frame(String name, String action, String query) {
@@ -833,7 +874,9 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onClick(InventoryClickEvent event) {
         InventoryType top = event.getView().getTopInventory().getType();
-        if (top == InventoryType.CRAFTING) {
+        if (top == InventoryType.CRAFTING
+                && event.getAction() != org.bukkit.event.inventory.InventoryAction.PICKUP_FROM_BUNDLE
+                && event.getAction() != org.bukkit.event.inventory.InventoryAction.PLACE_FROM_BUNDLE) {
             return;
         }
         ItemStack current = event.getCurrentItem();

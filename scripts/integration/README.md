@@ -45,6 +45,24 @@ succeed:
 | `recall` | No false positives: an ineligible player re-collects the diamond they dropped and their own death pile, and an eligible player who mines diamond ore keeps the diamond. |
 | `reload_active` | With the player online, a reload that switches the Nether gate or item progression off lets them through at once, and back on refuses them again; then ten reloads in quick succession while they stand on a gated stack, every pickup attempt refused. |
 
+`presentation.py` runs before these gate fixtures, so it can inspect the untouched first-join
+inventory. Its assertions use the server's inventory and metadata, alongside the messages the
+scripted player received:
+
+| Probe | What it does |
+| :--- | :--- |
+| `journey_book` | First join supplies one marked guide with readable pages, title and author; rejoining and requesting a carried copy do not duplicate it. After removal, `/journeybook`, `/rulesbook` and `/asr book` supply a replacement. A full inventory refuses without adding or dropping a guide. |
+| `progress_card` | A fresh player's simple card marks the Nether in progress and the End locked, with an actionable next step. Earning the Nether credit updates the same online player's card to Nether complete and End in progress. The configured simple output uses printable ASCII. This is a Java protocol assertion, not a native Bedrock rendering test. |
+| `bundles` | An actual right-click extracts a diamond from a bundle in the player's own inventory (R-14). The unqualified case retains the contents and gets no diamond; a qualified control extracts it. The server records the bundle extraction action even in the personal crafting view. |
+
+The named audit mapping is `pickups` (C-01, C-11), `container_break` (C-02), `merchant`
+(C-09), `bundles` (R-14), `operator` (R-22), and `recall` (S-02). These probes complement
+the focused unit tests; a passing current fixture alone does not establish that it fails at
+every historical pre-fix revision. The holder publication stress test and `reload_active`
+also do not establish paired configuration/table reads under concurrent reload; #287 tracks
+the mixed-read defect, and #58's acceptance remains open until a production decision
+regression covers it.
+
 Item gating is material-only (#52, `docs/provenance-model.md`). The audit fixtures #58 first
 listed for the retired provenance model are kept as what they still guard against: a stack
 handed over by someone else, or carrying the old natural-origin tag, is judged by its material
@@ -105,6 +123,7 @@ of the way. It always has Resistance V, so explosions beside it do not end the r
 | `harness.py` | Server and client lifecycle, console commands, log matching and platform detection. |
 | `probes.py` | What every probe module shares: results, `KNOWN_ISSUES`, and the console helpers. |
 | `gates.py` | The dimension and item gate probes. |
+| `presentation.py` | First-join guide delivery, progression-card output and own-inventory bundle extraction. |
 | `credits.py` | The personal-credit probes. |
 | `trims.py` | The trim structure probes. |
 | `anti_cheese.py` | The section 7 probes. |
