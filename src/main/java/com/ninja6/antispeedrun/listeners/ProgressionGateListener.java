@@ -31,6 +31,7 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.server.RemoteServerCommandEvent;
 import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.util.Vector;
 
@@ -606,9 +607,15 @@ public final class ProgressionGateListener implements Listener {
         noteCommandTeleport(event.getPlayer(), event.getMessage());
     }
 
-    /** The same, for the console, RCON and command blocks. */
+    /** The same, for the local console and command blocks. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onServerCommand(ServerCommandEvent event) {
+        noteCommandTeleport(event.getSender(), event.getCommand());
+    }
+
+    /** RCON has its own handler list; subscribing to ServerCommandEvent does not receive it. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onRemoteServerCommand(RemoteServerCommandEvent event) {
         noteCommandTeleport(event.getSender(), event.getCommand());
     }
 

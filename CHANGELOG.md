@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- RCON cross-dimension teleport commands now receive the same destination-bound,
+  temporary authorization as local-console commands. Cancelled and unauthorized
+  remote commands remain unable to authorize travel.
+
 ## [0.5.0] - 2026-10-19
 
 Personal collection and brewing progression, with each new enforcement option off by
