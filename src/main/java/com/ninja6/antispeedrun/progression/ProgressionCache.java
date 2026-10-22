@@ -57,7 +57,9 @@ public final class ProgressionCache {
     /** One minute. See the class javadoc for the reasoning. */
     public static final Duration DEFAULT_TIME_TO_LIVE = Duration.ofMinutes(1L);
 
-    private final PlayerStateMap<PlayerProgressionSnapshot> entries;
+    private record Entry(Object configuration, PlayerProgressionSnapshot snapshot) { }
+
+    private final PlayerStateMap<Entry> entries;
     private final long timeToLiveMillis;
     private final Supplier<Long> clock;
 
@@ -95,12 +97,18 @@ public final class ProgressionCache {
      *                this cache
      */
     public PlayerProgressionSnapshot get(UUID player, Supplier<PlayerProgressionSnapshot> capture) {
+        return get(player, null, capture);
+    }
+
+    /** A capture's policy answers may only be reused by the exact configuration that produced it. */
+    public PlayerProgressionSnapshot get(UUID player, Object configuration,
+                                         Supplier<PlayerProgressionSnapshot> capture) {
         Objects.requireNonNull(player, "player");
         Objects.requireNonNull(capture, "capture");
 
-        PlayerProgressionSnapshot held = entries.get(player).orElse(null);
-        if (held != null && !isExpired(held)) {
-            return held;
+        Entry held = entries.get(player).orElse(null);
+        if (held != null && held.configuration() == configuration && !isExpired(held.snapshot())) {
+            return held.snapshot();
         }
 
         // Capture OUTSIDE any map lock. Routing this through computeIfAbsent would run
@@ -112,23 +120,26 @@ public final class ProgressionCache {
         PlayerProgressionSnapshot fresh =
                 Objects.requireNonNull(capture.get(), "capture returned no snapshot");
 
-        PlayerProgressionSnapshot installed = entries.putIfAbsent(player, fresh).orElse(null);
+        Entry replacement = new Entry(configuration, fresh);
+        Entry installed = entries.putIfAbsent(player, replacement).orElse(null);
         if (installed == null) {
             return fresh;
         }
-        if (isExpired(installed)) {
-            // Either the expired entry read above, or another one that expired meanwhile.
-            entries.put(player, fresh);
+        if (installed.configuration() != configuration || isExpired(installed.snapshot())) {
+            // Expired or captured under a different policy. An old in-flight capture must not
+            // become a reusable answer for decisions holding a newer configuration.
+            entries.put(player, replacement);
             return fresh;
         }
         // Another thread captured concurrently and its entry is live; prefer it, so callers on both
         // threads observe the same instance and the duplicate is simply dropped.
-        return installed;
+        return installed.snapshot();
     }
 
     /** The held snapshot if one is present and unexpired; never captures. For {@code /progress}. */
     public Optional<PlayerProgressionSnapshot> peek(UUID player) {
-        return entries.get(Objects.requireNonNull(player, "player")).filter(held -> !isExpired(held));
+        return entries.get(Objects.requireNonNull(player, "player"))
+                .map(Entry::snapshot).filter(held -> !isExpired(held));
     }
 
     /**
