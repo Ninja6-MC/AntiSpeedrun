@@ -667,6 +667,14 @@ class GateProbes(Probes):
 
     # ------------------------------------------------------------------ reload
 
+    def gate_snapshot(self):
+        reply = self.server.query("asrprobe gate-snapshot",
+                                  r"ASRPROBE gate-snapshot passed=(?P<passed>true|false)(?P<detail>[^\r\n]*)",
+                                  timeout=90)
+        self.results.check("atomic item gate publication (#287)",
+                           "paused pickups, policy/cache isolation, rejected reloads and concurrent decisions",
+                           reply.group("passed") == "true", reply.group("detail"))
+
     def reload_active(self):
         rule = "reload while players are active"
         self.progression()
@@ -709,7 +717,7 @@ class GateProbes(Probes):
 
 
 PROBES = ("portals", "explicit_credits", "credit_unlock", "vehicles", "operator", "bypass", "teleports", "login", "pickups", "containers",
-          "container_break", "merchant", "recall", "reload_active")
+          "container_break", "merchant", "recall", "gate_snapshot", "reload_active")
 
 
 def run_all(server, client, player, results, only=PROBES):

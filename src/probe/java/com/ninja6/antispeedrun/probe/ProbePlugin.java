@@ -131,7 +131,9 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
             sender.sendMessage("asrprobe answers the integration harness's console only.");
             return true;
         }
-        if (args.length == 3 && args[0].equals("health")) {
+        if (args.length == 1 && args[0].equals("gate-snapshot")) {
+            GateSnapshotProbe.start(this);
+        } else if (args.length == 3 && args[0].equals("health")) {
             health(args[1].toUpperCase(Locale.ROOT), args[2]);
         } else if (args.length == 3 && args[0].equals("where")) {
             where(args[1], args[2]);

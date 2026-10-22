@@ -36,4 +36,10 @@ public interface AdvancementLookup {
      * @param key    a namespaced advancement key exactly as it appears in {@code config.yml}
      */
     State state(Player player, String key);
+
+    /** Evaluate policy against the decision's captured configuration when the lookup has policy. */
+    default State state(Player player, String key,
+                        com.ninja6.antispeedrun.config.PluginConfig config) {
+        return state(player, key);
+    }
 }

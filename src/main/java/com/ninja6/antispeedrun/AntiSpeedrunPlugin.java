@@ -80,8 +80,8 @@ import com.ninja6.antispeedrun.storage.YamlStateFile;
  * anti-cheese, and multi-dragon boss combat scaling for PaperMC &amp; Folia.
  *
  * <p>Configuration is read through {@link #configuration()}, which returns the live immutable
- * snapshot. Every handler reads it <strong>once</strong> per event and uses that local for the
- * whole handler body; see {@code com.ninja6.antispeedrun.config} for the threading contract.
+ * snapshot. Item gates capture {@link #itemGateSnapshot()} to retain its compiled table too.
+ * Every handler reads its publication <strong>once</strong> per event; see {@code com.ninja6.antispeedrun.config} for the threading contract.
  */
 public final class AntiSpeedrunPlugin extends JavaPlugin {
 
@@ -126,12 +126,15 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     private volatile IdleReminderEngine idleReminders;
 
-    /**
-     * The compiled item-gate lookup, rebuilt from whichever snapshot is live. Volatile for the same
-     * reason as {@link #configHolder}: written on the enable and command threads, read from every
-     * region thread. Never mutated in place — a recompile replaces the whole table in one write.
-     */
-    private volatile ItemGateTable<Material> itemGates = MaterialGates.empty();
+    /** Configuration and its derived gates, safely published together for in-flight item decisions. */
+    public record ItemGateSnapshot(PluginConfig config, ItemGateTable<Material> gates) {
+        public ItemGateSnapshot {
+            java.util.Objects.requireNonNull(config, "config");
+            java.util.Objects.requireNonNull(gates, "gates");
+        }
+    }
+
+    private volatile ItemGateSnapshot itemGateSnapshot;
 
     /** Server-wide dimension unlocks, persisted to {@code state.yml}. Volatile for the usual reason. */
     private volatile DimensionUnlockStore dimensionUnlocks;
@@ -184,7 +187,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         // known-good values instead of disabling the plugin; the reload below replaces them when
         // the file is valid, and refuses to start when the file describes gating this server could
         // not enforce. See ReloadOutcome for the whole of the startup policy.
-        this.configHolder = new ConfigSnapshotHolder(getLogger(), PluginConfig.defaults());
+        PluginConfig defaults = PluginConfig.defaults();
+        this.configHolder = new ConfigSnapshotHolder(getLogger(), defaults);
+        this.itemGateSnapshot = new ItemGateSnapshot(defaults, MaterialGates.empty());
         // Runs before anything else is built, so a startup doomed by the file does not
         // register listeners it is about to tear down. Progression does not exist yet at this
         // point, which is why applyConfiguration's refresh of it is null-guarded rather than
@@ -300,9 +305,8 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(dimensionGate, this);
 
         // The item gate, registered here for the same reason and with one of its own: it reads
-        // bypasses() on every pickup and every container click, and it reads itemGates(), which
-        // only holds a compiled table once applyConfiguration() above has run. Both are in place
-        // by this line.
+        // bypasses() on every pickup and every container click, and captures itemGateSnapshot(),
+        // whose table is compiled by applyConfiguration() above. Both are in place by this line.
         getServer().getPluginManager().registerEvents(new ItemProgressionListener(this), this);
 
         // Which trim structures each player has explored (#18). Read before any trim lock exists,
@@ -570,7 +574,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * The live configuration snapshot. Read once per event; never twice inside one decision.
      */
     public PluginConfig configuration() {
-        return configHolder.get();
+        return itemGateSnapshot.config();
     }
 
     /**
@@ -580,18 +584,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         return configHolder;
     }
 
-    /**
-     * The compiled item-gate lookup for the live snapshot. Read once per event, exactly like
-     * {@link #configuration()}. This table is always compiled from the snapshot
-     * {@link #configuration()} returns: a reload that cannot compile publishes neither, so the two
-     * never come to rest out of step, and the {@code ItemTier} {@link ItemGateTable#tierFor} hands
-     * back is always one the live snapshot contains.
-     *
-     * <p>This is the entry point the pickup and container listeners (#12, #9) need:
-     * {@code itemGates().isGated(material)} and {@code itemGates().tierFor(material)}.
-     */
+    /** Capture once per item decision and retain both members through eligibility and feedback. */
+    public ItemGateSnapshot itemGateSnapshot() {
+        return itemGateSnapshot;
+    }
+
+    /** The current table for diagnostics; item decisions capture {@link #itemGateSnapshot()} instead. */
     public ItemGateTable<Material> itemGates() {
-        return itemGates;
+        return itemGateSnapshot.gates();
     }
 
     /**
@@ -780,17 +780,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      * same reason. It is also why {@code primeOnlinePlayers} is handed {@link #configuration()},
      * the snapshot that is now live, rather than the candidate it was compiled from.
      *
-     * <p><strong>{@link #configLock} is load-bearing.</strong> Publishing takes two independent
-     * writes — {@code configHolder.reload} publishes the snapshot with its own volatile write, and
-     * the {@code itemGates} assignment below is a second one outside it — so two callers running
-     * this concurrently could come to rest with one reload's snapshot live beside the other
-     * reload's gate table, breaking the invariant {@link #itemGates()} documents. Until #72 that
-     * could not happen, because both post-startup callers hopped to the global region scheduler and
-     * were serialised by having one thread; they now run on the {@code AsyncScheduler}, which is a
-     * pool, so the serialisation has to be stated rather than inherited. Folding the assignment
-     * into the binding so the holder published both under one write would be stronger, but it
-     * cannot be done without changing {@code ConfigSnapshotHolder}'s contract for every other
-     * caller.
+     * <p>{@link #configLock} serialises writers through parse, compile, publication and cache
+     * invalidation. Readers never take it: one volatile write publishes the immutable configuration
+     * and its exact compiled table together, while an in-flight reader retains its previous pair.
      */
     private ReloadOutcome applyConfiguration() {
         synchronized (configLock) {
@@ -801,10 +793,11 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
             AtomicBoolean collided = new AtomicBoolean();
             AtomicReference<ConfigLoadException> rejection = new AtomicReference<>();
 
-            Optional<ItemGateTable<Material>> compiled =
+            Optional<ItemGateSnapshot> compiled =
                     configHolder.reload(fileSource(), candidate -> {
                         try {
-                            return MaterialGates.compile(candidate.itemProgression(), gateWarnings);
+                            return new ItemGateSnapshot(candidate,
+                                    MaterialGates.compile(candidate.itemProgression(), gateWarnings));
                         } catch (GateCollisionException collision) {
                             collided.set(true);
                             throw collision;
@@ -815,10 +808,10 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 return rejectionOutcome(collided.get(), rejection.get());
             }
 
-            this.itemGates = compiled.get();
+            this.itemGateSnapshot = compiled.get();
             configHolder.logWarnings(gateWarnings);
-            getLogger().info("Item gates compiled: " + compiled.get().size() + " materials across "
-                    + configHolder.get().itemProgression().gatedItems().size() + " tiers.");
+            getLogger().info("Item gates compiled: " + compiled.get().gates().size() + " materials across "
+                    + compiled.get().config().itemProgression().gatedItems().size() + " tiers.");
 
             if (progression != null) {
                 // Null during onEnable, which calls this before the manager exists and primes
