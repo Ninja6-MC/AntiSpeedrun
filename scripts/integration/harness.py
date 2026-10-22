@@ -10,6 +10,9 @@ import json
 import os
 import queue
 import re
+import secrets
+import socket
+import struct
 import shutil
 import subprocess
 import threading
@@ -61,6 +64,7 @@ class Server:
         self.process = None
         self._log = None
         self.platform = None
+        self._rcon_password = secrets.token_hex(24)
 
     def __enter__(self):
         self.start()
@@ -80,6 +84,11 @@ class Server:
             handle.write("eula=true\n")
         properties = {
             "server-port": self.port,
+            "server-ip": "127.0.0.1",
+            "enable-rcon": "true",
+            "rcon.port": self.port + 1,
+            "rcon.password": self._rcon_password,
+            "broadcast-rcon-to-ops": "false",
             "online-mode": "false",
             "enforce-secure-profile": "false",
             # Paper 26.3 turns the whitelist on by default, which would keep the bot out.
@@ -144,6 +153,43 @@ class Server:
         mark = self.mark()
         self.command(line)
         return self.wait_for(pattern, timeout, since=mark)
+
+    def rcon(self, line):
+        """Run a short command through actual loopback RCON, with bounded packet reads."""
+        def receive(connection):
+            def exact(length):
+                data = bytearray()
+                while len(data) < length:
+                    chunk = connection.recv(length - len(data))
+                    if not chunk:
+                        raise ProbeError("RCON closed before its response completed")
+                    data.extend(chunk)
+                return bytes(data)
+
+            length, = struct.unpack("<i", exact(4))
+            if not 10 <= length <= 4 * 1024 * 1024:
+                raise ProbeError("RCON returned an invalid packet length")
+            packet = exact(length)
+            request_id, kind = struct.unpack("<ii", packet[:8])
+            if packet[-2:] != b"\0\0":
+                raise ProbeError("RCON returned an unterminated packet")
+            return request_id, kind, packet[8:-2].decode("utf-8", errors="replace")
+
+        def send(connection, request_id, kind, body):
+            packet = struct.pack("<ii", request_id, kind) + body.encode("utf-8") + b"\0\0"
+            connection.sendall(struct.pack("<i", len(packet)) + packet)
+
+        with socket.create_connection(("127.0.0.1", self.port + 1), timeout=10) as connection:
+            connection.settimeout(10)
+            send(connection, 1, 3, self._rcon_password)
+            request_id, kind, _ = receive(connection)
+            if (request_id, kind) != (1, 2):
+                raise ProbeError("RCON authentication failed")
+            send(connection, 2, 2, line)
+            request_id, kind, response = receive(connection)
+            if (request_id, kind) != (2, 0):
+                raise ProbeError("RCON returned an unexpected command response")
+            return response
 
     def stop(self, timeout=60):
         if self.process is None:

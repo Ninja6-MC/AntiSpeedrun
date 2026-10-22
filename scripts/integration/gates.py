@@ -394,6 +394,14 @@ class GateProbes(Probes):
         self.progression()
         case("the console's cross-dimension /tp of an ineligible player",
              lambda: self.run(f"execute in {NETHER} run tp {self.player} {lx + 0.5} {ly} {lz + 0.5}"), True)
+        case("RCON's cross-dimension /tp of an ineligible player",
+             lambda: self.server.rcon(f"execute in {NETHER} run minecraft:tp {self.player} "
+                                     f"{lx + 0.5} {ly} {lz + 0.5}"), True)
+        nether_world = overworld + "_nether"
+        for mode, expected in (("allowed", True), ("cancelled", False), ("denied", False)):
+            case(f"the {mode} remote event dispatched through Bukkit's event manager",
+                 lambda mode=mode: self.run(f"asrprobe remote-event {self.player} {nether_world} "
+                                           f"{lx + 0.5} {ly} {lz + 0.5} {mode}"), expected)
         self.run(f"op {self.player}")
         time.sleep(1)
         try:

@@ -37,6 +37,7 @@ import trims  # noqa: E402
 import elytra  # noqa: E402
 import shulkers  # noqa: E402
 import evokers  # noqa: E402
+import presentation  # noqa: E402
 from probes import Probes, Results  # noqa: E402
 
 USER_AGENT = "AntiSpeedrun-CI/1.0 (+https://github.com/Ninja6-MC/AntiSpeedrun)"
@@ -53,7 +54,7 @@ PLAYER = "AsrProbe"
 # The gate probes run first: they set the player's progression case by case. The credit probes
 # set the player's credits the same way, the trim probes its advancements, and the anti-cheese
 # probes then grant every advancement and credit once and leave them so.
-MODULES = (gates, credits, potions, trims, elytra, shulkers, evokers, anti_cheese)
+MODULES = (presentation, gates, credits, potions, trims, elytra, shulkers, evokers, anti_cheese)
 PROBES = tuple(name for module in MODULES for name in module.PROBES)
 SERVER_BUILD = re.compile(r"This server is running (?P<build>[^\r\n]+)")
 PLUGIN_VERSION = re.compile(r"Enabling AntiSpeedrun v(?P<version>\S+)")
