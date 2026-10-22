@@ -59,6 +59,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.server.RemoteServerCommandEvent;
 import org.bukkit.event.server.ServerLoadEvent;
 import org.bukkit.event.world.LootGenerateEvent;
 import org.bukkit.generator.structure.GeneratedStructure;
@@ -133,6 +134,8 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         } else if ((args.length == 6 || args.length == 7 && args[6].equals("expect"))
                 && args[0].equals("teleport")) {
             teleport(args);
+        } else if (args.length == 7 && args[0].equals("remote-event")) {
+            remoteEvent(args);
         } else if (args.length == 9 && (args[0].equals("near") || args[0].equals("remove"))) {
             near(args);
         } else if (args.length == 4 && args[0].equals("frame")) {
@@ -171,6 +174,7 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         } else {
             log("usage health <entity-type> <query> | where <player> <query> "
                     + "| teleport <player> <world> <x> <y> <z> [expect] "
+                    + "| remote-event <player> <world> <x> <y> <z> <allowed|cancelled|denied> "
                     + "| near|remove <dimension> <x> <y> <z> <radius> <entity-type> <item-or-any> <query> "
                     + "| credits <player> <query> | container <dimension> <x> <y> <z> <query> "
                     + "| loot <material> <count> | loot off | nodrops <player> | npc <player> on|off "
@@ -626,6 +630,27 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
         player.teleportAsync(to, PlayerTeleportEvent.TeleportCause.PLUGIN).thenAccept(
                 moved -> log("teleport player=" + player.getName() + " world=" + world.getName()
                         + " result=" + moved));
+    }
+
+    /** Dispatches through Bukkit's real remote-event handler list, then attempts plugin travel. */
+    private void remoteEvent(String[] args) {
+        Player player = Bukkit.getPlayerExact(args[1]);
+        World world = Bukkit.getWorld(args[2]);
+        if (player == null || world == null) {
+            throw new IllegalArgumentException("unknown remote-event target");
+        }
+        String mode = args[6];
+        if (!List.of("allowed", "cancelled", "denied").contains(mode)) {
+            throw new IllegalArgumentException("unknown remote-event mode");
+        }
+        String line = "execute in " + world.getKey() + " run minecraft:tp " + player.getName()
+                + " " + args[3] + " " + args[4] + " " + args[5];
+        CommandSender sender = mode.equals("denied") ? player : Bukkit.getConsoleSender();
+        RemoteServerCommandEvent event = new RemoteServerCommandEvent(sender, line);
+        event.setCancelled(mode.equals("cancelled"));
+        Bukkit.getPluginManager().callEvent(event);
+        log("remote-event mode=" + mode + " cancelled=" + event.isCancelled());
+        teleport(new String[]{"teleport", args[1], args[2], args[3], args[4], args[5]});
     }
 
     /** Observes actual beacon pulses after the reward gate settles. */
