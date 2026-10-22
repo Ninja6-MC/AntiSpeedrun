@@ -378,6 +378,27 @@ const ops = {
     return {}
   },
 
+  // Right-click a bundle in the player's own inventory, then place any extracted cursor stack
+  // into an empty inventory slot. The server decides the bundle action and its cancellation.
+  async bundle_extract () {
+    const inventory = bot.inventory
+    const bundle = inventory.items().find((item) => item.name === 'bundle')
+    if (!bundle) throw new Error('no bundle in the inventory')
+    const empty = inventory.slots.findIndex((item, slot) => slot >= inventory.inventoryStart &&
+      slot < inventory.inventoryEnd && !item)
+    if (empty < 0) throw new Error('bundle extraction needs an empty inventory slot')
+    await bot.clickWindow(bundle.slot, 1, 0)
+    await sleep(600)
+    await bot._syncWindow(inventory)
+    const extracted = inventory.selectedItem ? inventory.selectedItem.name : null
+    if (inventory.selectedItem) {
+      await bot.clickWindow(empty, 0, 0)
+      await sleep(600)
+      await bot._syncWindow(inventory)
+    }
+    return { extracted, items: inventoryNames() }
+  },
+
   // Places the held block against the face of the block at x, y, z.
   async place ({ x, y, z, face }) {
     const reference = blockAt(x, y, z)
