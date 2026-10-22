@@ -236,7 +236,7 @@ public final class ProgressionManager {
             // getFirstPlayed or getAdvancementProgress is legal for it under Folia.
             return offline(config, mustCover);
         }
-        PlayerProgressionSnapshot held = cache.get(id, () -> capture(player, config));
+        PlayerProgressionSnapshot held = cache.get(id, config, () -> capture(player, config));
 
         Set<String> uncovered = held.uncovered(mustCover);
         if (uncovered.isEmpty()) {
@@ -250,7 +250,7 @@ public final class ProgressionManager {
         if (Milestone.allRequiredAdvancements(config).containsAll(uncovered)) {
             // A reload introduced a key this capture predates. One re-capture answers it.
             cache.invalidate(id);
-            held = cache.get(id, () -> capture(player, config));
+            held = cache.get(id, config, () -> capture(player, config));
             uncovered = held.uncovered(mustCover);
             if (uncovered.isEmpty()) {
                 return held;
@@ -313,7 +313,7 @@ public final class ProgressionManager {
         Set<String> earned = new LinkedHashSet<>();
         Set<String> unresolvable = new LinkedHashSet<>();
         for (String key : queried) {
-            switch (advancements.state(player, key)) {
+            switch (advancements.state(player, key, config)) {
                 case EARNED -> earned.add(key);
                 case UNRESOLVABLE -> unresolvable.add(key);
                 case NOT_EARNED -> { /* absent from both sets */ }

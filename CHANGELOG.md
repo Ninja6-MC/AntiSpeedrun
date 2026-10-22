@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RCON cross-dimension teleport commands now receive the same destination-bound,
   temporary authorization as local-console commands. Cancelled and unauthorized
   remote commands remain unable to authorize travel.
+- Item gates retain one configuration and compiled material table through eligibility
+  and refusal feedback when a reload overlaps an event. Protected credit policy and
+  cached progression answers also follow the captured configuration.
 
 ## [0.5.0] - 2026-10-19
 

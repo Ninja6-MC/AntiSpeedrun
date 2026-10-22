@@ -161,6 +161,23 @@ class ProgressionCacheTest {
     }
 
     @Test
+    void anOldCaptureInstalledAfterInvalidationCannotServeANewConfiguration() {
+        UUID player = UUID.randomUUID();
+        Object old = new Object();
+        Object current = new Object();
+        PlayerProgressionSnapshot previous = cache.get(player, old, () -> {
+            cache.invalidateAll();
+            return capture();
+        });
+        PlayerProgressionSnapshot fresh = cache.get(player, current, this::capture);
+        assertEquals(2, captures.get());
+        assertSame(fresh, cache.get(player, current, () -> {
+            throw new AssertionError("current entry should remain cached");
+        }));
+        assertTrue(previous != fresh);
+    }
+
+    @Test
     void reloadDropsEverySnapshot() {
         for (int i = 0; i < 10; i++) {
             cache.get(UUID.randomUUID(), this::capture);

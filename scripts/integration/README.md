@@ -47,6 +47,7 @@ succeed:
 | `container_break` | An ineligible player breaks a chest and a Decorated Pot holding diamonds rather than opening them (C-02): the spilled diamonds are refused. |
 | `merchant` | An ineligible player cannot buy a diamond chestplate from an Armorer (C-09); an eligible one can. |
 | `recall` | No false positives: an ineligible player re-collects the diamond they dropped and their own death pile, and an eligible player who mines diamond ore keeps the diamond. |
+| `gate_snapshot` | Pauses the actual pickup handler at a proxy item's stack getter across a real file reload, then checks eligibility, pickup delay and feedback from the retained publication. Covers reassignment, removal, disabled progression, protected-credit policy, cache isolation, rejected parse/compilation, duplicate-feedback throttling, and four concurrent proxy-player readers during 20 real reloads (#287). Proxy entities hold no live region state; `reload_active` supplies complementary real-player evidence. |
 | `reload_active` | With the player online, a reload that switches the Nether gate or item progression off lets them through at once, and back on refuses them again; then ten reloads in quick succession while they stand on a gated stack, every pickup attempt refused. |
 
 `presentation.py` runs before these gate fixtures, so it can inspect the untouched first-join
@@ -63,9 +64,10 @@ The named audit mapping is `pickups` (C-01, C-11), `container_break` (C-02), `me
 (C-09), `bundles` (R-14), `operator` (R-22), and `recall` (S-02). These probes complement
 the focused unit tests; a passing current fixture alone does not establish that it fails at
 every historical pre-fix revision. The holder publication stress test and `reload_active`
-also do not establish paired configuration/table reads under concurrent reload; #287 tracks
-the mixed-read defect, and #58's acceptance remains open until a production decision
-regression covers it.
+remain complementary checks. `gate_snapshot` covers #287's production decision boundary:
+configuration and material-table identity, policy-aware eligibility and cache reuse,
+feedback throttling, and bounded readers crossing actual reloads. Completing #58 still
+requires reconciling every remaining acceptance item with its named evidence.
 
 Item gating is material-only (#52, `docs/provenance-model.md`). The audit fixtures #58 first
 listed for the retired provenance model are kept as what they still guard against: a stack
@@ -189,6 +191,11 @@ A check that fails today because of an open bug passes `known_issue=<n>` and lis
 does not fail the run. Once the bug is fixed the check passes, is recorded as
 `unexpected-pass` and fails the run until its `KNOWN_ISSUES` entry is removed. No check is
 marked so today.
+
+The snapshot probe captures and asserts deliberate rejection diagnostics locally during its two
+invalid reloads; all other server output remains subject to the normal clean-log assertion. The
+original configuration is restored and reloaded in a `finally` block, and every reader has a
+bounded wait and executor shutdown.
 
 ## Writing a probe
 

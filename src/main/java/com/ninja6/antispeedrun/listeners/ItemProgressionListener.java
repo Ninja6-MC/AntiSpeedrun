@@ -279,10 +279,11 @@ public final class ItemProgressionListener implements Listener {
     public void onAttemptPickup(PlayerAttemptPickupItemEvent event) {
         Item entity = event.getItem();
         Player player = event.getPlayer();
-        PluginConfig config = plugin.configuration();
+        var snapshot = plugin.itemGateSnapshot();
+        PluginConfig config = snapshot.config();
         Material material = entity.getItemStack().getType();
 
-        ItemTier tier = gatedTier(material, config);
+        ItemTier tier = gatedTier(material, snapshot);
         if (tier == null || waived(player)) {
             return;
         }
@@ -908,7 +909,8 @@ public final class ItemProgressionListener implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerDropItem(PlayerDropItemEvent event) {
-        PluginConfig config = plugin.configuration();
+        var snapshot = plugin.itemGateSnapshot();
+        PluginConfig config = snapshot.config();
         if (!config.itemProgression().dropRecallEnabled()) {
             return;
         }
@@ -917,7 +919,7 @@ public final class ItemProgressionListener implements Listener {
         // reads the stamp strictly after gatedTier() has returned non-null, so a stamp on a stack
         // of cobblestone can never change a decision -- it is a PDC write, and then chunk NBT on
         // disk, bought for nothing.
-        if (gatedTier(drop.getItemStack().getType(), config) == null) {
+        if (gatedTier(drop.getItemStack().getType(), snapshot) == null) {
             return;
         }
         recall.stamp(drop, event.getPlayer().getUniqueId());
@@ -963,7 +965,8 @@ public final class ItemProgressionListener implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onItemSpawn(ItemSpawnEvent event) {
-        PluginConfig config = plugin.configuration();
+        var snapshot = plugin.itemGateSnapshot();
+        PluginConfig config = snapshot.config();
         if (!config.itemProgression().dropRecallEnabled()) {
             return;
         }
@@ -974,7 +977,7 @@ public final class ItemProgressionListener implements Listener {
             return;
         }
         Item item = event.getEntity();
-        if (gatedTier(item.getItemStack().getType(), config) == null || recall.isStamped(item)) {
+        if (gatedTier(item.getItemStack().getType(), snapshot) == null || recall.isStamped(item)) {
             return;
         }
         recall.claim(item.getLocation(), now).ifPresent(owner -> recall.stamp(item, owner));
@@ -1020,8 +1023,9 @@ public final class ItemProgressionListener implements Listener {
     }
 
     private Verdict refuse(Player player, Material material, Cancellable event, boolean collecting) {
-        PluginConfig config = plugin.configuration();
-        ItemTier tier = gatedTier(material, config);
+        var snapshot = plugin.itemGateSnapshot();
+        PluginConfig config = snapshot.config();
+        ItemTier tier = gatedTier(material, snapshot);
         if (tier == null) {
             return Verdict.UNGATED;
         }
@@ -1073,11 +1077,12 @@ public final class ItemProgressionListener implements Listener {
      * click paths, where {@link ItemGateTable} goes to some length to avoid allocating, and
      * wrapping its answer here would spend exactly what it saved.
      */
-    private ItemTier gatedTier(Material material, PluginConfig config) {
+    private ItemTier gatedTier(Material material, AntiSpeedrunPlugin.ItemGateSnapshot snapshot) {
+        PluginConfig config = snapshot.config();
         if (!config.itemProgression().enabled()) {
             return null;
         }
-        ItemGateTable<Material> table = plugin.itemGates();
+        ItemGateTable<Material> table = snapshot.gates();
         if (table.isGated(material)) {
             return table.tierFor(material);
         }

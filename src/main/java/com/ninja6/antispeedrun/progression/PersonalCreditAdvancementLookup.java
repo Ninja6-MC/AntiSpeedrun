@@ -42,9 +42,10 @@ import com.ninja6.antispeedrun.storage.PersonalCreditStore;
  * vanilla to resolve an advancement. They are satisfied outside the configured scope or while
  * personal credits are disabled.
  *
- * <p>Both settings are read from the live snapshot on every call, so {@code /asr reload} changes the
- * answer at once. {@code count-structure-loot} decides only whether a {@code loot} record counts;
- * the record itself is kept either way, so switching it back restores the answer.
+ * <p>Decision callers pass their captured snapshot, so an in-flight evaluation retains its credit
+ * policy across reload. The convenience two-argument call reads the live snapshot.
+ * {@code count-structure-loot} decides only whether a {@code loot} record counts; the record itself
+ * is kept either way, so switching it back restores the answer.
  *
  * <p>Thread-safe on the wrapped lookup's terms: the store and the snapshot are volatile reads.
  */
@@ -80,19 +81,24 @@ public final class PersonalCreditAdvancementLookup implements AdvancementLookup 
 
     @Override
     public State state(Player player, String key) {
+        return state(player, key, config.get());
+    }
+
+    @Override
+    public State state(Player player, String key, PluginConfig captured) {
         var explicit = PersonalCredit.fromRequirementKey(key);
         if (explicit.isPresent()) {
-            PluginConfig.ItemProgression settings = config.get().itemProgression();
+            PluginConfig.ItemProgression settings = captured.itemProgression();
             return !applies(player, settings)
                     || credits.has(player.getUniqueId(), explicit.get(), settings.countStructureLoot())
                     ? State.EARNED : State.NOT_EARNED;
         }
-        State vanilla = delegate.state(player, key);
+        State vanilla = delegate.state(player, key, captured);
         Set<PersonalCredit> needed = REQUIRED.get(key);
         if (needed == null || vanilla == State.UNRESOLVABLE) {
             return vanilla;
         }
-        PluginConfig.ItemProgression settings = config.get().itemProgression();
+        PluginConfig.ItemProgression settings = captured.itemProgression();
         if (!(key.equals("minecraft:end/elytra")
                 ? settings.elytraCollectionApplies(player.hasPermission(REQUIRED_PERMISSION))
                 : applies(player, settings))) {

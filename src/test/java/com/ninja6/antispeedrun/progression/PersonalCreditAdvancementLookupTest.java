@@ -146,6 +146,34 @@ class PersonalCreditAdvancementLookupTest {
     }
 
     @Test
+    void capturedPolicySurvivesALaterReloadForProtectedAndExplicitCredits() {
+        vanilla.put(MINE_STONE, State.EARNED);
+        PluginConfig captured = settings(false, true);
+        config.set(settings(true, true));
+        assertEquals(State.EARNED, lookup.state(player, MINE_STONE, captured));
+        assertEquals(State.NOT_EARNED, lookup.state(player, MINE_STONE));
+        String explicit = PersonalCredit.KILL_SHULKER.requirementKey();
+        assertEquals(State.EARNED, lookup.state(player, explicit, captured));
+        assertEquals(State.NOT_EARNED, lookup.state(player, explicit));
+    }
+
+    @Test
+    void managerDoesNotReusePolicyAnswersFromAnotherConfiguration() {
+        vanilla.put(SMELT_IRON, State.EARNED);
+        PluginConfig old = settings(false, true);
+        PluginConfig current = settings(true, true);
+        config.set(current);
+        ProgressionManager manager = new ProgressionManager(Logger.getLogger("test"), lookup,
+                new PlayerStateRegistry());
+        MilestoneRequirement required = new MilestoneRequirement(java.util.List.of(SMELT_IRON), 0, 0);
+        manager.onConfigurationReloaded();
+        assertEquals(true, manager.evaluate(player, old, required).eligible(), "in-flight old decision");
+        assertEquals(false, manager.evaluate(player, current, required).eligible(), "fresh current decision");
+        assertEquals(true, manager.evaluate(player, old, required).eligible(), "old reader remains coherent");
+        assertEquals(false, manager.evaluate(player, current, required).eligible(), "old cache cannot leak back");
+    }
+
+    @Test
     @DisplayName("a protected key is earned with its credit, not with the vanilla advancement")
     void creditDecides() {
         vanilla.put(MINE_STONE, State.EARNED);
