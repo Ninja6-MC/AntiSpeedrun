@@ -51,7 +51,7 @@ jobs:
 
       - name: Set up Java ${{ steps.server.outputs.java }} For The Server
         id: server-java
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           java-version: ${{ steps.server.outputs.java }}
           distribution: 'temurin'
@@ -59,7 +59,7 @@ jobs:
       # Installed second so it is the default JAVA_HOME for Gradle. The server keeps the JDK
       # above, whose path setup-java reports as an output.
       - name: Set up Java 21 For The Build
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           java-version: '21'
           distribution: 'temurin'
