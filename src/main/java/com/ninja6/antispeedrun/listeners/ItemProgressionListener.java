@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.Material;
 import org.bukkit.Tag;
+import org.bukkit.block.Block;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Allay;
 import org.bukkit.entity.AreaEffectCloud;
@@ -23,6 +24,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockDispenseArmorEvent;
+import org.bukkit.event.block.BlockDispenseEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
@@ -55,6 +57,7 @@ import com.ninja6.antispeedrun.storage.PersonalCredit;
 import com.ninja6.antispeedrun.progression.PlayerStateMap;
 import com.ninja6.antispeedrun.storage.DimensionUnlock;
 
+import io.papermc.paper.event.block.BlockPreDispenseEvent;
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent;
 import io.papermc.paper.event.player.PlayerItemFrameChangeEvent.ItemFrameChangeAction;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -231,6 +234,9 @@ public final class ItemProgressionListener implements Listener {
     private final AntiSpeedrunPlugin plugin;
 
     private final DropRecall recall;
+
+    /** Refusals awaiting the same dispenser invocation's optional drop fallback. */
+    private final Map<Block, BlockDispenseArmorEvent> refusedDispenses = new ConcurrentHashMap<>();
 
     /**
      * When each player was last told they are gated, <em>per tier</em>. Registered with
@@ -843,10 +849,11 @@ public final class ItemProgressionListener implements Listener {
      *
      * <p>This is a fourth way for a gated piece to reach a player's body without passing through a
      * pickup, a container click or a trade: the dispenser fires the armour straight onto whoever
-     * stands at its face. The event is cancelled before the item leaves the dispenser, so the stack
-     * stays where it was and the dispenser simply does not fire, and the target player is the one
-     * told why. Only players are gated; a dispenser dressing a zombie or an armor stand is not what
-     * this refuses, for the same reason mob pickups are out of scope on {@link #onAttemptPickup}.
+     * stands at its face. Cancelling the armour event prevents equipping; on servers that then
+     * fall back to dropping it, {@link #onDispenseFallback} also cancels that drop so the stack
+     * stays in the dispenser. The target player is told why. Only players are gated; a dispenser
+     * dressing a zombie or an armor stand is not what this refuses, for the same reason mob pickups
+     * are out of scope on {@link #onAttemptPickup}.
      * Switched off by {@code item-progression.gate-dispensers}.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -854,8 +861,40 @@ public final class ItemProgressionListener implements Listener {
         if (!ItemGateRules.gatesDispensers(plugin.configuration())) {
             return;
         }
-        if (event.getTargetEntity() instanceof Player player) {
-            refuse(player, event.getItem().getType(), event);
+        if (event.getTargetEntity() instanceof Player player
+                && refuse(player, event.getItem().getType(), event) == Verdict.REFUSED) {
+            Block block = event.getBlock();
+            refusedDispenses.put(block, event);
+            // Some supported servers retain the item immediately and never raise a fallback.
+            plugin.getServer().getRegionScheduler().run(plugin, block.getLocation(), task ->
+                    refusedDispenses.remove(block, event));
+        }
+    }
+
+    /** A new activation cannot consume a refusal from an earlier activation of the same block. */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPreDispense(BlockPreDispenseEvent event) {
+        refusedDispenses.remove(event.getBlock());
+    }
+
+    /**
+     * Paper's equipment behaviour can return false after a cancelled armour event, causing the
+     * default behaviour to raise a second event and drop the same item. Cancelling that second
+     * event makes the default behaviour restore its split stack. The shared handler list also
+     * delivers armour events here: leave those to {@link #onDispenseArmor}.
+     *
+     * <p>Only our own still-cancelled refusal from this activation can cancel the fallback. Normal
+     * drops without a player target, qualified equipment, mobs and dropper activations stay alone.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onDispenseFallback(BlockDispenseEvent event) {
+        if (event instanceof BlockDispenseArmorEvent) {
+            return;
+        }
+        BlockDispenseArmorEvent refused = refusedDispenses.remove(event.getBlock());
+        if (refused != null && refused.isCancelled()
+                && refused.getItem().isSimilar(event.getItem())) {
+            event.setCancelled(true);
         }
     }
 

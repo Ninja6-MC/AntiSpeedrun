@@ -17,9 +17,12 @@ stay on it yet. A 26.1 mineflayer client through ViaVersion and ViaBackwards 5.1
 or 5.12.2-SNAPSHOT is kicked about 2 seconds after spawn with
 `multiplayer.disconnect.invalid_player_movement`. That happens on a bare Paper 26.3 server
 without AntiSpeedrun as well, and the same setup passes on Paper 26.2 build 129, so it is an
-upstream protocol limitation, not a plugin failure (#235). The leg is added once a newer
-mineflayer or Via release lets a client join. The harness already sets `white-list=false`,
-which Paper 26.3 turns on by default.
+upstream protocol limitation, not a plugin failure (#235). For the stationary `dispensers` fixture
+only, `--probe dispensers --stationary-client` suppresses those older-client movement packets;
+server teleports place the player and actual redstone drives dispensing. This validates dispenser
+outcomes on 26.3, without establishing movement compatibility or enabling a full gameplay leg.
+The leg is added once a newer mineflayer or Via release lets a client join. The harness already
+sets `white-list=false`, which Paper 26.3 turns on by default.
 
 ## What it covers
 
@@ -39,6 +42,7 @@ succeed:
 | `teleports` | Vanilla console and operator `/tp` commands and `expectTeleport` vouchers are honoured. Unannounced plugin teleports for ineligible players are refused on Paper and returned on Folia; eligibility and bypass controls succeed. Turning `gate-plugin-teleports` off restores Paper's exemption while Folia still checks arrivals. |
 | `login` | Reconnects an ineligible player parked in the Nether and End and checks the return to the Overworld; an eligible Nether reconnect stays. A charged Nether respawn anchor also returns an ineligible player after respawn. |
 | `pickups` | An ineligible player walks over a diamond, silk-touched deepslate diamond ore (C-11) and a diamond sword carrying the retired natural-origin tag (C-01): each is refused and stays on the ground. Control: an eligible player picks up the diamond. |
+| `dispensers` | An actual powered dispenser keeps gated armor for a locked player without equipping it or spawning an item. Repeated refusal, qualified equip, no target, disabled dispenser gate and ordinary-item controls also run; final armor/drop events are recorded. |
 | `containers` | An ineligible player cannot shift-click or pick diamonds out of a chest; an eligible one can. |
 | `container_break` | An ineligible player breaks a chest and a Decorated Pot holding diamonds rather than opening them (C-02): the spilled diamonds are refused. |
 | `merchant` | An ineligible player cannot buy a diamond chestplate from an Armorer (C-09); an eligible one can. |

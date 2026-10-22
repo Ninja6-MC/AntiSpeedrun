@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A dispenser retains gated armor refused for an unqualified player, including on
+  servers that fall back to dropping armor after an equip refusal.
+
 ## [0.5.0] - 2026-10-19
 
 Personal collection and brewing progression, with each new enforcement option off by
