@@ -153,6 +153,22 @@ python3 scripts/integration/run.py --server-jar paper.jar \
 The same command runs a Folia jar (`--project folia`); the harness reads the platform from the
 server's own startup line and records it in `results.json`.
 
+Disposable worlds use seed `1` by default. It provides a real, naturally generated End Ship
+for the collection fixture on the pinned Paper 1.21.11-132, Paper 26.2-129 and Folia 26.2-7
+servers. `--seed <value>` overrides it for reproductions; the requested seed and the actual
+seed reported by the server are written to `results.json`. The fixture records each located
+city, its loaded bounds and the selected generation-marked frame. It waits for frame evidence
+within a bounded eight-second window rather than sleeping after a frame has already appeared.
+Unsuccessful cities release their forced chunks immediately; the selected city and frame
+areas remain loaded until every collection control finishes, then both are released.
+
+A seed override can legitimately make the natural-ship fixture unavailable. For example,
+`--seed -2715710956452478949 --probe elytra_collection` exhausts eight genuinely shipless
+cities on Paper 1.21.11-132 (#291), on both the failed candidate and its actual parent. Such
+a run remains a failed availability control with its city evidence. An observed natural
+frame without its provenance marker is a separate failure and is never retried away or
+treated as unavailable terrain. No qualifying frame is summoned or marked by the harness.
+
 `--client-version` must be a version mineflayer supports. For a newer server, pass the newest
 one it has and add `--via`: the harness then fetches the pinned ViaVersion and ViaBackwards
 releases from Hangar, checks their SHA-256 and installs them on the test server so the
@@ -167,7 +183,7 @@ Everything lands in `--workdir`. Each run rebuilds `server/` from scratch and de
 earlier `results.json` before it starts; `cache/` (the pinned Via jars) is kept:
 
 * `results.json`: the platform, server build, the embedded AntiSpeedrun version, the client
-  version, every check with its evidence, and notes;
+  version, requested and actual world seed, every check with its evidence, and notes;
 * `server/server.log`: the full console log, `ASRPROBE` lines included;
 * `client.log`: the scripted player's own output, including what it was told; `helper.log`
   is the same for `AsrHelper`.

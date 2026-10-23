@@ -11,6 +11,51 @@ PROBES = ("elytra_collection",)
 SPAWN = re.compile(r"ASRPROBE elytra-spawn x=(-?\d+) y=(-?\d+) z=(-?\d+) natural=(true|false)")
 
 
+def release(probes, area):
+    x1, z1, x2, z2 = area
+    probes.run(f"execute in {END} run forceload remove {x1} {z1} {x2} {z2}")
+
+
+def acquire_frame(probes, results, forced):
+    """Acquire actual generation evidence, bounded to eight starts and eight seconds per start."""
+    cities = []
+    for attempt in range(8):
+        origin = 3000 + attempt * 5000
+        located = probes.server.query(
+            f"execute in {END} positioned {origin} 80 3000 run locate structure minecraft:end_city",
+            r"nearest minecraft:end_city is at \[(-?\d+), ~, (-?\d+)\]", timeout=120)
+        x, z = map(int, located.groups())
+        cities.append((x, z))
+        mark = probes.server.mark()
+        probes.tp(END, x + .5, 100, z + .5)
+        area = (x - 112, z - 112, x + 112, z + 112)
+        forced.append(area)
+        probes.run(f"execute in {END} run forceload add {area[0]} {area[1]} {area[2]} {area[3]}")
+        deadline = time.monotonic() + 8
+        while True:
+            found = [SPAWN.search(line) for line in probes.server.lines_since(mark, "ASRPROBE elytra-spawn")]
+            found = [entry for entry in found if entry]
+            if found:
+                marked = all(entry[4] == "true" for entry in found)
+                results.check(RULE, "natural generation marks real ship frames", marked,
+                              str([entry.group(0) for entry in found]))
+                if not marked:
+                    raise ProbeError("an actual generated Elytra frame was observed without its provenance marker")
+                position = tuple(map(int, found[0].groups()[:3]))
+                results.note(f"End Ship fixture acquired: attempt={attempt + 1}, city=({x},{z}), "
+                             f"loaded-bounds={area}, frame={position}.")
+                return position
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(.25)
+        results.note(f"End Ship fixture attempt={attempt + 1}, city=({x},{z}), loaded-bounds={area}: "
+                     "no Elytra frame observation within eight seconds; releasing forced chunks.")
+        release(probes, area)
+        forced.remove(area)
+    raise ProbeError("End Ship fixture unavailable: no Elytra frame observations in eight located cities "
+                     f"{cities}; inspect the recorded seed/city evidence (no provenance failure was observed)")
+
+
 def run_all(server, client, player, results, only=PROBES):
     if "elytra_collection" not in only:
         return
@@ -24,6 +69,7 @@ def run_all(server, client, player, results, only=PROBES):
         if observed == "none":
             results.note(f"frame {query} disappeared near player: {client.request('state')}")
         return observed
+    forced = []
     try:
         probes.run(f"gamemode survival {player}")
         probes.run(f"effect give {player} minecraft:resistance infinite 4 true")
@@ -33,31 +79,12 @@ def run_all(server, client, player, results, only=PROBES):
         probes.credit("revoke", "elytra")
         probes.reload(toggle("true"))
         probes.run(f"clear {player}")
-        # Locate only selects starts; loading their surrounding chunks exercises actual world generation.
-        mark = server.mark()
-        position = None
-        for attempt in range(8):
-            origin = 3000 + attempt * 5000
-            located = server.query(f"execute in {END} positioned {origin} 80 3000 run locate structure minecraft:end_city",
-                                   r"nearest minecraft:end_city is at \[(-?\d+), ~, (-?\d+)\]", timeout=120)
-            x, z = map(int, located.groups())
-            probes.tp(END, x + .5, 100, z + .5)
-            probes.run(f"execute in {END} run forceload add {x - 112} {z - 112} {x + 112} {z + 112}")
-            time.sleep(8)
-            found = [SPAWN.search(line) for line in server.lines_since(mark, "ASRPROBE elytra-spawn")]
-            found = [entry for entry in found if entry]
-            if found:
-                results.check(RULE, "natural generation marks real ship frames",
-                              any(entry[4] == "true" for entry in found), str([entry.group(0) for entry in found]))
-                marked = next((entry for entry in found if entry[4] == "true"), None)
-                if marked:
-                    position = tuple(map(int, marked.groups()[:3]))
-                    break
-        if position is None:
-            raise ProbeError("no generation-marked End Ship frame found in eight freshly generated cities")
-        x, y, z = position
+        # Locate selects starts; only actual WORLD_GENERATION frame observations qualify.
+        x, y, z = acquire_frame(probes, results, forced)
         # Generation can report a ship beyond the located start's original loaded area.
-        probes.run(f"execute in {END} run forceload add {x - 32} {z - 32} {x + 32} {z + 32}")
+        area = (x - 32, z - 32, x + 32, z + 32)
+        forced.append(area)
+        probes.run(f"execute in {END} run forceload add {area[0]} {area[1]} {area[2]} {area[3]}")
         # Shulker bullets must not move the client away during the frame assertions.
         for entity in ("shulker", "shulker_bullet"):
             removed = probes.near(END, x, y, z, 48, entity, remove=True)
@@ -113,4 +140,7 @@ def run_all(server, client, player, results, only=PROBES):
     except ProbeError as error:
         results.check(RULE, "probe completed", False, str(error))
     finally:
+        # Forced chunks are a set: retain overlapping city/frame areas through every assertion.
+        for area in reversed(forced):
+            release(probes, area)
         probes.reload(toggle("false"))

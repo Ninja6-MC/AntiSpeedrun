@@ -15,12 +15,13 @@ import run as integration_run  # noqa: E402
 
 
 class IntegrationDeadlineTest(unittest.TestCase):
-    def run_harness(self, deadline=None, expire=False, process_state="running"):
+    def run_harness(self, deadline=None, expire=False, process_state="running", seed=None):
         server, client, timer = mock.MagicMock(), mock.MagicMock(), mock.Mock()
         server.__enter__.return_value = server
         client.__enter__.return_value = client
         server.log.return_value = ""
         server.platform = "paper"
+        server.query.return_value.group.return_value = seed or "1"
         for owner in (client, server):
             if process_state == "absent":
                 owner.process = None
@@ -30,7 +31,7 @@ class IntegrationDeadlineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as workdir, ExitStack() as stack:
             timer_factory = stack.enter_context(mock.patch.object(integration_run.threading, "Timer",
                                                                   return_value=timer))
-            stack.enter_context(mock.patch.object(integration_run, "Server", return_value=server))
+            server_factory = stack.enter_context(mock.patch.object(integration_run, "Server", return_value=server))
             stack.enter_context(mock.patch.object(integration_run, "Client", return_value=client))
             stack.enter_context(mock.patch.object(integration_run, "Probes"))
             stack.enter_context(mock.patch.object(integration_run, "MODULES", (module,)))
@@ -46,13 +47,31 @@ class IntegrationDeadlineTest(unittest.TestCase):
                     "--workdir", workdir, "--probe", "evoker_totems"]
             if deadline is not None:
                 args += ["--deadline", str(deadline)]
+            if seed is not None:
+                args += ["--seed", seed]
             status = integration_run.main(args)
+            self.server_options = server_factory.call_args.kwargs
             summary = json.loads((Path(workdir) / "results.json").read_text(encoding="utf-8"))
         timer.start.assert_called_once_with()
         timer.cancel.assert_called_once_with()
         client.close.assert_called_once_with()
         server.stop.assert_called_once_with()
         return status, summary, timer_factory.call_args.args[0], client, server
+
+    def test_default_world_has_a_reproducible_seed_recorded_in_results(self):
+        status, summary, _, _, _ = self.run_harness()
+        self.assertEqual(status, 0)
+        self.assertEqual(self.server_options["properties"], {"level-seed": "1"})
+        self.assertEqual(summary["requested_seed"], "1")
+        self.assertEqual(summary["seed"], 1)
+
+    def test_explicit_seed_preserves_the_original_unavailable_fixture_reproduction(self):
+        seed = "-2715710956452478949"
+        status, summary, _, _, _ = self.run_harness(seed=seed)
+        self.assertEqual(status, 0)
+        self.assertEqual(self.server_options["properties"], {"level-seed": seed})
+        self.assertEqual(summary["requested_seed"], seed)
+        self.assertEqual(summary["seed"], int(seed))
 
     def test_full_run_default_and_ci_limits_leave_cleanup_and_upload_headroom(self):
         status, summary, deadline, _, _ = self.run_harness()
