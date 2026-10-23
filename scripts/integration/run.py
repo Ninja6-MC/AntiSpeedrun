@@ -113,6 +113,8 @@ def main(argv=None):
     parser.add_argument("--workdir", required=True)
     parser.add_argument("--via", action="store_true",
                         help="install the pinned ViaVersion and ViaBackwards on the server")
+    parser.add_argument("--stationary-client", action="store_true",
+                        help="suppress client movement packets for dispenser-only fixtures on newer servers")
     parser.add_argument("--java", default="java")
     parser.add_argument("--node", default="node")
     parser.add_argument("--memory", default="3G")
@@ -125,6 +127,8 @@ def main(argv=None):
     parser.add_argument("--probe", action="append", choices=PROBES,
                         help="run only this probe; repeatable (default: all)")
     args = parser.parse_args(argv)
+    if args.stationary_client and args.probe != ["dispensers"]:
+        parser.error("--stationary-client requires exactly --probe dispensers")
 
     workdir = os.path.abspath(args.workdir)
     os.makedirs(workdir, exist_ok=True)
@@ -141,6 +145,9 @@ def main(argv=None):
                     properties={"level-seed": args.seed} if args.seed else None)
     client = Client("127.0.0.1", args.port, PLAYER, args.client_version,
                     os.path.join(workdir, "client.log"), node=args.node)
+    if args.stationary_client:
+        client.args += ["--stationary", "true"]
+        summary["stationary_client"] = True
     expired = threading.Event()
 
     def abort():

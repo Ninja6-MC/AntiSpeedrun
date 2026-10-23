@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- A dispenser retains gated armor refused for an unqualified player, including on
+  servers that fall back to dropping armor after an equip refusal.
 - RCON cross-dimension teleport commands now receive the same destination-bound,
   temporary authorization as local-console commands. Cancelled and unauthorized
   remote commands remain unable to authorize travel.

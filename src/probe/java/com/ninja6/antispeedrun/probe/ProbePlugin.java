@@ -48,6 +48,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDispenseLootEvent;
+import org.bukkit.event.block.BlockDispenseEvent;
+import org.bukkit.event.block.BlockDispenseArmorEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.entity.EntityPortalEvent;
@@ -277,6 +279,16 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                 }
             }, null);
         }, null);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onDispense(BlockDispenseEvent event) {
+        log("dispense kind=" + (event instanceof BlockDispenseArmorEvent ? "armor" : "drop")
+                + " item=" + event.getItem().getType() + " cancelled=" + event.isCancelled()
+                + " target=" + (event instanceof BlockDispenseArmorEvent armor
+                        ? armor.getTargetEntity().getType() : "none")
+                + " block=" + event.getBlock().getX() + "," + event.getBlock().getY()
+                + "," + event.getBlock().getZ());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -643,7 +655,9 @@ public final class ProbePlugin extends JavaPlugin implements Listener {
                     + " op=" + player.isOp()
                     + " bypass=" + player.hasPermission("antispeedrun.bypass")
                     + " bypass-gates=" + player.hasPermission("antispeedrun.bypass.gates")
-                    + " bypass-items=" + player.hasPermission("antispeedrun.bypass.items"));
+                    + " bypass-items=" + player.hasPermission("antispeedrun.bypass.items")
+                    + " chest=" + (player.getInventory().getChestplate() == null ? "AIR"
+                            : player.getInventory().getChestplate().getType()));
         }, gone) == null) {
             gone.run();
         }

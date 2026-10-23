@@ -6,10 +6,13 @@ import java.util.List;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.block.BlockDispenseArmorEvent;
+import org.bukkit.event.block.BlockDispenseEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.ninja6.antispeedrun.config.PluginConfig;
+
+import io.papermc.paper.event.block.BlockPreDispenseEvent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -22,7 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>The decision itself is {@code ItemProgressionListener.refuse}, shared with every other item
  * path and covered by {@link ItemGateRulesTest}; what is left to pin here is that the dispenser
  * event is subscribed at all, at the priority the other item gates use, and skipping events another
- * plugin already cancelled.
+ * plugin already cancelled. Actual powered-dispenser retention and its controls run in the
+ * integration harness's {@code dispensers} probe, including the default drop fallback.
  */
 class DispenserArmorGateTest {
 
@@ -35,6 +39,21 @@ class DispenserArmorGateTest {
         assertNotNull(annotation, "the handler must carry @EventHandler");
         assertEquals(EventPriority.HIGH, annotation.priority());
         assertTrue(annotation.ignoreCancelled());
+    }
+
+    @Test
+    @DisplayName("the armor fallback shares HIGH cancellation and each activation resets prior state")
+    void fallbackSubscribed() throws NoSuchMethodException {
+        EventHandler fallback = ItemProgressionListener.class
+                .getMethod("onDispenseFallback", BlockDispenseEvent.class).getAnnotation(EventHandler.class);
+        assertNotNull(fallback);
+        assertEquals(EventPriority.HIGH, fallback.priority());
+        assertTrue(fallback.ignoreCancelled());
+        EventHandler activation = ItemProgressionListener.class
+                .getMethod("onPreDispense", BlockPreDispenseEvent.class).getAnnotation(EventHandler.class);
+        assertNotNull(activation);
+        assertEquals(EventPriority.LOWEST, activation.priority());
+        assertFalse(activation.ignoreCancelled());
     }
 
     @Test

@@ -24,17 +24,28 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n')
 const note = (...parts) => process.stderr.write(parts.join(' ') + '\n')
 
+const stationary = option('stationary', 'false') === 'true'
 const connection = {
   host: option('host', '127.0.0.1'),
   port: Number(option('port', '25565')),
   username: option('username', 'Probe'),
   version: option('version', false),
-  auth: 'offline'
+  auth: 'offline',
+  physicsEnabled: !stationary
 }
 let bot
 let reconnecting = false
 function connect () {
   bot = mineflayer.createBot(connection)
+  if (stationary) {
+    // Dispenser fixtures move the player through server teleports. Avoid the older client's
+    // movement packets that Paper 26.3 rejects; teleport acknowledgements still go through.
+    const write = bot._client.write.bind(bot._client)
+    bot._client.write = (name, packet) => {
+      if (['position', 'position_look', 'look', 'flying', 'player_input'].includes(name)) return
+      return write(name, packet)
+    }
+  }
 
 bot.on('kicked', (reason) => { send({ event: 'kicked', reason: JSON.stringify(reason) }); process.exit(3) })
 bot.on('error', (error) => { send({ event: 'error', message: error.message }); process.exit(4) })

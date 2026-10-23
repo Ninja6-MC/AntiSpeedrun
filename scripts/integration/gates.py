@@ -501,6 +501,68 @@ class GateProbes(Probes):
         self.progression(DIAMOND_TIER)
         self.pickup_case(rule, "control: an eligible player walking over a diamond", "diamond", True)
 
+    def dispensers(self):
+        rule = "item gate: dispenser armor retention"
+        dx, dy, dz = GX - 4, GY, GZ + 4
+        with open(self.config_path, encoding="utf-8") as handle:
+            original = handle.read()
+
+        def case(label, eligible=False, aimed=True, gated=True, material="diamond_chestplate"):
+            self.progression(*([DIAMOND_TIER] if eligible else []))
+            self.reload(lambda text: set_key(text, ITEMS, "gate-dispensers", str(gated).lower()))
+            self.run(f"clear {self.player}")
+            self.near(OVERWORLD, dx, dy, dz, 8, "item", remove=True)
+            self.run(f"execute in {OVERWORLD} run setblock {dx} {dy} {dz} minecraft:air")
+            self.run(f"execute in {OVERWORLD} run setblock {dx} {dy} {dz} "
+                     f"minecraft:dispenser[facing=west]{{Items:[{{Slot:0b,id:\"minecraft:{material}\",count:1}}]}}")
+            self.tp(OVERWORLD, dx - (0.5 if aimed else 3.5), dy, dz + 0.5)
+            mark = self.server.mark()
+            self.run(f"execute in {OVERWORLD} run setblock {dx + 1} {dy} {dz} minecraft:redstone_block")
+            time.sleep(1)
+            self.run(f"execute in {OVERWORLD} run setblock {dx + 1} {dy} {dz} minecraft:air")
+            query = f"d{next(self._queries)}"
+            container = self.server.query(f"asrprobe container {OVERWORLD} {dx} {dy} {dz} {query}",
+                                          rf"ASRPROBE container query={query} [^\r\n]*slots=(?P<slots>\S+)")
+            slots = container.group("slots")
+            chest = self.where()["chest"]
+            held = self.count(material)
+            drops = self.near(OVERWORLD, dx, dy, dz, 8, "item", material)
+            events = [line.split("ASRPROBE dispense ", 1)[1] for line in self.server.lines_since(mark)
+                      if "ASRPROBE dispense " in line]
+            detail = f"dispenser={slots}, chest={chest}, inventory={held}, drops={drops}, events={events}"
+            refused = aimed and gated and not eligible and material == "diamond_chestplate"
+            if refused:
+                self.results.check(rule, label + ": retained, unequipped, no drop",
+                                   slots == "0:DIAMOND_CHESTPLATE:1" and chest == "AIR"
+                                   and held == 0 and drops == 0
+                                   and any("kind=armor item=DIAMOND_CHESTPLATE cancelled=true" in e for e in events),
+                                   detail)
+            elif aimed and material == "diamond_chestplate":
+                self.results.check(rule, label + ": equipped and consumed",
+                                   slots == "empty" and chest == "DIAMOND_CHESTPLATE" and drops == 0
+                                   and any("kind=armor item=DIAMOND_CHESTPLATE cancelled=false" in e for e in events),
+                                   detail)
+            else:
+                self.results.check(rule, label + ": ordinary dispensing succeeds",
+                                   slots == "empty" and chest == "AIR" and held + drops == 1
+                                   and any("kind=drop" in e and "cancelled=false" in e for e in events), detail)
+            self.run(f"execute in {OVERWORLD} run setblock {dx} {dy} {dz} minecraft:air")
+            self.near(OVERWORLD, dx, dy, dz, 8, "item", remove=True)
+
+        try:
+            case("locked player")
+            case("repeated locked attempt")
+            case("qualified player", eligible=True)
+            case("armor with no player at the face", aimed=False)
+            case("dispenser switch disabled", gated=False)
+            case("ungated ordinary item", material="stone")
+        finally:
+            self.reload(lambda _: original)
+            self.run(f"execute in {OVERWORLD} run setblock {dx + 1} {dy} {dz} minecraft:air")
+            self.run(f"execute in {OVERWORLD} run setblock {dx} {dy} {dz} minecraft:air")
+            self.near(OVERWORLD, dx, dy, dz, 8, "item", remove=True)
+            self.to_start()
+
     def containers(self):
         rule = "item gate: container"
         cx, cy, cz = GX - 4, GY, GZ + 4
@@ -717,7 +779,7 @@ class GateProbes(Probes):
 
 
 PROBES = ("portals", "explicit_credits", "credit_unlock", "vehicles", "operator", "bypass", "teleports", "login", "pickups", "containers",
-          "container_break", "merchant", "recall", "gate_snapshot", "reload_active")
+          "container_break", "merchant", "recall", "gate_snapshot", "reload_active", "dispensers")
 
 
 def run_all(server, client, player, results, only=PROBES):
