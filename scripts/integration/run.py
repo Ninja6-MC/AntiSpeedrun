@@ -51,6 +51,8 @@ VIA = (
      "f902f7da7eb99e8bfaf461f80283c4e2750b7d9727e6b508ea4bb9163f55b1db"),
 )
 PLAYER = "AsrProbe"
+# Disposable worlds need the same natural structures on every run; --seed retains reproduction.
+DEFAULT_SEED = "1"
 # The gate probes run first: they set the player's progression case by case. The credit probes
 # set the player's credits the same way, the trim probes its advancements, and the anti-cheese
 # probes then grant every advancement and credit once and leave them so.
@@ -121,7 +123,8 @@ def main(argv=None):
     parser.add_argument("--deadline", type=int, default=2400,
                         help="seconds the whole run may take (default: 2400; use a shorter bound for focused runs)")
     parser.add_argument("--label", default="server")
-    parser.add_argument("--seed", help="the world seed, to repeat a run that depended on where things generated")
+    parser.add_argument("--seed", default=DEFAULT_SEED,
+                        help="the world seed (default: 1); override to reproduce another world's generation")
     parser.add_argument("--probe", action="append", choices=PROBES,
                         help="run only this probe; repeatable (default: all)")
     args = parser.parse_args(argv)
@@ -134,11 +137,12 @@ def main(argv=None):
         os.remove(results_path)
 
     results = Results()
-    summary = {"label": args.label, "client_version": args.client_version, "via": args.via}
+    summary = {"label": args.label, "client_version": args.client_version, "via": args.via,
+               "requested_seed": args.seed}
     plugins = [args.plugin_jar, args.probe_jar]
     server = Server(os.path.join(workdir, "server"), args.server_jar, plugins, java=args.java,
                     memory=args.memory, port=args.port,
-                    properties={"level-seed": args.seed} if args.seed else None)
+                    properties={"level-seed": args.seed})
     client = Client("127.0.0.1", args.port, PLAYER, args.client_version,
                     os.path.join(workdir, "client.log"), node=args.node)
     expired = threading.Event()
@@ -158,6 +162,8 @@ def main(argv=None):
             server.plugins = plugins
         with server:
             server.wait_started(args.boot_timeout)
+            summary["seed"] = int(server.query("seed", r"Seed: \[(-?\d+)\]").group(1))
+            results.note(f"Gameplay world seed: {summary['seed']} (requested {args.seed}).")
             # CORE ships both optional progression systems off; these probes exercise them.
             Probes(server, None, PLAYER, results).reload(enable_progression_fixture)
             with client:
