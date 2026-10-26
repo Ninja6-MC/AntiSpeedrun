@@ -24,7 +24,7 @@ jobs:
     # that a wedge turns red inside one review cycle. Without it a job inherits GitHub's
     # 360-minute default, where a queued run, a slow run and a hung one are indistinguishable
     # for six hours. `Build and Test` is a required check, so that is six hours of a gate
-    # neither passing nor failing. agent-review-gate.yml already sets timeout-minutes: 5.
+    # neither passing nor failing.
     timeout-minutes: 15
     outputs:
       version: ${{ steps.version.outputs.version }}
