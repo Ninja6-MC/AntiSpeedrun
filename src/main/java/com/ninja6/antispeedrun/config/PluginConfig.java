@@ -432,8 +432,9 @@ public record PluginConfig(
                 "exit-portal-lock-release-minutes", "respawn-on-entry");
 
         ConfigReader respawn = r.child("respawn-on-entry");
-        respawn.expect("enabled");
-        RespawnOnEntry respawnOnEntry = new RespawnOnEntry(respawn.bool("enabled", false));
+        respawn.expect("enabled", "participant-cooldown-hours");
+        RespawnOnEntry respawnOnEntry = new RespawnOnEntry(respawn.bool("enabled", false),
+                respawn.nonNegativeDecimal("participant-cooldown-hours", 6.0D));
 
         ConfigReader multi = r.child("multi-dragon");
         multi.expect("enabled", "multiplier", "rounding-mode", "max-dragons", "balanced-xp",
@@ -916,9 +917,12 @@ public record PluginConfig(
      * {@code boss-scaling.respawn-on-entry} (#271): start vanilla's dragon respawn when a player
      * enters an End whose dragon is dead.
      *
-     * @param enabled default {@code false}
+     * @param enabled                  default {@code false}
+     * @param participantCooldownHours how long after a won fight its participants cannot start a
+     *                                 respawn by entering (#272); default {@code 6.0}, {@code 0}
+     *                                 for no cooldown
      */
-    public record RespawnOnEntry(boolean enabled) {
+    public record RespawnOnEntry(boolean enabled, double participantCooldownHours) {
     }
 
     /**

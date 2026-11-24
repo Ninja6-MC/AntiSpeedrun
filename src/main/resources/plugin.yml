@@ -22,7 +22,7 @@ commands:
     # "progress" and "book" were advertised here before either existed, so the dispatcher
     # answered "Unknown subcommand" and then printed this same list back. Both are back as
     # delegates: "progress" to /progress (#3) and "book" to /journeybook (#5).
-    usage: /asr <reload|profile|unlock|bypass|inspect|credit|progress|book>
+    usage: /asr <reload|profile|unlock|bypass|inspect|credit|cooldown|progress|book>
     aliases: [asr]
   progress:
     description: View your personal survival progression milestones
@@ -55,6 +55,7 @@ permissions:
       antispeedrun.admin.bypass: true
       antispeedrun.admin.inspect: true
       antispeedrun.admin.credit: true
+      antispeedrun.admin.cooldown: true
   antispeedrun.admin.reload:
     description: Allows hot-reloading config.yml via /asr reload
     default: op
@@ -72,6 +73,9 @@ permissions:
     default: op
   antispeedrun.admin.credit:
     description: Allows granting and revoking personal-action credits via /asr credit
+    default: op
+  antispeedrun.admin.cooldown:
+    description: Allows showing and clearing dragon respawn cooldowns via /asr cooldown
     default: op
 
   # NOTE: antispeedrun.bypass is deliberately NOT a child of antispeedrun.admin.

@@ -117,6 +117,22 @@ class PluginConfigTest {
         assertTrue(mentions(invalid.warnings(), "enabled"));
     }
 
+    @Test
+    void participantCooldownDefaultsToSixHoursAndTakesDecimals() throws Exception {
+        assertEquals(6.0D, PluginConfig.defaults().bossScaling().respawnOnEntry().participantCooldownHours());
+        assertEquals(6.0D, shipped().bossScaling().respawnOnEntry().participantCooldownHours());
+        String prefix = "boss-scaling:\n  respawn-on-entry:\n    participant-cooldown-hours: ";
+        assertEquals(0.5D, PluginConfig.from(yaml(prefix + "0.5\n"))
+                .bossScaling().respawnOnEntry().participantCooldownHours());
+        assertEquals(0.0D, PluginConfig.from(yaml(prefix + "0\n"))
+                .bossScaling().respawnOnEntry().participantCooldownHours());
+        for (String bad : List.of("-1", "wrong", ".nan", ".inf")) {
+            PluginConfig parsed = PluginConfig.from(yaml(prefix + bad + "\n"));
+            assertEquals(6.0D, parsed.bossScaling().respawnOnEntry().participantCooldownHours(), bad);
+            assertTrue(mentions(parsed.warnings(), "participant-cooldown-hours"), bad);
+        }
+    }
+
     // -------------------------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------------------------

@@ -189,7 +189,7 @@ class CommandGrammarTest {
             assertTrue(Subcommand.parse("").isEmpty());
             assertTrue(Subcommand.parse(null).isEmpty());
             assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "credit",
-                    "progress", "book"), Subcommand.labels());
+                    "cooldown", "progress", "book"), Subcommand.labels());
             assertEquals(Subcommand.BOOK, Subcommand.parse("Book").orElseThrow());
         }
     }
@@ -202,7 +202,7 @@ class CommandGrammarTest {
         @DisplayName("the first argument offers only subcommands the sender may run")
         void firstArgumentIsPermissionFiltered() {
             assertEquals(List.of("reload", "profile", "unlock", "bypass", "inspect", "credit",
-                    "progress", "book"), CommandCompletion.complete(new String[] {""}, ADMIN, ONLINE));
+                    "cooldown", "progress", "book"), CommandCompletion.complete(new String[] {""}, ADMIN, ONLINE));
             assertEquals(List.of("reload"),
                     CommandCompletion.complete(new String[] {""}, allowing(Subcommand.RELOAD), ONLINE));
             assertEquals(List.of(),

@@ -41,7 +41,7 @@ import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.WitherCreditListener;
 import com.ninja6.antispeedrun.listeners.DragonFightCreditListener;
 import com.ninja6.antispeedrun.listeners.DragonRespawnOnEntry;
-import com.ninja6.antispeedrun.listeners.RespawnCooldown;
+import com.ninja6.antispeedrun.listeners.ParticipantCooldown;
 import com.ninja6.antispeedrun.storage.DimensionUnlock;
 import com.ninja6.antispeedrun.listeners.ElytraCollectionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
@@ -71,6 +71,7 @@ import com.ninja6.antispeedrun.storage.JourneyBookStore;
 import com.ninja6.antispeedrun.storage.BrewedEffectStore;
 import com.ninja6.antispeedrun.storage.PersonalCreditStore;
 import com.ninja6.antispeedrun.storage.DragonContributorStore;
+import com.ninja6.antispeedrun.storage.RespawnCooldownStore;
 import com.ninja6.antispeedrun.storage.PlacedBlockRegistry;
 import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
 import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
@@ -162,6 +163,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
 
     /** The personal-action credits each player has earned (#213), keyed by UUID. */
     private volatile PersonalCreditStore personalCredits;
+    private volatile RespawnCooldownStore respawnCooldowns;
     private volatile BrewedEffectStore brewedEffects;
 
     /** Which trim structures each player has explored (#18, #221), keyed by UUID. */
@@ -231,8 +233,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         VersionedStateFile brewedFile = stateFile("brewed-effects.yml");
         VersionedStateFile creditFile = stateFile("personal-credits.yml");
         VersionedStateFile contributorFile = stateFile("dragon-contributors.yml");
+        VersionedStateFile cooldownFile = stateFile("respawn-cooldowns.yml");
         if (!migrateStateFiles(List.of(unlockFile, fightFile, portalLockFile, exploredFile, creditFile,
-                brewedFile, contributorFile))) {
+                brewedFile, contributorFile, cooldownFile))) {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -248,6 +251,12 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                     + "has been left in place and will be preserved under a .corrupt name before "
                     + "the next credit is written.");
         }
+
+        // When each player last helped win a dragon fight (#272), for the respawn-on-entry cooldown.
+        this.respawnCooldowns = new RespawnCooldownStore(
+                getLogger(), cooldownFile,
+                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
+        respawnCooldowns.loadNow();
 
         this.brewedEffects = new BrewedEffectStore(
                 getLogger(), brewedFile,
@@ -359,8 +368,8 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         portalLocks.loadNow();
         getServer().getPluginManager().registerEvents(
                 new BossCombatListener(this, reinforcedFights, portalLocks, refusedArrivals,
-                        // #272 supplies the per-player cooldown here.
-                        new DragonRespawnOnEntry(this, this::configuration, RespawnCooldown.NONE,
+                        new DragonRespawnOnEntry(this, this::configuration,
+                                new ParticipantCooldown(respawnCooldowns, this::configuration),
                                 (player, config) -> ProgressionGateListener.admits(
                                         this, player, config, DimensionUnlock.THE_END))), this);
 
@@ -390,7 +399,7 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
         dragonContributors.loadNow();
         getServer().getPluginManager().registerEvents(new DragonFightCreditListener(
-                this, dragonContributors, personalCredits, creditRefresh), this);
+                this, dragonContributors, personalCredits, respawnCooldowns, creditRefresh), this);
         getServer().getPluginManager().registerEvents(new ElytraCollectionListener(this), this);
         // The furnace loader stamp and smelted-iron credit (#214), kept in each furnace's TileState.
         getServer().getPluginManager().registerEvents(
@@ -522,6 +531,11 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
      */
     public PersonalCreditStore personalCredits() {
         return personalCredits;
+    }
+
+    /** When each player last helped win a dragon fight (#272). Any thread. */
+    public RespawnCooldownStore respawnCooldowns() {
+        return respawnCooldowns;
     }
 
     /**

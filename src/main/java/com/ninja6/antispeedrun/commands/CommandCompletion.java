@@ -65,6 +65,7 @@ public final class CommandCompletion {
             case BYPASS -> filter(bypassArguments(args, playerNames), partial);
             case INSPECT -> args.length == 2 ? filter(playerNames, partial) : List.of();
             case CREDIT -> filter(creditArguments(args, playerNames), partial);
+            case COOLDOWN -> filter(cooldownArguments(args, playerNames), partial);
             // Takes no arguments, and deliberately does not complete player names: /asr progress
             // shows the sender their own card, so a name would be an argument it then ignores.
             case RELOAD, PROGRESS, BOOK -> List.of();
@@ -132,6 +133,16 @@ public final class CommandCompletion {
             return playerNames;
         }
         return args.length == 4 ? CreditArgument.creditWords() : List.of();
+    }
+
+    /** {@code show} or {@code clear}, then online names after a valid action. */
+    private static Collection<String> cooldownArguments(String[] args, Collection<String> playerNames) {
+        if (args.length == 2) {
+            return CooldownArgument.Action.labels();
+        }
+        boolean validAction = CooldownArgument.Action.labels()
+                .contains(args[1].trim().toLowerCase(Locale.ROOT));
+        return args.length == 3 && validAction ? playerNames : List.of();
     }
 
     private static List<String> filter(Collection<String> candidates, String partial) {

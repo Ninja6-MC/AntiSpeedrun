@@ -93,6 +93,18 @@ class RespawnConfigTest(unittest.TestCase):
         self.assertIn("multi-dragon:\n    enabled: true", on)
         self.assertEqual(dragon_respawn.set_respawn(on, False, False), text)
 
+    def test_sets_the_cooldown_hours_when_given(self):
+        text = self.SHIPPED.read_text(encoding="utf-8")
+        self.assertIn("    participant-cooldown-hours: 6\n", text)
+        short = dragon_respawn.set_respawn(text, True, True, 0.0125)
+        self.assertIn("    participant-cooldown-hours: 0.012500\n", short)
+        self.assertNotIn("participant-cooldown-hours: 6\n", short)
+        self.assertIn("    participant-cooldown-hours: 6\n", dragon_respawn.set_respawn(text, True, True))
+
+    def test_reads_the_victory_time(self):
+        line = "[AntiSpeedrun] AsrProbe helped win a dragon fight at 2026-11-24T13:00:00.123Z and cannot"
+        self.assertEqual(dragon_respawn.VICTORY.search(line).group("at"), "2026-11-24T13:00:00.123Z")
+
     def test_runs_last(self):
         self.assertIs(integration_run.MODULES[-1], dragon_respawn)
         self.assertIn("respawn_on_entry", integration_run.PROBES)

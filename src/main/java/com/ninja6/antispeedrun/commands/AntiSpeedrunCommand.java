@@ -2,6 +2,7 @@ package com.ninja6.antispeedrun.commands;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -26,6 +27,7 @@ import com.ninja6.antispeedrun.config.CreditedActions;
 import com.ninja6.antispeedrun.config.PluginConfig;
 import com.ninja6.antispeedrun.progression.PersonalCreditAdvancementLookup;
 import com.ninja6.antispeedrun.config.PluginConfig.Profile;
+import com.ninja6.antispeedrun.listeners.RespawnCooldownRules;
 import com.ninja6.antispeedrun.progression.EligibilityResult;
 import com.ninja6.antispeedrun.progression.Milestone;
 import com.ninja6.antispeedrun.progression.PlayerProgressionSnapshot;
@@ -148,6 +150,7 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
             case BYPASS -> bypass(sender, args);
             case INSPECT -> inspect(sender, config, args);
             case CREDIT -> credit(sender, args);
+            case COOLDOWN -> cooldown(sender, args);
             // Delegated rather than reimplemented, and with the snapshot already read at the top of
             // this method carried in: /asr progress and /progress are the same command reached two
             // ways, so a second rendering here is a second thing to keep in step (#3, #73).
@@ -524,6 +527,63 @@ public final class AntiSpeedrunCommand implements CommandExecutor, TabCompleter 
         reply(sender, (grant ? "<green>Granted " : "<yellow>Revoked ") + creditList(changed)
                 + (grant ? " to " : " from ") + "<white>" + name
                 + "<gray>. It is stored in personal-credits.yml and survives a restart.");
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // cooldown
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * Shows or clears a player's respawn-on-entry cooldown (#272). Works for offline players, as
+     * {@code credit} does: the record is keyed by UUID. Runs on the same serial async executor as
+     * {@code credit}, because resolving an offline name may touch the server's cache and clearing
+     * writes the record.
+     */
+    private void cooldown(CommandSender sender, String[] args) {
+        switch (CooldownArgument.parse(args)) {
+            case CooldownArgument.Request request -> credits.execute(() -> applyCooldown(sender, request));
+            case CooldownArgument.Invalid invalid -> reply(sender, switch (invalid.reason()) {
+                case MISSING_ACTION, MISSING_PLAYER -> "<red>Usage: <yellow>" + Subcommand.COOLDOWN.usage();
+                case UNKNOWN_ACTION -> "<red>Unknown action <yellow>" + escape(invalid.token())
+                        + "<red>. Choose <yellow>show<red> or <yellow>clear<red>.";
+                case EXTRA_ARGUMENT -> "<red>Unexpected <yellow>" + escape(invalid.token())
+                        + "<red>. Nothing was changed. Usage: <yellow>" + Subcommand.COOLDOWN.usage();
+            });
+        }
+    }
+
+    private void applyCooldown(CommandSender sender, CooldownArgument.Request request) {
+        Optional<UUID> resolved = creditTarget(request.target());
+        if (resolved.isEmpty()) {
+            reply(sender, "<red>No player named <yellow>" + escape(request.target())
+                    + "<red> is online or known to this server. Give their UUID instead.");
+            return;
+        }
+        UUID player = resolved.get();
+        String name = escape(displayName(player, request.target()));
+        if (request.action() == CooldownArgument.Action.CLEAR) {
+            boolean cleared = plugin.respawnCooldowns().clear(player);
+            reply(sender, cleared
+                    ? "<green>Cleared <white>" + name + "<green>'s dragon respawn cooldown. Their "
+                            + "<white>dragon-fight<green> credit is unchanged."
+                    : "<gray>" + name + " has no dragon respawn cooldown recorded; nothing changed.");
+            return;
+        }
+        OptionalLong last = plugin.respawnCooldowns().lastVictory(player);
+        if (last.isEmpty()) {
+            reply(sender, "<gray>" + name + " has not helped win a dragon fight since cooldowns were recorded.");
+            return;
+        }
+        double hours = plugin.configuration().bossScaling().respawnOnEntry().participantCooldownHours();
+        Optional<Duration> left = RespawnCooldownRules.remaining(last, hours, System.currentTimeMillis());
+        String victory = Instant.ofEpochMilli(last.getAsLong()).toString();
+        reply(sender, left.isPresent()
+                ? "<yellow>" + name + " helped win a dragon fight at " + victory
+                        + " and cannot start a respawn for another <white>"
+                        + RespawnCooldownRules.describe(left.get())
+                        + "<yellow>."
+                : "<green>" + name + " helped win a dragon fight at " + victory
+                        + "; their cooldown has run out.");
     }
 
     /**

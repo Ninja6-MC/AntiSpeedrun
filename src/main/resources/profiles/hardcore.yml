@@ -226,6 +226,9 @@ boss-scaling:
   # build on or beside a pillar can be overwritten. Also needs enabled above. Off by default.
   respawn-on-entry:
     enabled: false
+    # Players who helped win a dragon fight cannot start a respawn by entering for this many
+    # hours after that victory; they can still join a fight someone else starts. 0 turns it off.
+    participant-cooldown-hours: 6
 
 # 7. Anti-Cheese Engine
 anti-cheese:
