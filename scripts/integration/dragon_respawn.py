@@ -342,6 +342,8 @@ def run_all(server, client, player, results, only=PROBES):
                      f"execute in {END} run forceload add 0 0"):
             probes.run(line)
         probes.credit("grant", "all")
+        # Earlier modules win dragon fights, which records a respawn cooldown (#272); start clear.
+        probes.cooldown_reply("clear")
         probes.respawn_on_entry()
         helper = helper_client(client, os.path.join(os.path.dirname(client.log_path), "respawn-helper.log"))
         mark = server.mark()
@@ -353,6 +355,7 @@ def run_all(server, client, player, results, only=PROBES):
                          f"effect give {HELPER} minecraft:slow_falling infinite 0 true"):
                 probes.run(line)
             probes.credit("grant", "all", player=HELPER)
+            server.query(f"asr cooldown clear {HELPER}", r"Cleared|has no dragon", timeout=15)
             probes.same_tick(helper)
             helper.request("quit", timeout=10)
     except ProbeError as error:
