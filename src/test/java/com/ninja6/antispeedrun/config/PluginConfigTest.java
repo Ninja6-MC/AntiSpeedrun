@@ -106,6 +106,17 @@ class PluginConfigTest {
         assertTrue(holder.get().antiCheese().outerEndRequiresDragonFight());
     }
 
+    @Test
+    void respawnOnEntryDefaultsOffAndParses() throws Exception {
+        assertFalse(PluginConfig.defaults().bossScaling().respawnOnEntry().enabled());
+        assertFalse(shipped().bossScaling().respawnOnEntry().enabled());
+        assertTrue(PluginConfig.from(yaml("boss-scaling:\n  respawn-on-entry:\n    enabled: true\n"))
+                .bossScaling().respawnOnEntry().enabled());
+        PluginConfig invalid = PluginConfig.from(yaml("boss-scaling:\n  respawn-on-entry:\n    enabled: wrong\n"));
+        assertFalse(invalid.bossScaling().respawnOnEntry().enabled());
+        assertTrue(mentions(invalid.warnings(), "enabled"));
+    }
+
     // -------------------------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------------------------

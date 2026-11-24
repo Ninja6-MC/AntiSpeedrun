@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import Client, ProbeError, Server  # noqa: E402
 import anti_cheese  # noqa: E402
 import outer_end  # noqa: E402
+import dragon_respawn  # noqa: E402
 import credits  # noqa: E402
 import potions  # noqa: E402
 import gates  # noqa: E402
@@ -59,9 +60,10 @@ DEFAULT_SEED = "1"
 # set the player's credits the same way, the trim probes its advancements, and the anti-cheese
 # probes then grant every advancement and credit once and leave them so. The tower probes need
 # the End's first fight and run before the anti-cheese probes win it. The outer End probes
-# run last, in an End the anti-cheese probes have already loaded.
+# run next, in an End the anti-cheese probes have already loaded, and the respawn probes last,
+# because they leave a respawned fight behind.
 MODULES = (presentation, gates, credits, potions, trims, elytra, shulkers, evokers, towers,
-           anti_cheese, outer_end)
+           anti_cheese, outer_end, dragon_respawn)
 PROBES = tuple(name for module in MODULES for name in module.PROBES)
 SERVER_BUILD = re.compile(r"This server is running (?P<build>[^\r\n]+)")
 PLUGIN_VERSION = re.compile(r"Enabling AntiSpeedrun v(?P<version>\S+)")

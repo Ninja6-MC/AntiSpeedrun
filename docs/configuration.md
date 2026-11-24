@@ -548,6 +548,41 @@ the item there if that space is occupied. `ITEM_DROP` always drops the item, and
 independently rolls `skull-drop-chance` for a Dragon Head, respecting `doMobLoot`.
 These features run only with `boss-scaling.enabled: true`.
 
+#### 4.8.1 Respawn on entry
+
+`respawn-on-entry.enabled` (default `false`, and `false` in every bundled profile) brings
+the dragon back for a server whose fight has already been won. With it and
+`boss-scaling.enabled` both `true`, a survival or adventure player entering an End whose
+dragon has been killed before starts vanilla's respawn. That happens only when no dragon
+is alive and no respawn is already running. Entering by portal, by teleport, by respawn
+and by logging in already in the End all count. It works in every End world, including
+ones Multiverse creates. Creative and spectator players never trigger it. Nor does a
+player the End's dimension gate does not admit on their own account, including one who
+logs in already in the End before the gate returns them. A staff teleport that lets an
+unqualified player in does not count either. Players who are not allowed to start a
+respawn can still join a fight someone else starts.
+
+The plugin does what the four-crystal ritual does: it sets an End Crystal on each of the
+four ritual positions of the exit portal's rim and starts vanilla's sequence with them.
+The crystals explode at the end of the sequence, as the ritual's do, so keep clear of the
+portal. If a ritual position is broken or built over, nothing starts, the log says why,
+and the next entry tries again. The respawned dragon is a resummoned fight, so
+`scale-resummoned-dragons`, the reinforcement window, the exit portal lock and the
+resummon egg apply as they do after the ritual. Players who help win it earn
+`dragon-fight` ([4.9.1](#491-the-personal-dragon-fight-requirement)).
+
+**Vanilla rebuilds the towers.** The respawn regenerates every obsidian pillar with its
+End crystal and the iron cages on the caged pillars. Blocks a player placed in or around
+a pillar's column can be replaced, and a player standing inside a pillar's footprint
+when it regrows can be trapped. Tell players before you turn this on.
+
+**One respawn at a time.** The battle is checked on the region that owns it, each time
+from its own state, so two players entering together start one respawn. Nothing about
+it is saved: if the server stops partway through the sequence, the dragon is still dead
+and no respawn is running after the restart, so the next entry starts it again. A
+respawn starts only on entry. A player already in the End does not start one later
+without leaving and entering again.
+
 Validation still applies:
 `battle-prep-seconds` and `exit-portal-lock-release-minutes` have minimum `0`,
 `multi-dragon.multiplier` must be greater than `0.0`, `multi-dragon.max-dragons` has

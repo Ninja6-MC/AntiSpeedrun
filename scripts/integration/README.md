@@ -131,6 +131,14 @@ advancement and every credit but `dragon-fight`, and is moved beyond the radius 
 | :--- | :--- |
 | `outer_end` | An unqualified player arriving beyond the radius with no position inside is returned to standing ground beside the exit portal; crossing again returns them to the last position inside. With `dragon-fight` granted they stay out; revoking it while they are out returns them. With the rule off an unqualified player stays out, and switching it on returns them. In the End, a dragon killed without the player's damage credits nothing, a hit secondary's death credits nothing, the primary's later death credits the player who hit only the secondary, and a hit primary's death credits its attacker. |
 
+`dragon_respawn.py` covers respawning a dead dragon on End entry (#271). It kills the End's
+dragon if one is alive, removes every End crystal, and moves the player from the Overworld into
+the End by command for each case:
+
+| Probe | What it does |
+| :--- | :--- |
+| `respawn_on_entry` | An entry starts nothing with `respawn-on-entry` off, with `boss-scaling.enabled` off, or by a creative player. A player the End gate refuses, logging in already in the End, starts nothing. A survival player's entry through an End portal logs one started respawn with no crystal placed by a player; leaving and entering again by command while it runs starts no second one. The sequence summons a dragon and rebuilds the pillars' End crystals, which verifies on that server that `initiateRespawn` with the four ritual crystals the plugin sets completes. An entry while the dragon lives starts nothing. With the dragon killed again, a second scripted player, `AsrHelper`, and the probing player are moved into the End by one command, and only one respawn starts. |
+
 The gate probes run first, then the credit probes, then the trim probes. The probing player is never an operator except where `operator`
 and `teleports` make it one for a case, and never holds a bypass node; a check asserts it. For
 the anti-cheese probes it is given every advancement, so the dimension and item gates stay out
@@ -149,7 +157,8 @@ of the way. It always has Resistance V, so explosions beside it do not end the r
 | `trims.py` | The trim structure probes. |
 | `anti_cheese.py` | The section 7 probes. |
 | `towers.py` | The End tower restore probe; runs before the anti-cheese probes. |
-| `outer_end.py` | The outer End dragon-fight probes; run last. |
+| `outer_end.py` | The outer End dragon-fight probes. |
+| `dragon_respawn.py` | The respawn-on-entry probes; run last. |
 | `client/` | The scripted player: a [mineflayer](https://github.com/PrismarineJS/mineflayer) client that takes one JSON request per line from `run.py`. |
 | `src/probe/` (repository root) | `AntiSpeedrunProbe`, a test-only plugin that logs one `ASRPROBE` line per boss damage event, crystal click, pickup attempt, container click, trade selection, portal event, world change and loot generation, and answers the harness's console queries (`/asrprobe`), a player's personal credits and advancements, explored trim structures and what the structure API reports among them. Apart from the plugin teleports `teleports` and the trim probes' `enter` ask of it, announced through `expectTeleport` for one of them, the one-shot loot replacement and the `NPC` metadata the credit probes ask of it, it changes nothing. Never install it on a real server. |
 

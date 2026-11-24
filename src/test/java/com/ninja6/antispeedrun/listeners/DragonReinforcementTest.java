@@ -334,7 +334,8 @@ class DragonReinforcementTest {
             PluginConfig.BossScaling shipped = PluginConfig.defaults().bossScaling();
             return new PluginConfig.BossScaling(enabled, scaleResummoned, shipped.battlePrepSeconds(),
                     shipped.multiDragon(), shipped.exitPortalEgg(), shipped.skullDropChance(),
-                    shipped.exitPortalLockDuringBattle(), shipped.exitPortalLockReleaseMinutes());
+                    shipped.exitPortalLockDuringBattle(), shipped.exitPortalLockReleaseMinutes(),
+                    shipped.respawnOnEntry());
         }
 
         @Test

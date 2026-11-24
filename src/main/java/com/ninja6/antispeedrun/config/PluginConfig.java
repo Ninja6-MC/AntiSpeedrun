@@ -429,7 +429,11 @@ public record PluginConfig(
     private static BossScaling parseBossScaling(ConfigReader r) {
         r.expect("enabled", "scale-resummoned-dragons", "battle-prep-seconds", "multi-dragon",
                 "exit-portal-egg", "skull-drop-chance", "exit-portal-lock-during-battle",
-                "exit-portal-lock-release-minutes");
+                "exit-portal-lock-release-minutes", "respawn-on-entry");
+
+        ConfigReader respawn = r.child("respawn-on-entry");
+        respawn.expect("enabled");
+        RespawnOnEntry respawnOnEntry = new RespawnOnEntry(respawn.bool("enabled", false));
 
         ConfigReader multi = r.child("multi-dragon");
         multi.expect("enabled", "multiplier", "rounding-mode", "max-dragons", "balanced-xp",
@@ -456,7 +460,8 @@ public record PluginConfig(
                 exitPortalEgg,
                 r.decimal("skull-drop-chance", 0.05D),
                 r.bool("exit-portal-lock-during-battle", true),
-                r.atLeast("exit-portal-lock-release-minutes", 10, 0));
+                r.atLeast("exit-portal-lock-release-minutes", 10, 0),
+                respawnOnEntry);
     }
 
     private static AntiCheese parseAntiCheese(ConfigReader r) {
@@ -888,6 +893,7 @@ public record PluginConfig(
      *                                     fight, when the exit portal does not exist yet
      * @param exitPortalLockReleaseMinutes escape valve after no dragon damage; default {@code 10},
      *                                     {@code 0} disables the release
+     * @param respawnOnEntry               respawn-on-entry sub-section (#271)
      */
     public record BossScaling(
             boolean enabled,
@@ -897,11 +903,22 @@ public record PluginConfig(
             ExitPortalEgg exitPortalEgg,
             double skullDropChance,
             boolean exitPortalLockDuringBattle,
-            int exitPortalLockReleaseMinutes) {
+            int exitPortalLockReleaseMinutes,
+            RespawnOnEntry respawnOnEntry) {
         public BossScaling {
             Objects.requireNonNull(multiDragon, "multiDragon");
             Objects.requireNonNull(exitPortalEgg, "exitPortalEgg");
+            Objects.requireNonNull(respawnOnEntry, "respawnOnEntry");
         }
+    }
+
+    /**
+     * {@code boss-scaling.respawn-on-entry} (#271): start vanilla's dragon respawn when a player
+     * enters an End whose dragon is dead.
+     *
+     * @param enabled default {@code false}
+     */
+    public record RespawnOnEntry(boolean enabled) {
     }
 
     /**

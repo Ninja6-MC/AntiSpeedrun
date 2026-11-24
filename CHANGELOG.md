@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands and plugin teleports are returned by the bounds poll. Existing servers should
   grant `dragon-fight` to players who fought the dragon before upgrading, or set the key to
   `false`.
+- `boss-scaling.respawn-on-entry.enabled`, off by default, starts vanilla's dragon respawn
+  when a survival or adventure player enters an End whose dragon is dead. The plugin sets
+  the four ritual crystals on the exit portal's rim and starts vanilla's sequence, which
+  rebuilds every pillar, crystal and cage; the respawned dragon is a resummoned fight.
+  Two entries together start one respawn, and a restart mid-sequence lets the next entry
+  start it again.
 
 - `boss-scaling.multi-dragon.reset-towers-on-scale`, off by default, restores every End
   pillar's crystal and cage when a reinforcement window spawns extra dragons, in the first

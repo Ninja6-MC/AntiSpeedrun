@@ -210,6 +210,11 @@ boss-scaling:
   skull-drop-chance: 0.05
   exit-portal-lock-during-battle: false
   exit-portal-lock-release-minutes: 5
+  # Start vanilla's dragon respawn when a survival or adventure player enters an End whose
+  # dragon is dead. Vanilla's sequence rebuilds every obsidian pillar, crystal and cage, so a
+  # build on or beside a pillar can be overwritten. Also needs enabled above. Off by default.
+  respawn-on-entry:
+    enabled: false
 
 # 7. Anti-Cheese Engine
 anti-cheese:

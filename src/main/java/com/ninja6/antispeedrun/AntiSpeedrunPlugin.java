@@ -40,6 +40,9 @@ import com.ninja6.antispeedrun.listeners.FurnaceLoaderListener;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.WitherCreditListener;
 import com.ninja6.antispeedrun.listeners.DragonFightCreditListener;
+import com.ninja6.antispeedrun.listeners.DragonRespawnOnEntry;
+import com.ninja6.antispeedrun.listeners.RespawnCooldown;
+import com.ninja6.antispeedrun.storage.DimensionUnlock;
 import com.ninja6.antispeedrun.listeners.ElytraCollectionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
 import com.ninja6.antispeedrun.listeners.NaturalTrimLootListener;
@@ -355,7 +358,11 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
         portalLocks.loadNow();
         getServer().getPluginManager().registerEvents(
-                new BossCombatListener(this, reinforcedFights, portalLocks, refusedArrivals), this);
+                new BossCombatListener(this, reinforcedFights, portalLocks, refusedArrivals,
+                        // #272 supplies the per-player cooldown here.
+                        new DragonRespawnOnEntry(this, this::configuration, RespawnCooldown.NONE,
+                                (player, config) -> ProgressionGateListener.admits(
+                                        this, player, config, DimensionUnlock.THE_END))), this);
 
         // The template duplication lock (#18), on the record loaded above.
         this.templateDuplicationListener = new TemplateDuplicationListener(this, exploredStructures);
