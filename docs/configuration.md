@@ -566,10 +566,10 @@ The plugin does what the four-crystal ritual does: it sets an End Crystal on eac
 four ritual positions of the exit portal's rim and starts vanilla's sequence with them.
 The crystals explode at the end of the sequence, as the ritual's do, so keep clear of the
 portal. If a ritual position is broken or built over, nothing starts, the log says why,
-and the next entry tries again. The respawned dragon is a resummoned fight, so `scale-resummoned-dragons`, the reinforcement
-window, the exit portal lock and the resummon egg apply as they do after the ritual.
-Players who help win it earn `dragon-fight`
-([4.9.1](#491-the-personal-dragon-fight-requirement)).
+and the next entry tries again. The respawned dragon is a resummoned fight, so
+`scale-resummoned-dragons`, the reinforcement window, the exit portal lock and the
+resummon egg apply as they do after the ritual. Players who help win it earn
+`dragon-fight` ([4.9.1](#491-the-personal-dragon-fight-requirement)).
 
 **Vanilla rebuilds the towers.** The respawn regenerates every obsidian pillar with its
 End crystal and the iron cages on the caged pillars. Blocks a player placed in or around
