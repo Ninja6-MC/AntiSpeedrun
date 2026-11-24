@@ -299,6 +299,24 @@ class RespawnProbes(CreditProbes):
         self.run(f"execute in {END} run kill @e[type=minecraft:ender_dragon]")
         self.wait_dead()
         self.cooldown()
+
+        # Once the cooldown has run out, the same player's next entry, alone, starts the respawn.
+        self.leave()
+        mark = self.enter()
+        started = self.started_since(mark, 15)
+        own = [line for line in started if f"{self.player} entered" in line]
+        self.results.check(RULE, "after the cooldown runs out, the player's own next entry starts the respawn",
+                           len(started) == 1 and len(own) == 1, f"log={started}")
+        if not started:
+            raise ProbeError("the expired player's re-entry started no respawn")
+        deadline = time.monotonic() + 150
+        while not self.dragon_alive():
+            if time.monotonic() > deadline:
+                raise ProbeError("the respawn started after the cooldown summoned no dragon within 150 s")
+            time.sleep(3)
+        self.run(f"execute in {END} run kill @e[type=minecraft:ender_dragon]")
+        self.wait_dead()
+
         self.leave()
         self.tp(OVERWORLD, 1.5, 100, 0.5, player=HELPER)
         time.sleep(2)
