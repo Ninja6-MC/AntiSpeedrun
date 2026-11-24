@@ -39,14 +39,13 @@ class DragonRespawnRulesTest {
     }
 
     @Test
-    @DisplayName("survival and adventure players trigger it; creative, spectator and cooling-down players do not")
-    void triggers() {
-        assertTrue(DragonRespawnRules.triggers("SURVIVAL", false));
-        assertTrue(DragonRespawnRules.triggers("adventure", false));
-        assertFalse(DragonRespawnRules.triggers("CREATIVE", false));
-        assertFalse(DragonRespawnRules.triggers("SPECTATOR", false));
-        assertFalse(DragonRespawnRules.triggers(null, false));
-        assertFalse(DragonRespawnRules.triggers("SURVIVAL", true));
+    @DisplayName("survival and adventure players take part; creative and spectator players do not")
+    void eligible() {
+        assertTrue(DragonRespawnRules.eligible("SURVIVAL"));
+        assertTrue(DragonRespawnRules.eligible("adventure"));
+        assertFalse(DragonRespawnRules.eligible("CREATIVE"));
+        assertFalse(DragonRespawnRules.eligible("SPECTATOR"));
+        assertFalse(DragonRespawnRules.eligible(null));
     }
 
     @Test
