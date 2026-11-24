@@ -78,6 +78,20 @@ class PresetProfileTest {
     }
 
     @Test
+    @DisplayName("every profile ships the personal outer End gate on and the world rule off (#278)")
+    void personalOuterEndGateOnInEveryProfile() throws Exception {
+        List<PluginConfig> configs = new ArrayList<>();
+        configs.add(shipped());
+        for (Profile profile : ProfileApplier.applicable()) {
+            configs.add(preset(profile));
+        }
+        for (PluginConfig config : configs) {
+            assertTrue(config.antiCheese().outerEndRequiresDragonFight(), config.profile().name());
+            assertTrue(!config.antiCheese().blockGatewayPreDragon(), config.profile().name());
+        }
+    }
+
+    @Test
     @DisplayName("every preset exists, parses, and declares the profile its filename implies")
     void namesAgree() throws Exception {
         for (Profile profile : ProfileApplier.applicable()) {

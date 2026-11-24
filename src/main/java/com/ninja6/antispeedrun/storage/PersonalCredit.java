@@ -41,7 +41,13 @@ public enum PersonalCredit {
     KILL_EVOKER("kill-evoker", null, false),
 
     /** An untouched, generation-marked End Ship frame collected personally. */
-    ELYTRA("elytra", "minecraft:end/elytra", false);
+    ELYTRA("elytra", "minecraft:end/elytra", false),
+
+    /**
+     * Positive, uncancelled damage dealt to an Ender Dragon of a fight that was then won (#278).
+     * Holds the outer End open for the player under {@code anti-cheese.outer-end-requires-dragon-fight}.
+     */
+    DRAGON_FIGHT("dragon-fight", null, false);
 
     private final String id;
     private final String advancement;

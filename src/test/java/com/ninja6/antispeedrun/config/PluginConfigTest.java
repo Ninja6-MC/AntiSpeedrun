@@ -80,6 +80,32 @@ class PluginConfigTest {
         assertTrue(mentions(invalid.warnings(), "gate-plugin-teleports"));
     }
 
+    @Test
+    void personalDragonFightGateDefaultsOnAndAnExplicitFalseHolds() throws Exception {
+        assertTrue(PluginConfig.defaults().antiCheese().outerEndRequiresDragonFight());
+        assertTrue(shipped().antiCheese().outerEndRequiresDragonFight());
+        // Absent, as in every file written before #278: on.
+        assertTrue(PluginConfig.from(yaml("anti-cheese:\n  enabled: true\n"))
+                .antiCheese().outerEndRequiresDragonFight());
+        PluginConfig off = PluginConfig.from(yaml(
+                "anti-cheese:\n  outer-end-requires-dragon-fight: false\n"));
+        assertFalse(off.antiCheese().outerEndRequiresDragonFight());
+        assertFalse(off.antiCheese().blockGatewayPreDragon(), "independent of the world rule");
+        assertTrue(PluginConfig.from(yaml(
+                "anti-cheese:\n  block-gateway-pre-dragon: true\n  outer-end-requires-dragon-fight: false\n"))
+                .antiCheese().blockGatewayPreDragon());
+        PluginConfig invalid = PluginConfig.from(yaml("anti-cheese:\n  outer-end-requires-dragon-fight: wrong\n"));
+        assertTrue(invalid.antiCheese().outerEndRequiresDragonFight());
+        assertTrue(mentions(invalid.warnings(), "outer-end-requires-dragon-fight"));
+
+        CapturingLogger log = new CapturingLogger();
+        ConfigSnapshotHolder holder = new ConfigSnapshotHolder(log.logger(), PluginConfig.defaults());
+        assertTrue(holder.reload(() -> yaml("anti-cheese:\n  outer-end-requires-dragon-fight: false\n")));
+        assertFalse(holder.get().antiCheese().outerEndRequiresDragonFight());
+        assertTrue(holder.reload(() -> yaml("anti-cheese:\n  outer-end-requires-dragon-fight: true\n")));
+        assertTrue(holder.get().antiCheese().outerEndRequiresDragonFight());
+    }
+
     // -------------------------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------------------------

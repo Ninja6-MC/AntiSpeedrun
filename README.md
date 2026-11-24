@@ -92,8 +92,9 @@ step, adds optional anti-cheese rules, and can scale the Ender Dragon fight to t
   (`cap-single-hit-boss-damage`, off by default, with `max-single-hit-boss-damage`), the
   exit portal centre crystal block (`block-exit-portal-crystal-place`, off by default), the
   bed and Respawn Anchor boss damage block (`block-bed-anchor-boss-damage`, off by default) and the
-  Outer End boundary (`block-gateway-pre-dragon`, off by default, `outer-end-radius`,
-  `outer-end-poll-seconds`).
+  Outer End boundary: until the world's first kill (`block-gateway-pre-dragon`, off by default)
+  and until each player has helped win a dragon fight (`outer-end-requires-dragon-fight`, on by
+  default), within `outer-end-radius` and polled every `outer-end-poll-seconds`.
 
 ### Next
 

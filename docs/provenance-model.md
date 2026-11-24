@@ -524,3 +524,24 @@ configurations are preserved on upgrade. An operator must remove/exclude their o
 entry before opting in to the separate tier, or deliberately move any retained requirements
 to the new tier. Applying a preset replaces the table with the separated, still-disabled
 example. See the [configuration guide](configuration.md#43-item-progression) before opt-in.
+
+## Personal dragon-fight credit
+
+`dragon-fight` is an independent credit with no vanilla advancement (#278). Every real
+player who deals positive, uncancelled damage, after damage caps, to any Ender Dragon of a
+fight in an End world earns it with source `action` when that fight is won. The fight is
+won when its primary dragon, any dragon not tagged `n6_asr_secondary_dragon`, actually
+dies; the primary's death is cancelled while a secondary lives, so a secondary's death
+never completes a fight. Damage is attributed through the damage source's causing entity,
+as for `kill-wither`. Nearby players, NPCs and cancelled or zero-damage hits earn nothing.
+
+A fight can span several dragons owned by different regions, so contributors are kept per
+End world in `dragon-contributors.yml` rather than in any dragon's PDC. The entry is
+removed when the fight is won, which records the credit for every contributor including
+offline players, or when the primary is removed other than by death or unload, which
+abandons the fight. The credit is per player and never per world, and it is the lifetime
+qualification for the outer End
+([configuration](configuration.md#491-the-personal-dragon-fight-requirement)). A future
+repeat-fight cooldown (#272) reads the same contributor model at victory but keeps its own
+timestamp: neither its expiry nor a cooldown clear touches this credit. Recording runs
+while the outer End rule is off.

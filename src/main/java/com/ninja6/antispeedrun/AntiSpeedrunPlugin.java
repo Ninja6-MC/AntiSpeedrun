@@ -39,6 +39,7 @@ import com.ninja6.antispeedrun.listeners.BrewingCreditListener;
 import com.ninja6.antispeedrun.listeners.FurnaceLoaderListener;
 import com.ninja6.antispeedrun.listeners.ItemProgressionListener;
 import com.ninja6.antispeedrun.listeners.WitherCreditListener;
+import com.ninja6.antispeedrun.listeners.DragonFightCreditListener;
 import com.ninja6.antispeedrun.listeners.ElytraCollectionListener;
 import com.ninja6.antispeedrun.listeners.JourneyBookListener;
 import com.ninja6.antispeedrun.listeners.NaturalTrimLootListener;
@@ -66,6 +67,7 @@ import com.ninja6.antispeedrun.storage.ExploredStructureStore;
 import com.ninja6.antispeedrun.storage.JourneyBookStore;
 import com.ninja6.antispeedrun.storage.BrewedEffectStore;
 import com.ninja6.antispeedrun.storage.PersonalCreditStore;
+import com.ninja6.antispeedrun.storage.DragonContributorStore;
 import com.ninja6.antispeedrun.storage.PlacedBlockRegistry;
 import com.ninja6.antispeedrun.storage.PlayerAnnouncedUnlockStore;
 import com.ninja6.antispeedrun.storage.ReinforcedFightStore;
@@ -225,7 +227,9 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
         VersionedStateFile exploredFile = stateFile("explored-structures.yml");
         VersionedStateFile brewedFile = stateFile("brewed-effects.yml");
         VersionedStateFile creditFile = stateFile("personal-credits.yml");
-        if (!migrateStateFiles(List.of(unlockFile, fightFile, portalLockFile, exploredFile, creditFile, brewedFile))) {
+        VersionedStateFile contributorFile = stateFile("dragon-contributors.yml");
+        if (!migrateStateFiles(List.of(unlockFile, fightFile, portalLockFile, exploredFile, creditFile,
+                brewedFile, contributorFile))) {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -372,6 +376,14 @@ public final class AntiSpeedrunPlugin extends JavaPlugin {
                 new PersonalCreditListener(personalCredits, placedBlocks, creditRefresh), this);
         getServer().getPluginManager().registerEvents(
                 new WitherCreditListener(this, personalCredits, creditRefresh), this);
+        // The dragon-fight credit (#278): contributors are kept per End world until the fight is won.
+        DragonContributorStore dragonContributors = new DragonContributorStore(
+                getLogger(),
+                contributorFile,
+                write -> getServer().getAsyncScheduler().runNow(this, task -> write.run()));
+        dragonContributors.loadNow();
+        getServer().getPluginManager().registerEvents(new DragonFightCreditListener(
+                this, dragonContributors, personalCredits, creditRefresh), this);
         getServer().getPluginManager().registerEvents(new ElytraCollectionListener(this), this);
         // The furnace loader stamp and smelted-iron credit (#214), kept in each furnace's TileState.
         getServer().getPluginManager().registerEvents(

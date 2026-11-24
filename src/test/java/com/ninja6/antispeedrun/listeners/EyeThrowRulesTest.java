@@ -36,7 +36,7 @@ class EyeThrowRulesTest {
                 new PluginConfig.AntiCheese(enabled, a.blockBedAnchorBossDamage(),
                         a.capSingleHitBossDamage(), a.maxSingleHitBossDamage(), blockEyes, a.earlyEyeRejectionMessage(),
                         a.blockExitPortalCrystalPlace(), a.blockGatewayPreDragon(),
-                        a.outerEndRadius(), a.outerEndPollSeconds()),
+                        a.outerEndRequiresDragonFight(), a.outerEndRadius(), a.outerEndPollSeconds()),
                 base.villagerProgression(), List.of());
     }
 

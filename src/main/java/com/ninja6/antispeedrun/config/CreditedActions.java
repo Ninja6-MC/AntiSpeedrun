@@ -54,6 +54,7 @@ public final class CreditedActions {
                 case KILL_SHULKER -> "kill a shulker yourself that drops a shell";
                 case KILL_WITHER -> "kill a Wither yourself";
                 case KILL_EVOKER -> "kill an Evoker yourself";
+                case DRAGON_FIGHT -> "help defeat an Ender Dragon";
                 case ELYTRA -> "collect an Elytra yourself from an untouched natural End Ship frame";
                 case MINED_IRON -> items.countStructureLoot()
                         ? "mine iron ore (or loot iron from a chest you open first)" : "mine iron ore";

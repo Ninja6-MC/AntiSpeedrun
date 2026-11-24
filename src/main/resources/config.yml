@@ -356,7 +356,11 @@ anti-cheese:
   # Block bridging, pearling and chorus fruit to the Outer End before the first dragon dies.
   # Off by default pending survival playtest findings.
   block-gateway-pre-dragon: false
-  outer-end-radius: 500                # Boundary enforced until the world's first dragon dies
+  # Hold each player inside outer-end-radius until they have helped win a dragon fight: dealt
+  # damage to a dragon of a fight that was then won, in any End. Independent of the rule above,
+  # which holds everyone until that world's first dragon dies. On by default; false turns it off.
+  outer-end-requires-dragon-fight: true
+  outer-end-radius: 500                # The dragon area both rules above hold players inside
   outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
 
 # 8. Villager Progression

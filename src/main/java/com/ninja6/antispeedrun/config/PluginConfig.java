@@ -461,8 +461,8 @@ public record PluginConfig(
         r.expect("enabled", "block-bed-anchor-boss-damage", "cap-single-hit-boss-damage",
                 "max-single-hit-boss-damage",
                 "block-early-eye-throwing", "early-eye-rejection-message",
-                "block-exit-portal-crystal-place", "block-gateway-pre-dragon", "outer-end-radius",
-                "outer-end-poll-seconds");
+                "block-exit-portal-crystal-place", "block-gateway-pre-dragon",
+                "outer-end-requires-dragon-fight", "outer-end-radius", "outer-end-poll-seconds");
         return new AntiCheese(
                 r.bool("enabled", true),
                 r.bool("block-bed-anchor-boss-damage", false),
@@ -474,6 +474,8 @@ public record PluginConfig(
                 r.miniMessage("early-eye-rejection-message", DEFAULT_EARLY_EYE_REJECTION),
                 r.bool("block-exit-portal-crystal-place", false),
                 r.bool("block-gateway-pre-dragon", false),
+                // On when absent: a file written before #278 gains the personal gate on upgrade.
+                r.bool("outer-end-requires-dragon-fight", true),
                 r.atLeast("outer-end-radius", 500, 1),
                 r.atLeast("outer-end-poll-seconds", 2, 1));
     }
@@ -942,8 +944,11 @@ public record PluginConfig(
      * @param earlyEyeRejectionMessage    MiniMessage sent to the action bar when a throw is refused;
      *                                    validated at load like every rejection message
      * @param blockExitPortalCrystalPlace refuses an End Crystal placed on the exit portal's centre column (#25); default {@code false}
-     * @param blockGatewayPreDragon       default {@code true}
-     * @param outerEndRadius              enforced until the world's first dragon dies; default {@code 500}
+     * @param blockGatewayPreDragon       holds everyone inside {@code outerEndRadius} until the
+     *                                    world's first dragon dies (#26); default {@code false}
+     * @param outerEndRequiresDragonFight holds each player inside {@code outerEndRadius} until they
+     *                                    have the {@code dragon-fight} credit (#278); default {@code true}
+     * @param outerEndRadius              the dragon area both boundary rules hold players inside; default {@code 500}
      * @param outerEndPollSeconds         bounds poll interval; default {@code 2}
      */
     public record AntiCheese(
@@ -955,6 +960,7 @@ public record PluginConfig(
             String earlyEyeRejectionMessage,
             boolean blockExitPortalCrystalPlace,
             boolean blockGatewayPreDragon,
+            boolean outerEndRequiresDragonFight,
             int outerEndRadius,
             int outerEndPollSeconds) {
         public AntiCheese {

@@ -22,7 +22,7 @@ class ExitPortalCrystalRulesTest {
                 new PluginConfig.AntiCheese(enabled, a.blockBedAnchorBossDamage(),
                         a.capSingleHitBossDamage(), a.maxSingleHitBossDamage(),
                         a.blockEarlyEyeThrowing(), a.earlyEyeRejectionMessage(), block,
-                        a.blockGatewayPreDragon(), a.outerEndRadius(), a.outerEndPollSeconds()),
+                        a.blockGatewayPreDragon(), a.outerEndRequiresDragonFight(), a.outerEndRadius(), a.outerEndPollSeconds()),
                 base.villagerProgression(), List.of());
     }
 

@@ -116,6 +116,14 @@ below every fixture; the probe finds one from the world seed with vanilla's plac
 | `cap-single-hit-boss-damage` | With the cap off and on: a Sharpness 255 sword hit on a Wither and on the dragon's head and body parts, an 8-TNT-minecart stack, and a Mace smash from about 25 blocks. With the cap on, `/kill` on both bosses. On Folia the TNT stack also shows whether the per-tick budget (#203) holds when the stack lands in one region tick. |
 | `block-bed-anchor-boss-damage` | With the rule off and on: a bed (in the Nether) and a charged Respawn Anchor (in the Overworld) detonated beside a Wither and a dragon, checking the reported damage type is `BAD_RESPAWN_POINT`. With the rule on, a TNT control beside each boss. |
 
+`outer_end.py` covers the personal dragon-fight requirement for the outer End (#278), with
+`anti-cheese.outer-end-requires-dragon-fight` on and the first-kill rule off. The player holds every
+advancement and every credit but `dragon-fight`, and is moved beyond the radius by command:
+
+| Probe | What it does |
+| :--- | :--- |
+| `outer_end` | An unqualified player arriving beyond the radius with no position inside is returned to standing ground beside the exit portal; crossing again returns them to the last position inside. With `dragon-fight` granted they stay out; revoking it while they are out returns them. With the rule off an unqualified player stays out, and switching it on returns them. In the End, a dragon killed without the player's damage credits nothing, a hit secondary's death credits nothing, the primary's later death credits the player who hit only the secondary, and a hit primary's death credits its attacker. |
+
 The gate probes run first, then the credit probes, then the trim probes. The probing player is never an operator except where `operator`
 and `teleports` make it one for a case, and never holds a bypass node; a check asserts it. For
 the anti-cheese probes it is given every advancement, so the dimension and item gates stay out
@@ -133,6 +141,7 @@ of the way. It always has Resistance V, so explosions beside it do not end the r
 | `credits.py` | The personal-credit probes. |
 | `trims.py` | The trim structure probes. |
 | `anti_cheese.py` | The section 7 probes. |
+| `outer_end.py` | The outer End dragon-fight probes; run last. |
 | `client/` | The scripted player: a [mineflayer](https://github.com/PrismarineJS/mineflayer) client that takes one JSON request per line from `run.py`. |
 | `src/probe/` (repository root) | `AntiSpeedrunProbe`, a test-only plugin that logs one `ASRPROBE` line per boss damage event, crystal click, pickup attempt, container click, trade selection, portal event, world change and loot generation, and answers the harness's console queries (`/asrprobe`), a player's personal credits and advancements, explored trim structures and what the structure API reports among them. Apart from the plugin teleports `teleports` and the trim probes' `enter` ask of it, announced through `expectTeleport` for one of them, the one-shot loot replacement and the `NPC` metadata the credit probes ask of it, it changes nothing. Never install it on a real server. |
 
