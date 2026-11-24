@@ -1148,6 +1148,10 @@ public final class ProgressionGateListener implements Listener {
      * the event thread; neither touches a file.
      */
     private boolean waived(Player player, DimensionUnlock dimension) {
+        return waived(plugin, player, dimension);
+    }
+
+    private static boolean waived(AntiSpeedrunPlugin plugin, Player player, DimensionUnlock dimension) {
         return DimensionGateRules.waived(
                 player.hasPermission(BYPASS_PERMISSION),
                 plugin.bypasses().hasBypass(player, System.currentTimeMillis()),
@@ -1162,8 +1166,27 @@ public final class ProgressionGateListener implements Listener {
      * boat full of players walking into a portal is precisely the burst it was built for.
      */
     private EligibilityResult evaluate(Player player, PluginConfig config, DimensionUnlock dimension) {
+        return evaluate(plugin, player, config, dimension);
+    }
+
+    private static EligibilityResult evaluate(AntiSpeedrunPlugin plugin, Player player, PluginConfig config,
+                                              DimensionUnlock dimension) {
         return plugin.progression().evaluate(
                 player, config, DimensionGateRules.requirement(dimension, config));
+    }
+
+    /**
+     * Whether {@code player} may be in {@code dimension} on their own account: its gate is off, a
+     * bypass or a server-wide unlock waives it, or they meet its requirements. The gate's own
+     * verdict, without the one-arrival transit notes, for features that must not act for a player
+     * the gate is about to send back (#271). On the player's own region.
+     */
+    public static boolean admits(AntiSpeedrunPlugin plugin, Player player, PluginConfig config,
+                                 DimensionUnlock dimension) {
+        if (!DimensionGateRules.gate(dimension, config).enabled()) {
+            return true;
+        }
+        return waived(plugin, player, dimension) || evaluate(plugin, player, config, dimension).eligible();
     }
 
     /**

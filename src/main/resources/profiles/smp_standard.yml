@@ -224,6 +224,11 @@ boss-scaling:
   # Escape valve: releases the lock when no player has damaged a dragon for this long,
   # so anyone who logs in mid-fight is not trapped in the End. 0 disables the release.
   exit-portal-lock-release-minutes: 10
+  # Start vanilla's dragon respawn when a survival or adventure player enters an End whose
+  # dragon is dead. Vanilla's sequence rebuilds every obsidian pillar, crystal and cage, so a
+  # build on or beside a pillar can be overwritten. Also needs enabled above. Off by default.
+  respawn-on-entry:
+    enabled: false
 
 # 7. Anti-Cheese Engine
 anti-cheese:

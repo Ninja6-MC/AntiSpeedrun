@@ -58,6 +58,7 @@ import net.kyori.adventure.title.Title;
  * single-battle reconciliation (#56, Task 6.1.5), secondary AI and boss bars (#21), and
  * balanced secondary XP (#22), and the resummoned exit lock and trophies (#23). It starts the
  * tower restore when extra dragons spawn (#273), which {@link EndTowerRestorer} carries out.
+ * Every accepted arrival in an End is also handed to {@link DragonRespawnOnEntry} (#271).
  *
  * <h2>The reinforcement window</h2>
  *
@@ -135,6 +136,7 @@ public final class BossCombatListener implements Listener {
     private final PortalLockStore portalLocks;
     private final RefusedArrivals refusedArrivals;
     private final EndTowerRestorer towers;
+    private final DragonRespawnOnEntry respawnOnEntry;
 
     /** One window per End world, keyed by world UID. Removed when the world unloads. */
     private final Map<UUID, ReinforcementWindow> windows = new ConcurrentHashMap<>();
@@ -163,13 +165,15 @@ public final class BossCombatListener implements Listener {
     private final Map<UUID, ViewerBars<BossBar>> viewerBars = new ConcurrentHashMap<>();
 
     public BossCombatListener(AntiSpeedrunPlugin plugin, ReinforcedFightStore reinforcedFights,
-            PortalLockStore portalLocks, RefusedArrivals refusedArrivals) {
+            PortalLockStore portalLocks, RefusedArrivals refusedArrivals,
+            DragonRespawnOnEntry respawnOnEntry) {
         this.plugin = plugin;
         this.secondaryDragon = new NamespacedKey(plugin, SECONDARY_DRAGON_KEY);
         this.reinforcedFights = reinforcedFights;
         this.portalLocks = portalLocks;
         this.refusedArrivals = refusedArrivals;
         this.towers = new EndTowerRestorer(plugin);
+        this.respawnOnEntry = respawnOnEntry;
         for (World world : plugin.getServer().getWorlds()) {
             recoverExit(world);
         }
@@ -215,6 +219,7 @@ public final class BossCombatListener implements Listener {
         recoverExit(world);
         if (!refusedArrivals.consume(player.getUniqueId(), world.getUID())) {
             entered(world);
+            respawnOnEntry.entered(player, world);
         }
     }
 
@@ -223,6 +228,7 @@ public final class BossCombatListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         recoverExit(event.getPlayer().getWorld());
         entered(event.getPlayer().getWorld());
+        respawnOnEntry.entered(event.getPlayer(), event.getPlayer().getWorld());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -245,6 +251,7 @@ public final class BossCombatListener implements Listener {
         restoringExits.remove(world);
         secondaryBars.forgetWorld(world);
         lastRefusalNotice.remove(world);
+        respawnOnEntry.forget(world);
         ResummonFight resummon = resummons.remove(world);
         if (resummon != null) {
             resummon.supersede();

@@ -12,6 +12,7 @@ import credits  # noqa: E402
 import probes  # noqa: E402
 import trims  # noqa: E402
 import outer_end  # noqa: E402
+import dragon_respawn  # noqa: E402
 import run as integration_run  # noqa: E402
 
 CONFIG = """\
@@ -73,9 +74,28 @@ class OuterEndRulesTest(unittest.TestCase):
     def test_the_shipped_file_has_the_personal_rule_on(self):
         self.assertIn("  outer-end-requires-dragon-fight: true\n", self.SHIPPED.read_text(encoding="utf-8"))
 
-    def test_runs_last(self):
-        self.assertIs(integration_run.MODULES[-1], outer_end)
+    def test_runs_before_the_respawn_probes(self):
+        self.assertEqual(integration_run.MODULES[-2:], (outer_end, dragon_respawn))
         self.assertIn("outer_end", integration_run.PROBES)
+
+
+class RespawnConfigTest(unittest.TestCase):
+    SHIPPED = Path(__file__).resolve().parents[2] / "src" / "main" / "resources" / "config.yml"
+
+    def test_ships_off(self):
+        self.assertIn("  respawn-on-entry:\n    enabled: false\n", self.SHIPPED.read_text(encoding="utf-8"))
+
+    def test_sets_both_switches_and_nothing_else(self):
+        text = self.SHIPPED.read_text(encoding="utf-8")
+        on = dragon_respawn.set_respawn(text, True, True)
+        self.assertIn("  respawn-on-entry:\n    enabled: true\n", on)
+        self.assertIn("boss-scaling:\n  enabled: true", on)
+        self.assertIn("multi-dragon:\n    enabled: true", on)
+        self.assertEqual(dragon_respawn.set_respawn(on, False, False), text)
+
+    def test_runs_last(self):
+        self.assertIs(integration_run.MODULES[-1], dragon_respawn)
+        self.assertIn("respawn_on_entry", integration_run.PROBES)
 
 
 class ParseDamageTest(unittest.TestCase):
