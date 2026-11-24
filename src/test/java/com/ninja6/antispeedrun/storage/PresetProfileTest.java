@@ -89,6 +89,8 @@ class PresetProfileTest {
             assertTrue(config.antiCheese().outerEndRequiresDragonFight(), config.profile().name());
             assertTrue(!config.antiCheese().blockGatewayPreDragon(), config.profile().name());
             assertTrue(!config.bossScaling().respawnOnEntry().enabled(), config.profile().name());
+            assertEquals(6.0D, config.bossScaling().respawnOnEntry().participantCooldownHours(),
+                    config.profile().name());
         }
     }
 

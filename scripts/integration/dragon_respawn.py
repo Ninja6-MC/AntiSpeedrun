@@ -7,6 +7,7 @@ pillars carry End crystals again. The player holds every advancement and every c
 the dimension gate nor the outer End rule is in the way, and is never an operator.
 """
 
+from datetime import datetime
 import os
 import re
 import time
@@ -24,21 +25,66 @@ ENTRY = (0.5, 90, 30.5)
 PORTAL = (4, 100, 4)
 
 
-def set_respawn(config_text, scaling, respawn):
-    """config.yml with boss-scaling.enabled and boss-scaling.respawn-on-entry.enabled set."""
+def set_respawn(config_text, scaling, respawn, hours=None):
+    """config.yml with boss-scaling.enabled, respawn-on-entry.enabled and, if given, its
+    participant-cooldown-hours set."""
     config_text = set_key(config_text, "boss-scaling", "enabled", "true" if scaling else "false")
     config_text, count = re.subn(r"(?m)^(  respawn-on-entry:\n    enabled:[ \t]*)(true|false)\b",
                                  lambda match: match.group(1) + ("true" if respawn else "false"),
                                  config_text)
     if count != 1:
         raise ProbeError("boss-scaling.respawn-on-entry.enabled is not in config.yml exactly once")
+    if hours is not None:
+        config_text, count = re.subn(r"(?m)^(    participant-cooldown-hours:[ \t]*)\S+",
+                                     lambda match: match.group(1) + f"{hours:.6f}", config_text)
+        if count != 1:
+            raise ProbeError("respawn-on-entry.participant-cooldown-hours is not in config.yml exactly once")
     return config_text
+
+
+VICTORY = re.compile(r"helped win a dragon fight at (?P<at>\S+?Z)")
+COOLING = "cannot start a respawn for another"
+TOLD = "You helped defeat an Ender Dragon recently"
+# The arena the cooldown cases stamp a victory in, inside the outer End radius.
+ARENA = (0, 100, 200)
+SECONDARY_FREE_DRAGON = "@e[type=minecraft:ender_dragon,tag=asrp,limit=1]"
 
 
 class RespawnProbes(CreditProbes):
 
-    def configure(self, scaling, respawn):
-        self.reload(lambda text: set_respawn(text, scaling, respawn))
+    def configure(self, scaling, respawn, hours=None):
+        self.reload(lambda text: set_respawn(text, scaling, respawn, hours))
+
+    def cooldown_reply(self, action):
+        return self.server.query(f"asr cooldown {action} {self.player}",
+                                 r"[^\r\n]*(?:helped win|has not helped|Cleared|has no dragon)[^\r\n]*",
+                                 timeout=15).group(0)
+
+    def victory_at(self):
+        """When the store says the player last helped win a fight, in epoch milliseconds."""
+        reply = self.cooldown_reply("show")
+        match = VICTORY.search(reply)
+        if not match:
+            raise ProbeError(f"/asr cooldown show reported no victory: {reply}")
+        return datetime.fromisoformat(match.group("at").replace("Z", "+00:00")).timestamp() * 1000, reply
+
+    def win_fight(self):
+        """The player hits a dragon summoned in the End and it is killed: one won fight."""
+        x, y, z = ARENA
+        self.run(f"execute in {END} run kill @e[type=minecraft:ender_dragon,tag=asrp]")
+        time.sleep(0.5)
+        self.run(f"execute in {END} run summon minecraft:ender_dragon {x + 0.5} {y + 2} {z + 0.5} "
+                 "{DragonPhase:10,Tags:[\"asrp\"],Rotation:[0f,0f],PersistenceRequired:1b}")
+        time.sleep(1.5)
+        self.tp(END, x + 3.5, y, z - 5.5)
+        before = self.health(SECONDARY_FREE_DRAGON)
+        self.client.request("attack", entity="ender_dragon", offset=1)
+        time.sleep(1)
+        after = self.health(SECONDARY_FREE_DRAGON)
+        if before is None or after is None or not after < before:
+            raise ProbeError(f"the player's hit on the summoned dragon did not land: {before} -> {after}")
+        self.run(f"execute in {END} run kill @e[type=minecraft:ender_dragon,tag=asrp]")
+        time.sleep(2)
 
     def dragon_alive(self):
         return self.exists(END, "@e[type=minecraft:ender_dragon]")
@@ -194,10 +240,65 @@ class RespawnProbes(CreditProbes):
         self.results.check(RULE, "an entry while the dragon lives starts nothing", not started,
                            f"log={started}")
 
+    def cooldown(self):
+        """The participant cooldown (#272), in a dragonless End, before the same-tick case."""
+        x, y, z = ARENA
+        self.arena(END, x, y, z)
+        self.run(f"give {self.player} minecraft:iron_sword")
+        self.wait_count("iron_sword", 1)
+        self.client.request("hold", item="iron_sword")
+
+        # Two won fights in a row: the second restarts the cooldown from its own victory.
+        self.configure(scaling=True, respawn=False, hours=1)
+        self.win_fight()
+        first, _ = self.victory_at()
+        time.sleep(1.5)
+        self.win_fight()
+        second, reply = self.victory_at()
+        self.results.check(RULE, "a second won fight restarts the cooldown from its own victory",
+                           second > first and COOLING in reply, f"{first:.0f} -> {second:.0f}; {reply}")
+
+        # On cooldown: an entry into the dragonless End starts nothing and says how long is left.
+        self.configure(scaling=True, respawn=True, hours=1)
+        self.leave()
+        self.client.request("messages")
+        mark = self.enter()
+        started = self.started_since(mark, 6)
+        heard = self.client.request("messages")["lines"]
+        told = [line for line in heard if TOLD in line]
+        self.results.check(RULE, "a player on cooldown entering a dragonless End starts nothing and "
+                           "is told how long is left", not started and bool(told),
+                           f"log={started}, told={told}")
+
+        # A staff clear ends the cooldown and keeps the dragon-fight credit.
+        cleared = self.cooldown_reply("clear")
+        after = self.cooldown_reply("show")
+        sources, _ = self.credits()["dragon-fight"]
+        self.results.check(RULE, "/asr cooldown clear ends the cooldown and keeps dragon-fight",
+                           "Cleared" in cleared and "has not helped" in after and "action" in sources,
+                           f"{cleared}; then {after}; dragon-fight sources={sorted(sources)}")
+
+        # Running out while the player stays in the End starts nothing.
+        self.configure(scaling=True, respawn=False, hours=1)
+        self.win_fight()
+        mark = self.server.mark()
+        victory, _ = self.victory_at()
+        elapsed = time.time() * 1000 - victory
+        hours = (elapsed + 12_000) / 3_600_000
+        self.configure(scaling=True, respawn=True, hours=hours)
+        _, cooling = self.victory_at()
+        time.sleep(15)
+        _, done = self.victory_at()
+        started = [line for line in self.server.lines_since(mark) if re.search(STARTED, line)]
+        self.results.check(RULE, "the cooldown running out while the player is in the End starts nothing",
+                           COOLING in cooling and "run out" in done and not started,
+                           f"before: {cooling}; after: {done}; log={started}")
+
     def same_tick(self, helper):
         """Two players entering in the same tick start one respawn."""
         self.run(f"execute in {END} run kill @e[type=minecraft:ender_dragon]")
         self.wait_dead()
+        self.cooldown()
         self.leave()
         self.tp(OVERWORLD, 1.5, 100, 0.5, player=HELPER)
         time.sleep(2)
@@ -241,7 +342,7 @@ def run_all(server, client, player, results, only=PROBES):
     finally:
         try:
             probes.run(f"gamemode survival {player}")
-            probes.configure(scaling=False, respawn=False)
+            probes.configure(scaling=False, respawn=False, hours=6)
             probes.run(f"execute in {END} run kill @e[type=minecraft:ender_dragon]")
         except ProbeError as error:
             results.note(f"respawn cleanup: {error}")

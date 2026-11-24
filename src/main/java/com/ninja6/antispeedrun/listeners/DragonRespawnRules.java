@@ -59,9 +59,11 @@ public final class DragonRespawnRules {
      * respawn cooldown. Creative and spectator players are staff tools; they never wake a dragon.
      */
     public static boolean triggers(String gameModeName, boolean onCooldown) {
-        if (onCooldown) {
-            return false;
-        }
+        return !onCooldown && eligible(gameModeName);
+    }
+
+    /** Whether a player in this game mode takes part at all: survival or adventure. */
+    public static boolean eligible(String gameModeName) {
         String mode = gameModeName == null ? "" : gameModeName.toUpperCase(Locale.ROOT);
         return mode.equals("SURVIVAL") || mode.equals("ADVENTURE");
     }

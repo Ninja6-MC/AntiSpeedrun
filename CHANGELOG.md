@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rebuilds every pillar, crystal and cage; the respawned dragon is a resummoned fight.
   Two entries together start one respawn, and a restart mid-sequence lets the next entry
   start it again.
+- `boss-scaling.respawn-on-entry.participant-cooldown-hours` (default `6`): players who
+  helped win a dragon fight cannot start a respawn by entering for that long after the
+  victory, and are told how long is left. A later victory restarts it. Victories persist
+  per player in `respawn-cooldowns.yml`, separate from the `dragon-fight` credit.
+  `/asr cooldown <show|clear> <player>`, under the new `antispeedrun.admin.cooldown`
+  node, lets staff read or clear one.
 
 - `boss-scaling.multi-dragon.reset-towers-on-scale`, off by default, restores every End
   pillar's crystal and cage when a reinforcement window spawns extra dragons, in the first

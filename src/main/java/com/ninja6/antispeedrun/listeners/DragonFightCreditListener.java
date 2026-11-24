@@ -21,6 +21,7 @@ import com.ninja6.antispeedrun.storage.CreditSource;
 import com.ninja6.antispeedrun.storage.DragonContributorStore;
 import com.ninja6.antispeedrun.storage.PersonalCredit;
 import com.ninja6.antispeedrun.storage.PersonalCreditStore;
+import com.ninja6.antispeedrun.storage.RespawnCooldownStore;
 
 /**
  * Credits {@link PersonalCredit#DRAGON_FIGHT} to every real player who contributed to a dragon fight
@@ -47,6 +48,11 @@ import com.ninja6.antispeedrun.storage.PersonalCreditStore;
  * <p>A primary removed any other way than by dying, unloading or its chunk's player leaving, such as
  * by another plugin, abandons the fight: its contributors are discarded and earn nothing.
  *
+ * <p>The same victory stamps each contributor's respawn cooldown in {@link RespawnCooldownStore}
+ * (#272), once per won fight and never for a secondary's death. The stamp and the credit are
+ * separate records: the credit is lifetime qualification for the outer End, the stamp only
+ * decides when the player may next start a respawn by entering the End.
+ *
  * <p>Recording stays active with the outer End rule off, like every other personal credit, so a
  * server that turns the rule on later has the fights already won on record.
  *
@@ -61,13 +67,16 @@ public final class DragonFightCreditListener implements Listener {
     private final NamespacedKey secondaryDragon;
     private final DragonContributorStore contributors;
     private final PersonalCreditStore credits;
+    private final RespawnCooldownStore cooldowns;
     private final CreditRefresh refresh;
 
     public DragonFightCreditListener(Plugin plugin, DragonContributorStore contributors,
-                                     PersonalCreditStore credits, CreditRefresh refresh) {
+                                     PersonalCreditStore credits, RespawnCooldownStore cooldowns,
+                                     CreditRefresh refresh) {
         this.secondaryDragon = new NamespacedKey(plugin, BossCombatListener.SECONDARY_DRAGON_KEY);
         this.contributors = contributors;
         this.credits = credits;
+        this.cooldowns = cooldowns;
         this.refresh = refresh;
     }
 
@@ -89,7 +98,9 @@ public final class DragonFightCreditListener implements Listener {
             return;
         }
         Set<UUID> players = contributors.take(dragon.getWorld().getUID());
+        long victory = System.currentTimeMillis();
         for (UUID player : players) {
+            cooldowns.stamp(player, victory);
             if (credits.record(player, PersonalCredit.DRAGON_FIGHT, CreditSource.ACTION)) {
                 refresh.changed(player);
             }

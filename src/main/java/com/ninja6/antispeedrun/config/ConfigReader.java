@@ -745,6 +745,17 @@ final class ConfigReader {
         return value;
     }
 
+    /** Reads a finite decimal of at least {@code 0.0}, warning and using the default otherwise. */
+    double nonNegativeDecimal(String key, double def) {
+        double value = decimal(key, def);
+        if (!(value >= 0.0D) || !Double.isFinite(value)) {
+            warnings.add(qualify(key) + ": must be 0.0 or more (found " + value
+                    + "); using the default " + def);
+            return def;
+        }
+        return value;
+    }
+
     /** Reads a value clamped to be at least {@code min}, warning when the configured value is below it. */
     int atLeast(String key, int def, int min) {
         int value = integer(key, def);

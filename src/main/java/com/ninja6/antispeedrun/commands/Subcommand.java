@@ -52,6 +52,13 @@ public enum Subcommand {
             "/asr credit <grant|revoke> <player> <credit|smelt-iron|all>"),
 
     /**
+     * {@code /asr cooldown <show|clear> <player>} — reads or clears a player's respawn-on-entry
+     * cooldown (#272), for an online or offline player. Clearing it leaves the {@code dragon-fight}
+     * credit alone; that is {@link #CREDIT}'s.
+     */
+    COOLDOWN("cooldown", "antispeedrun.admin.cooldown", "/asr cooldown <show|clear> <player>"),
+
+    /**
      * {@code /asr progress} — the delegate to {@code /progress}, Task 2.1.2 (#3).
      *
      * <p>The one constant here that is not administration, and the one gated outside the
@@ -101,7 +108,7 @@ public enum Subcommand {
     /** Every label, in declaration order. */
     public static List<String> labels() {
         return List.of(RELOAD.label, PROFILE.label, UNLOCK.label, BYPASS.label, INSPECT.label,
-                CREDIT.label, PROGRESS.label, BOOK.label);
+                CREDIT.label, COOLDOWN.label, PROGRESS.label, BOOK.label);
     }
 
     /**

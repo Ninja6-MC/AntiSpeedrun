@@ -103,6 +103,7 @@ must name an online player; `credit` also takes an offline player (section 5.6).
 | `/asr bypass <player> [duration\|off]` | `antispeedrun.admin.bypass` | op |
 | `/asr inspect <player>` | `antispeedrun.admin.inspect` | op |
 | `/asr credit <grant\|revoke> <player> <credit\|smelt-iron\|all>` | `antispeedrun.admin.credit` | op |
+| `/asr cooldown <show\|clear> <player>` | `antispeedrun.admin.cooldown` | op |
 
 `/asr progress` and `/asr book` check the same node as their standalone command, so a
 player who can run one spelling can run the other. A refused subcommand names the
@@ -115,13 +116,14 @@ refuse, and `/progress` points at `/asr inspect <player>`.
 | :--- | :--- | :--- |
 | `antispeedrun.progress` | true | `/progress` and `/asr progress`. |
 | `antispeedrun.book` | true | `/journeybook`, `/rulesbook` and `/asr book`. |
-| `antispeedrun.admin` | op | Parent of the six `antispeedrun.admin.*` nodes. |
+| `antispeedrun.admin` | op | Parent of the seven `antispeedrun.admin.*` nodes. |
 | `antispeedrun.admin.reload` | op | `/asr reload`. |
 | `antispeedrun.admin.profile` | op | `/asr profile apply`. |
 | `antispeedrun.admin.unlock` | op | `/asr unlock`. |
 | `antispeedrun.admin.bypass` | op | `/asr bypass` (the right to hand out a bypass). |
 | `antispeedrun.admin.inspect` | op | `/asr inspect`. |
 | `antispeedrun.admin.credit` | op | `/asr credit`. |
+| `antispeedrun.admin.cooldown` | op | `/asr cooldown`. |
 | `antispeedrun.bypass` | false | Parent of the three bypass nodes below. |
 | `antispeedrun.bypass.gates` | false | Exempt from dimension gates (foot, vehicle and stasis access) and the Dragon's Breath bottling gate. |
 | `antispeedrun.bypass.items` | false | Exempt from item pickup, dispenser, container and Allay restrictions, and Dragon's Breath bottling. |
@@ -270,6 +272,21 @@ the credit however it was earned, loot included, and the player can earn it agai
 playing. Either takes effect at once and is kept in `personal-credits.yml`, so it
 survives a restart. The reply names the credits that changed, or says nothing changed.
 
+### 5.7 Dragon respawn cooldowns
+
+```text
+/asr cooldown show <player>
+/asr cooldown clear <player>
+```
+
+`show` reports when the player last helped win a dragon fight and how long is left of
+their respawn-on-entry cooldown
+([configuration.md](configuration.md#481-respawn-on-entry)). `clear` removes it, so their
+next entry into a dragonless End can start a respawn. It takes effect at once and is kept
+in `respawn-cooldowns.yml`. Clearing a cooldown does not touch the `dragon-fight` credit
+that opens the outer End; use `/asr credit` for that. The player is named as for
+`/asr credit`, online or offline.
+
 ## 6. Persisted state
 
 The plugin keeps its state in three places and nowhere else: its own folder, player
@@ -281,6 +298,7 @@ persistent data, and the persistent data of the extra dragons it spawns.
 | Reinforced dragon fights | `plugins/AntiSpeedrun/dragon-fights.yml`, one key `reinforced-fights.<world-uid>` per End world whose reinforcement window has run (time in epoch milliseconds) | Per End world |
 | Sealed resummon exits | `plugins/AntiSpeedrun/portal-locks.yml`, one key `locked-exits.<world-uid>` per End world whose exit basin was sealed | Per End world |
 | Personal credits | `plugins/AntiSpeedrun/personal-credits.yml`, one key `personal-credits.<player-uuid>.<credit>` per earned credit, including `dragon-fight` | Per player |
+| Dragon respawn cooldowns | `plugins/AntiSpeedrun/respawn-cooldowns.yml`, one key `last-victory.<player-uuid>` per player who has helped win a dragon fight (time in epoch milliseconds) | Per player |
 | Dragon fight contributors | `plugins/AntiSpeedrun/dragon-contributors.yml`, one key `fight-contributors.<world-uid>` per End world whose current fight has contributors, holding their UUIDs until the fight is won or abandoned | Per End world |
 | Extra dragon tag | Entity persistent data on each extra dragon, key `antispeedrun:n6_asr_secondary_dragon` | Per dragon |
 | Bypass grants | Player persistent data, key `antispeedrun:bypass-expires-at` | Per player |
@@ -312,6 +330,10 @@ own and are only read by the plugin.
   If it cannot be read, the plugin logs `SEVERE`, starts with nothing recorded and
   moves the damaged file aside as `dragon-fights.yml.corrupt-<yyyyMMdd-HHmmss>`
   before its next write, as for `state.yml` below.
+- `respawn-cooldowns.yml` is written the same way. Deleting it ends every respawn
+  cooldown at once and leaves every `dragon-fight` credit in place. If it cannot be read,
+  the plugin logs `SEVERE`, starts with no cooldowns and moves the damaged file aside
+  before its next write.
 - `dragon-contributors.yml` is written the same way. Deleting it during a fight means
   players who hit a dragon before then earn `dragon-fight` only if they hit one again
   before the fight is won. An entry for an End that was deleted mid-fight stays in the
@@ -341,8 +363,9 @@ To recover, fix or restore the file while the server is stopped and start again.
 ### 6.3 State file versions
 
 `state.yml`, `dragon-fights.yml`, `portal-locks.yml`, `explored-structures.yml`,
-`personal-credits.yml`, `brewed-effects.yml` and `dragon-contributors.yml` each start
-with `state-version: 1`, written by the plugin. Do not edit or remove it.
+`personal-credits.yml`, `brewed-effects.yml`, `dragon-contributors.yml` and
+`respawn-cooldowns.yml` each start with `state-version: 1`, written by the plugin. Do
+not edit or remove it.
 
 - A file with no `state-version` was written by 0.2.0 or earlier, whose format is
   version 1. On start the plugin adds the key, logs `Marked <file> as state-version 1`,

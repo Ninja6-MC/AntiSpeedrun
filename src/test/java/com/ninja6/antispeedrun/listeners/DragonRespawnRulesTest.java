@@ -24,7 +24,7 @@ class DragonRespawnRulesTest {
                 new PluginConfig.BossScaling(scaling, b.scaleResummonedDragons(), b.battlePrepSeconds(),
                         b.multiDragon(), b.exitPortalEgg(), b.skullDropChance(),
                         b.exitPortalLockDuringBattle(), b.exitPortalLockReleaseMinutes(),
-                        new PluginConfig.RespawnOnEntry(respawn)),
+                        new PluginConfig.RespawnOnEntry(respawn, 6.0D)),
                 base.antiCheese(), base.villagerProgression(), List.of());
     }
 

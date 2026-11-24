@@ -1,8 +1,10 @@
 package com.ninja6.antispeedrun.listeners;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
@@ -21,6 +23,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 import com.ninja6.antispeedrun.config.PluginConfig;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 
 /**
  * Starts vanilla's dragon respawn when an eligible player enters an End whose dragon is dead (#271).
@@ -52,8 +57,10 @@ import com.ninja6.antispeedrun.config.PluginConfig;
  * Nothing is persisted, so after a restart the battle's own state decides: a sequence a restart cut
  * short leaves the dragon dead and no respawn running, and the next entry starts it again.
  *
- * <p>Who may trigger is {@link DragonRespawnRules#triggers}, with the {@link RespawnCooldown}
- * given at construction; it is read on the entering player's region.
+ * <p>Who may trigger is {@link DragonRespawnRules#eligible} and the {@link RespawnCooldown} given at
+ * construction, read on the entering player's region. A player on cooldown starts nothing, and is
+ * told how long is left if the End they entered is dragonless. The cooldown running out while they
+ * are in the End starts nothing either: only a later entry does.
  */
 public final class DragonRespawnOnEntry {
 
@@ -91,11 +98,15 @@ public final class DragonRespawnOnEntry {
         if (world.getEnvironment() != World.Environment.THE_END || !DragonRespawnRules.armed(config)) {
             return;
         }
-        boolean onCooldown = cooldown.remaining(player.getUniqueId(), System.currentTimeMillis()).isPresent();
-        if (!DragonRespawnRules.triggers(player.getGameMode().name(), onCooldown)
+        if (!DragonRespawnRules.eligible(player.getGameMode().name())
                 // The gate's check of a login already in the End runs a tick after this, so its
                 // refusal mark is not there yet: ask the gate's verdict directly.
                 || !admittedToEnd.test(player, config)) {
+            return;
+        }
+        Optional<Duration> wait = cooldown.remaining(player.getUniqueId(), System.currentTimeMillis());
+        if (wait.isPresent()) {
+            tellIfDragonless(player, world, wait.get());
             return;
         }
         UUID id = world.getUID();
@@ -133,9 +144,35 @@ public final class DragonRespawnOnEntry {
         }
     }
 
+    /**
+     * A player on cooldown is told how long is left, but only when the End they entered actually
+     * needs a respawn, which only the battle's region can say. Nothing is claimed or started.
+     */
+    private void tellIfDragonless(Player player, World world, Duration wait) {
+        player.getScheduler().run(plugin, task -> world.getChunkAtAsync(0, 0).whenComplete((chunk, failure) ->
+                plugin.getServer().getRegionScheduler().execute(plugin, world, 0, 0, () -> {
+                    if (!needsRespawn(world)) {
+                        return;
+                    }
+                    player.getScheduler().run(plugin, told -> player.sendMessage(Component.text(
+                            "You helped defeat an Ender Dragon recently. You can wake the next one by "
+                                    + "entering the End in " + RespawnCooldownRules.describe(wait) + ".",
+                            NamedTextColor.GOLD)), null);
+                })), null);
+    }
+
     /** Forgets a world's claim when it unloads. */
     public void forget(UUID world) {
         claims.remove(world);
+    }
+
+    /** On the {@code (0, 0)} region: the battle's live state, as {@link DragonRespawnRules#needsRespawn}. */
+    private static boolean needsRespawn(World world) {
+        DragonBattle battle = world.getEnderDragonBattle();
+        boolean previouslyKilled = battle != null && battle.hasBeenPreviouslyKilled();
+        boolean alive = battle != null && battle.getEnderDragon() != null;
+        String phase = battle == null ? null : battle.getRespawnPhase().name();
+        return DragonRespawnRules.needsRespawn(battle != null, previouslyKilled, alive, phase);
     }
 
     /** On the {@code (0, 0)} region: reads the battle and starts the respawn if it needs one. */
@@ -144,10 +181,7 @@ public final class DragonRespawnOnEntry {
             return;
         }
         DragonBattle battle = world.getEnderDragonBattle();
-        boolean previouslyKilled = battle != null && battle.hasBeenPreviouslyKilled();
-        boolean alive = battle != null && battle.getEnderDragon() != null;
-        String phase = battle == null ? null : battle.getRespawnPhase().name();
-        if (!DragonRespawnRules.needsRespawn(battle != null, previouslyKilled, alive, phase)) {
+        if (!needsRespawn(world)) {
             return;
         }
         List<EnderCrystal> crystals = ritualCrystals(world, battle);

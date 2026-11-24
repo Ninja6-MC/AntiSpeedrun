@@ -583,8 +583,25 @@ and no respawn is running after the restart, so the next entry starts it again. 
 respawn starts only on entry. A player already in the End does not start one later
 without leaving and entering again.
 
+**The participant cooldown.** `respawn-on-entry.participant-cooldown-hours` (default `6`,
+decimals allowed, `0` turns it off) stops players who just helped win a fight from
+waking the next dragon straight away. Everyone who earns `dragon-fight` from a won fight
+([4.9.1](#491-the-personal-dragon-fight-requirement)) has that victory recorded. For the
+configured hours after it, their entry starts no respawn. If they enter an End whose
+dragon is dead, they are told how long is left. They can still join a fight someone else
+starts, and a fight already running is unaffected. A later won fight restarts the
+cooldown from its own victory, even while the earlier one is still running. Running out
+while the player is in the End starts nothing; their next entry can. The hours are read
+live, so a reload applies at once to every recorded victory. Victories are recorded per
+player in `respawn-cooldowns.yml` and survive restarts, other End worlds and daily End
+replacement. The cooldown is separate from the `dragon-fight` credit. Its running out,
+or `/asr cooldown clear <player>`
+([administration.md](administration.md#57-dragon-respawn-cooldowns)), never removes
+that credit, and revoking the credit never clears the cooldown.
+
 Validation still applies:
 `battle-prep-seconds` and `exit-portal-lock-release-minutes` have minimum `0`,
+`respawn-on-entry.participant-cooldown-hours` must be `0` or more,
 `multi-dragon.multiplier` must be greater than `0.0`, `multi-dragon.max-dragons` has
 minimum `1`, and `rounding-mode` and `placement-mode` must be one of their options.
 
