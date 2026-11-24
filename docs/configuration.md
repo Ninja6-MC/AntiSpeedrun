@@ -22,7 +22,7 @@ configurations. Updating never replaces an existing `config.yml`.
 | `progress-card` | Live | How `/progress` renders. |
 | `journey-book` | Live | The Journey Guide Book. |
 | `boss-scaling` | Live (ships off) | The multi-dragon fight, the resummoned-fight exit portal lock and the dragon trophies. `enabled` is `false` by default. |
-| `anti-cheese` | Live (new rules ship off) | The Eye of Ender block is on by default. The single-hit cap, the exit portal crystal block, the bed and anchor damage block and the Outer End boundary are off by default. |
+| `anti-cheese` | Live | The Eye of Ender block and the personal dragon-fight requirement for the outer End are on by default. The single-hit cap, the exit portal crystal block, the bed and anchor damage block and the first-kill outer End boundary are off by default. |
 | `villager-progression` | Live | Optional Mending trade gate. |
 
 "Partly live" means some keys in the section are parsed and validated at load but no
@@ -546,7 +546,8 @@ minimum `1`, and `rounding-mode` and `placement-mode` must be one of their optio
 | `block-early-eye-throwing` | `true` | Live. Refuse an Eye of Ender throw until the player has earned `minecraft:nether/find_fortress`. Setting an eye in an End portal frame is not a throw and is not affected. |
 | `early-eye-rejection-message` | A built-in message | Live. MiniMessage. |
 | `block-gateway-pre-dragon` | `false` | Live. Hold players inside `outer-end-radius` of the origin in an End until that world's first dragon has been killed. Refuses ender pearls and chorus fruit that would land beyond it, and a poll every `outer-end-poll-seconds` sends anyone found beyond it (bridging, Elytra, Wind Charges) back to the last position they held inside. Creative and spectator players and holders of `antispeedrun.bypass.anticheese` or a bypass grant are exempt. Off by default for now; once the first dragon is killed the outer End stays open. Also needs `enabled`. |
-| `outer-end-radius`, `outer-end-poll-seconds` | `500`, `2` | Live with `block-gateway-pre-dragon`. Both have minimum `1`. |
+| `outer-end-requires-dragon-fight` | `true` | Live. Hold each player inside `outer-end-radius` of the origin in every End until they hold the `dragon-fight` credit, whoever killed that world's dragon. See [4.9.1](#491-the-personal-dragon-fight-requirement). Also needs `enabled`. |
+| `outer-end-radius`, `outer-end-poll-seconds` | `500`, `2` | Live with `block-gateway-pre-dragon` or `outer-end-requires-dragon-fight`. Both have minimum `1`. Keep the radius at `12` or more: a player with no remembered position inside is returned to a column 11 blocks from the origin. |
 | `cap-single-hit-boss-damage` | `false` | Live. Enforces `max-single-hit-boss-damage` against the Ender Dragon and the Wither. Off by default. |
 | `max-single-hit-boss-damage` | `12.0` | Live when `cap-single-hit-boss-damage` is `true`. The most a single hit may do after armour and resistance. A time-to-kill budget: against the dragon's 200 HP, `12.0` is roughly a 17-hit fight. Hits on the dragon's parts count, and hits landing in the same tick share one cap, so a stack of explosions removes at most this much. `/kill` is not capped. |
 | `block-exit-portal-crystal-place` | `false` | Live. Refuses an End Crystal placed on the exit portal's centre column, block (0, 0) of an End world, which duplicates crystals. The four crystals of the resummon ritual go on the portal rim, at (+-3, 0) and (0, +-3), and are not affected. Holders of `antispeedrun.bypass.anticheese` or a bypass grant are exempt. Off by default for now. Also needs `enabled`. |
@@ -555,6 +556,58 @@ minimum `1`, and `rounding-mode` and `placement-mode` must be one of their optio
 The early Eye block is waived by `antispeedrun.bypass.anticheese`, an `/asr bypass`
 grant, or `/asr unlock end`. The damage cap is waived for a hit caused by a player with
 `antispeedrun.bypass.anticheese` or an `/asr bypass` grant.
+
+#### 4.9.1 The personal dragon-fight requirement
+
+With `outer-end-requires-dragon-fight` on, a player stays inside `outer-end-radius` of an
+End's origin until they hold the `dragon-fight` credit. Another player's kill does not
+release them, and nor does the world's dragon having died before they arrived. The credit
+is per player, not per world, so one fight won in any End opens the outer End of every End,
+including a replacement End created later. It is kept in `personal-credits.yml` and
+survives restarts.
+
+**Earning it.** Every real player who deals positive, uncancelled damage to any Ender
+Dragon of a fight earns `dragon-fight` when that fight is won: when its primary dragon
+dies. Damage to the extra dragons of a scaled fight counts. Projectile damage counts for
+its shooter. Being nearby, a cancelled hit, a hit for zero, damage with no player behind
+it and players carrying `NPC` metadata earn nothing. An extra dragon's death does not win
+the fight: the primary cannot die while one lives. The world's first fight, a fight
+resummoned with four End crystals and a fight scaled by `boss-scaling` all count, with or
+without `boss-scaling.enabled`. Contributors waiting for a fight to be won are kept per
+End world in `dragon-contributors.yml`, so a restart mid-fight loses nothing. A primary
+removed by another plugin, rather than killed, abandons its fight and its contributors
+earn nothing. Recording runs while the rule is off. A dragon summoned by command in an End
+is treated as that End's fight.
+
+**What is blocked.** Ender pearls and chorus fruit that would land beyond the radius are
+refused; the player keeps nothing but the throw. Everything else, such as walking,
+bridging, Elytra, Wind Charges, End gateways entered on foot or by pearl, and a command
+or another plugin's teleport, is caught by a poll every `outer-end-poll-seconds` that
+sends the player back to the last position they held inside. A player found outside with
+no such position, after logging in out there, losing the credit out there or the rule
+being switched on while they were out there, goes to standing ground beside the exit
+portal. If there is none, the player goes to the Overworld spawn and the log says so.
+
+**Who is exempt.** Creative and spectator players, holders of
+`antispeedrun.bypass.anticheese`, and players with an `/asr bypass` grant. An End world
+with no dragon battle holds nobody.
+
+**Granting and revoking.** `/asr credit grant <player> dragon-fight` qualifies a player;
+`/asr credit revoke <player> dragon-fight` removes the credit, and the next poll returns
+them if they are outside. See [administration.md](administration.md#56-personal-credits).
+
+**Turning it off.** `false` removes the personal requirement at the next `/asr reload`.
+Credits already earned are kept, so switching it back on later does not hold anyone who
+had qualified. The rule is independent of `block-gateway-pre-dragon`, which keeps holding
+everyone until that world's first dragon dies, and of item progression and `boss-scaling`.
+
+**Upgrading.** A `config.yml` without the key reads it as `true`, so the rule applies as
+soon as the new version starts; add `outer-end-requires-dragon-fight: false` under
+`anti-cheese` first to keep the outer End open. Nobody holds the credit for fights won
+before the upgrade, because no contributor was recorded then. Grant it with
+`/asr credit grant` to players who have already fought the dragon, or they will be held
+until they help win another fight. An explicit `false` is never changed by an upgrade or a
+reload.
 
 ### 4.10 `villager-progression`
 

@@ -99,7 +99,7 @@ class CreditArgumentTest {
         void words() {
             assertEquals(List.of("mine-stone", "mined-iron", "smelted-iron", "iron-tools",
                     "upgrade-tools", "mine-diamond", "obtain-blaze-rod", "kill-shulker", "kill-wither",
-                    "kill-evoker", "elytra", "smelt-iron", "all"),
+                    "kill-evoker", "elytra", "dragon-fight", "smelt-iron", "all"),
                     CreditArgument.creditWords());
             for (String word : CreditArgument.creditWords()) {
                 assertTrue(CreditArgument.credits(word).isPresent(), word);

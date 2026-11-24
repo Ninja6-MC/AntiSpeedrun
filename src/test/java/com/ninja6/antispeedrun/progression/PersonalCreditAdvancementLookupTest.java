@@ -201,7 +201,7 @@ class PersonalCreditAdvancementLookupTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = PersonalCredit.class, names = {"KILL_SHULKER", "KILL_WITHER", "KILL_EVOKER"},
+    @EnumSource(value = PersonalCredit.class, names = {"KILL_SHULKER", "KILL_WITHER", "KILL_EVOKER", "DRAGON_FIGHT"},
             mode = EnumSource.Mode.EXCLUDE)
     @DisplayName("UNRESOLVABLE passes through, credit or not")
     void unresolvablePassesThrough(PersonalCredit credit) {

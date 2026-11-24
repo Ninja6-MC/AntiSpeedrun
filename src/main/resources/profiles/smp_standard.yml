@@ -238,7 +238,8 @@ anti-cheese:
   early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
   block-exit-portal-crystal-place: false
   block-gateway-pre-dragon: false      # Off until the v0.2.0 playtest. Block bridging, pearling & chorus fruit to the Outer End
-  outer-end-radius: 500                # Boundary enforced until the world's first dragon dies
+  outer-end-requires-dragon-fight: true   # Each player helps win a dragon fight before the outer End
+  outer-end-radius: 500                # The dragon area the two rules above hold players inside
   outer-end-poll-seconds: 2            # EntityScheduler bounds poll; also catches Wind Charge jumps
 
 # 8. Villager Progression

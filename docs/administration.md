@@ -125,7 +125,7 @@ refuse, and `/progress` points at `/asr inspect <player>`.
 | `antispeedrun.bypass` | false | Parent of the three bypass nodes below. |
 | `antispeedrun.bypass.gates` | false | Exempt from dimension gates (foot, vehicle and stasis access) and the Dragon's Breath bottling gate. |
 | `antispeedrun.bypass.items` | false | Exempt from item pickup, dispenser, container and Allay restrictions, and Dragon's Breath bottling. |
-| `antispeedrun.bypass.anticheese` | false | Exempt from the early Eye of Ender throw block, and from the single-hit boss damage cap on hits the player causes. |
+| `antispeedrun.bypass.anticheese` | false | Exempt from the early Eye of Ender throw block, the outer End boundary, the exit portal crystal block, and the single-hit boss damage cap on hits the player causes. |
 | `antispeedrun.credit.required` | false | With `item-progression.personal-credit-scope: PERMISSION`, the players `require-personal-credit` applies to. Everyone else is gated on vanilla advancements. Ignored under the default scope `ALL`. |
 
 ### 4.2 Why operator status does not grant a bypass
@@ -255,7 +255,10 @@ missing (advancements, playtime, tenure). It reads the live configuration.
 Grants or revokes the personal-action credits that stand in for the possession-triggered
 gate advancements (`docs/provenance-model.md`, Amendment). The credits are `mine-stone`,
 `mined-iron`, `smelted-iron`, `iron-tools`, `upgrade-tools`, `mine-diamond` and
-`obtain-blaze-rod`; underscores work in place of hyphens. `smelt-iron` names both
+`obtain-blaze-rod`, the kill credits `kill-shulker`, `kill-wither` and `kill-evoker`,
+`elytra`, and `dragon-fight`, which opens the outer End
+([configuration.md](configuration.md#491-the-personal-dragon-fight-requirement));
+underscores work in place of hyphens. `smelt-iron` names both
 sub-credits of `story/smelt_iron`, and `all` names every credit. An unknown credit,
 action or extra word is refused and changes nothing.
 
@@ -277,6 +280,8 @@ persistent data, and the persistent data of the extra dragons it spawns.
 | Dimension unlocks | `plugins/AntiSpeedrun/state.yml`, keys `dimension-unlocks.nether` and `dimension-unlocks.the_end` (unlock time in epoch milliseconds) | Server-wide |
 | Reinforced dragon fights | `plugins/AntiSpeedrun/dragon-fights.yml`, one key `reinforced-fights.<world-uid>` per End world whose reinforcement window has run (time in epoch milliseconds) | Per End world |
 | Sealed resummon exits | `plugins/AntiSpeedrun/portal-locks.yml`, one key `locked-exits.<world-uid>` per End world whose exit basin was sealed | Per End world |
+| Personal credits | `plugins/AntiSpeedrun/personal-credits.yml`, one key `personal-credits.<player-uuid>.<credit>` per earned credit, including `dragon-fight` | Per player |
+| Dragon fight contributors | `plugins/AntiSpeedrun/dragon-contributors.yml`, one key `fight-contributors.<world-uid>` per End world whose current fight has contributors, holding their UUIDs until the fight is won or abandoned | Per End world |
 | Extra dragon tag | Entity persistent data on each extra dragon, key `antispeedrun:n6_asr_secondary_dragon` | Per dragon |
 | Bypass grants | Player persistent data, key `antispeedrun:bypass-expires-at` | Per player |
 | Journey book delivered flag | Player persistent data, key `antispeedrun:journey-book-delivered` | Per player |
@@ -307,6 +312,11 @@ own and are only read by the plugin.
   If it cannot be read, the plugin logs `SEVERE`, starts with nothing recorded and
   moves the damaged file aside as `dragon-fights.yml.corrupt-<yyyyMMdd-HHmmss>`
   before its next write, as for `state.yml` below.
+- `dragon-contributors.yml` is written the same way. Deleting it during a fight means
+  players who hit a dragon before then earn `dragon-fight` only if they hit one again
+  before the fight is won. An entry for an End that was deleted mid-fight stays in the
+  file and matches no world. If it cannot be read, the plugin logs `SEVERE`, starts with
+  no contributors recorded and moves the damaged file aside before its next write.
 - `portal-locks.yml` is written before a resummon exit is sealed. If the server or
   plugin stops mid-fight, the next enable restores the active portal on its owning
   region, then removes the marker. Keep this file with the world during backup and
@@ -330,9 +340,9 @@ To recover, fix or restore the file while the server is stopped and start again.
 
 ### 6.3 State file versions
 
-`state.yml`, `dragon-fights.yml`, `portal-locks.yml`, `explored-structures.yml` and
-`personal-credits.yml` each start with `state-version: 1`, written by the plugin. Do not
-edit or remove it.
+`state.yml`, `dragon-fights.yml`, `portal-locks.yml`, `explored-structures.yml`,
+`personal-credits.yml`, `brewed-effects.yml` and `dragon-contributors.yml` each start
+with `state-version: 1`, written by the plugin. Do not edit or remove it.
 
 - A file with no `state-version` was written by 0.2.0 or earlier, whose format is
   version 1. On start the plugin adds the key, logs `Marked <file> as state-version 1`,

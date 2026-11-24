@@ -224,6 +224,7 @@ anti-cheese:
   early-eye-rejection-message: "<red>🔒 Your Eye of Ender will not fly yet! Find a <yellow>Nether Fortress<red> first. Type <gold>/progress"
   block-exit-portal-crystal-place: false
   block-gateway-pre-dragon: false
+  outer-end-requires-dragon-fight: true   # Each player helps win a dragon fight before the outer End
   outer-end-radius: 250
   outer-end-poll-seconds: 3
 

@@ -22,7 +22,7 @@ class BedAnchorDamageRulesTest {
                 new PluginConfig.AntiCheese(enabled, block,
                         a.capSingleHitBossDamage(), a.maxSingleHitBossDamage(),
                         a.blockEarlyEyeThrowing(), a.earlyEyeRejectionMessage(), a.blockExitPortalCrystalPlace(),
-                        a.blockGatewayPreDragon(), a.outerEndRadius(), a.outerEndPollSeconds()),
+                        a.blockGatewayPreDragon(), a.outerEndRequiresDragonFight(), a.outerEndRadius(), a.outerEndPollSeconds()),
                 base.villagerProgression(), List.of());
     }
 

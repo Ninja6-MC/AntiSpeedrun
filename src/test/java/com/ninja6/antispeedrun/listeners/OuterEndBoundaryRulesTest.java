@@ -1,6 +1,5 @@
 package com.ninja6.antispeedrun.listeners;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -14,12 +13,17 @@ import org.junit.jupiter.api.Test;
 import com.ninja6.antispeedrun.config.PluginConfig;
 
 /**
- * The outer-End boundary's decisions (#26, Task 7.2.1). {@link OuterEndBoundaryListener} needs a
- * server, and stays untested for the reason {@link ItemGateRulesTest} records.
+ * The outer-End boundary's decisions: the world rule (#26, Task 7.2.1) and the personal rule
+ * (#278). {@link OuterEndBoundaryListener} needs a server, and stays untested for the reason
+ * {@link ItemGateRulesTest} records; the scripted-player probes cover it on real servers.
  */
 class OuterEndBoundaryRulesTest {
 
     private static PluginConfig with(boolean enabled, boolean gateway) {
+        return with(enabled, gateway, false);
+    }
+
+    private static PluginConfig with(boolean enabled, boolean gateway, boolean personal) {
         PluginConfig base = PluginConfig.defaults();
         PluginConfig.AntiCheese a = base.antiCheese();
         return new PluginConfig(base.profile(), base.dimensionGates(), base.itemProgression(),
@@ -28,7 +32,7 @@ class OuterEndBoundaryRulesTest {
                 new PluginConfig.AntiCheese(enabled, a.blockBedAnchorBossDamage(),
                         a.capSingleHitBossDamage(), a.maxSingleHitBossDamage(), a.blockEarlyEyeThrowing(),
                         a.earlyEyeRejectionMessage(), a.blockExitPortalCrystalPlace(), gateway,
-                        a.outerEndRadius(), a.outerEndPollSeconds()),
+                        personal, a.outerEndRadius(), a.outerEndPollSeconds()),
                 base.villagerProgression(), List.of());
     }
 
@@ -37,28 +41,118 @@ class OuterEndBoundaryRulesTest {
     class Armed {
 
         @Test
-        @DisplayName("the shipped configuration leaves the boundary off")
-        void offByDefault() {
-            assertFalse(PluginConfig.defaults().antiCheese().blockGatewayPreDragon());
-            assertFalse(OuterEndBoundaryRules.armed(PluginConfig.defaults()));
+        @DisplayName("the shipped configuration leaves the world rule off and the personal rule on")
+        void defaults() {
+            PluginConfig shipped = PluginConfig.defaults();
+            assertFalse(shipped.antiCheese().blockGatewayPreDragon());
+            assertTrue(shipped.antiCheese().outerEndRequiresDragonFight());
+            assertFalse(OuterEndBoundaryRules.worldRuleArmed(shipped));
+            assertTrue(OuterEndBoundaryRules.personalRuleArmed(shipped));
+            assertTrue(OuterEndBoundaryRules.armed(shipped));
         }
 
         @Test
-        @DisplayName("it needs both the rule and the anti-cheese master switch")
-        void needsBoth() {
-            assertTrue(OuterEndBoundaryRules.armed(with(true, true)));
-            assertFalse(OuterEndBoundaryRules.armed(with(true, false)));
-            assertFalse(OuterEndBoundaryRules.armed(with(false, true)));
+        @DisplayName("the world rule needs both its key and the anti-cheese master switch")
+        void worldNeedsBoth() {
+            assertTrue(OuterEndBoundaryRules.worldRuleArmed(with(true, true)));
+            assertFalse(OuterEndBoundaryRules.worldRuleArmed(with(true, false)));
+            assertFalse(OuterEndBoundaryRules.worldRuleArmed(with(false, true)));
+        }
+
+        @Test
+        @DisplayName("the personal rule needs both its key and the anti-cheese master switch")
+        void personalNeedsBoth() {
+            assertTrue(OuterEndBoundaryRules.personalRuleArmed(with(true, false, true)));
+            assertFalse(OuterEndBoundaryRules.personalRuleArmed(with(true, true, false)));
+            assertFalse(OuterEndBoundaryRules.personalRuleArmed(with(false, false, true)));
+        }
+
+        @Test
+        @DisplayName("the boundary is armed by either rule and by neither when both are off")
+        void either() {
+            assertTrue(OuterEndBoundaryRules.armed(with(true, true, false)));
+            assertTrue(OuterEndBoundaryRules.armed(with(true, false, true)));
+            assertFalse(OuterEndBoundaryRules.armed(with(true, false, false)));
+            assertFalse(OuterEndBoundaryRules.armed(with(false, true, true)));
         }
     }
 
-    @Test
-    @DisplayName("the boundary is up only once the flag has been read and shows no kill")
-    void lockedNeedsAKnownFlag() {
-        assertFalse(OuterEndBoundaryRules.locked(false, false));
-        assertFalse(OuterEndBoundaryRules.locked(false, true));
-        assertFalse(OuterEndBoundaryRules.locked(true, true));
-        assertTrue(OuterEndBoundaryRules.locked(true, false));
+    @Nested
+    @DisplayName("who is held, by which rule")
+    class Holds {
+
+        private final PluginConfig both = with(true, true, true);
+        private final PluginConfig personalOnly = with(true, false, true);
+        private final PluginConfig worldOnly = with(true, true, false);
+
+        @Test
+        @DisplayName("an unread world or one with no battle holds nobody")
+        void unknownOrNoBattle() {
+            assertEquals(OuterEndBoundaryRules.Hold.NONE,
+                    OuterEndBoundaryRules.hold(both, false, false, true, false));
+            assertEquals(OuterEndBoundaryRules.Hold.NONE,
+                    OuterEndBoundaryRules.hold(both, true, true, false, false));
+        }
+
+        @Test
+        @DisplayName("before the first kill the world rule holds everyone, qualified or not")
+        void worldFirst() {
+            assertEquals(OuterEndBoundaryRules.Hold.WORLD,
+                    OuterEndBoundaryRules.hold(both, true, false, true, false));
+            assertEquals(OuterEndBoundaryRules.Hold.WORLD,
+                    OuterEndBoundaryRules.hold(worldOnly, true, false, true, true));
+        }
+
+        @Test
+        @DisplayName("someone else's kill does not release an unqualified player")
+        void anotherPlayersKill() {
+            assertEquals(OuterEndBoundaryRules.Hold.PERSONAL,
+                    OuterEndBoundaryRules.hold(both, true, true, true, false));
+            assertEquals(OuterEndBoundaryRules.Hold.PERSONAL,
+                    OuterEndBoundaryRules.hold(personalOnly, true, true, true, false));
+        }
+
+        @Test
+        @DisplayName("the personal rule holds an unqualified player even before the first kill")
+        void personalBeforeKill() {
+            assertEquals(OuterEndBoundaryRules.Hold.PERSONAL,
+                    OuterEndBoundaryRules.hold(personalOnly, true, false, true, false));
+        }
+
+        @Test
+        @DisplayName("a qualified player is released once the world rule is satisfied or off")
+        void qualified() {
+            assertEquals(OuterEndBoundaryRules.Hold.NONE,
+                    OuterEndBoundaryRules.hold(both, true, true, true, true));
+            assertEquals(OuterEndBoundaryRules.Hold.NONE,
+                    OuterEndBoundaryRules.hold(personalOnly, true, false, true, true));
+        }
+
+        @Test
+        @DisplayName("turning the personal rule off leaves the world rule as configured")
+        void independent() {
+            assertEquals(OuterEndBoundaryRules.Hold.NONE,
+                    OuterEndBoundaryRules.hold(worldOnly, true, true, true, false));
+            assertEquals(OuterEndBoundaryRules.Hold.WORLD,
+                    OuterEndBoundaryRules.hold(worldOnly, true, false, true, false));
+            assertEquals(OuterEndBoundaryRules.Hold.NONE,
+                    OuterEndBoundaryRules.hold(with(true, false, false), true, false, true, false));
+        }
+
+        @Test
+        @DisplayName("the master switch turns both rules off")
+        void master() {
+            assertEquals(OuterEndBoundaryRules.Hold.NONE,
+                    OuterEndBoundaryRules.hold(with(false, true, true), true, false, true, false));
+        }
+
+        @Test
+        @DisplayName("only NONE lets a player out")
+        void held() {
+            assertFalse(OuterEndBoundaryRules.Hold.NONE.held());
+            assertTrue(OuterEndBoundaryRules.Hold.WORLD.held());
+            assertTrue(OuterEndBoundaryRules.Hold.PERSONAL.held());
+        }
     }
 
     @Nested
@@ -87,21 +181,10 @@ class OuterEndBoundaryRulesTest {
             assertTrue(OuterEndBoundaryRules.outside(300, 0, 250));
             assertFalse(OuterEndBoundaryRules.outside(300, 0, 1000));
         }
-
-        @Test
-        @DisplayName("edge pulls a point back inside along the line to the origin")
-        void edge() {
-            double[] p = OuterEndBoundaryRules.edge(1000, 0, 500);
-            assertArrayEquals(new double[] {498, 0}, p, 1e-9);
-            double[] d = OuterEndBoundaryRules.edge(0, -2000, 500);
-            assertArrayEquals(new double[] {0, -498}, d, 1e-9);
-            assertFalse(OuterEndBoundaryRules.outside(p[0], p[1], 500));
-            assertArrayEquals(new double[] {0, 0}, OuterEndBoundaryRules.edge(0, 0, 500), 0);
-        }
     }
 
     @Nested
-    @DisplayName("who is held")
+    @DisplayName("who the rules apply to")
     class Applies {
 
         @Test
@@ -135,7 +218,7 @@ class OuterEndBoundaryRulesTest {
         }
 
         @Test
-        @DisplayName("a landing beyond the radius is refused only while locked")
+        @DisplayName("a landing beyond the radius is refused only while the player is held")
         void refuses() {
             assertTrue(OuterEndBoundaryRules.refuses(true, 600, 0, 500));
             assertFalse(OuterEndBoundaryRules.refuses(true, 400, 0, 500));
@@ -148,7 +231,7 @@ class OuterEndBoundaryRulesTest {
     class Poll {
 
         @Test
-        @DisplayName("forgets everything once the world is unlocked")
+        @DisplayName("forgets everything once the player is not held")
         void unlocked() {
             assertEquals(OuterEndBoundaryRules.Poll.FORGET,
                     OuterEndBoundaryRules.poll(false, 900, 0, 500, true));
@@ -162,12 +245,29 @@ class OuterEndBoundaryRulesTest {
         }
 
         @Test
-        @DisplayName("sends a crosser back to the last inside position, or the edge if none")
+        @DisplayName("sends a crosser back to the last inside position, or to the dragon area if none")
         void crossed() {
             assertEquals(OuterEndBoundaryRules.Poll.RETURN_TO_LAST,
                     OuterEndBoundaryRules.poll(true, 520, 0, 500, true));
-            assertEquals(OuterEndBoundaryRules.Poll.RETURN_TO_EDGE,
+            assertEquals(OuterEndBoundaryRules.Poll.RETURN_TO_DRAGON_AREA,
                     OuterEndBoundaryRules.poll(true, 520, 0, 500, false));
+        }
+
+        @Test
+        @DisplayName("the safe column and the cells its search reads lie in chunk (0, 0), clear of the exit portal")
+        void safeColumn() {
+            int x = OuterEndBoundaryRules.SAFE_COLUMN_X;
+            int z = OuterEndBoundaryRules.SAFE_COLUMN_Z;
+            // The ground search looks three blocks round a candidate.
+            assertEquals(0, (x - 3) >> 4);
+            assertEquals(0, (x + 3) >> 4);
+            assertEquals(0, (z - 3) >> 4);
+            assertEquals(0, (z + 3) >> 4);
+            // The exit portal and its rim lie within four blocks of the origin.
+            assertTrue(Math.max(Math.abs(x), Math.abs(z)) - 3 > 4);
+            // Inside the smallest radius any preset ships.
+            assertFalse(OuterEndBoundaryRules.outside(x, z, 250));
+            assertTrue(OuterEndBoundaryRules.outside(x, z, 11));
         }
     }
 }

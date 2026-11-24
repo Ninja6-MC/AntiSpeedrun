@@ -37,6 +37,13 @@ class CreditedActionsTest {
     }
 
     @Test
+    void dragonFightHasActionWording() {
+        String key = com.ninja6.antispeedrun.storage.PersonalCredit.DRAGON_FIGHT.requirementKey();
+        assertEquals("help defeat an Ender Dragon", CreditedActions.action(key, ITEMS).orElseThrow());
+        assertTrue(CreditedActions.action(key, items(false, true)).isEmpty());
+    }
+
+    @Test
     @DisplayName("every credited advancement, and only those, has an action")
     void coversExactlyTheCreditedKeys() {
         for (String key : PossessionAdvancements.POSSESSION_TRIGGERED) {

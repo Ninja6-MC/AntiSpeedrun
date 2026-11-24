@@ -23,7 +23,7 @@ class DamageCapRulesTest {
                 new PluginConfig.AntiCheese(enabled, a.blockBedAnchorBossDamage(), cap, max,
                         a.blockEarlyEyeThrowing(), a.earlyEyeRejectionMessage(),
                         a.blockExitPortalCrystalPlace(), a.blockGatewayPreDragon(),
-                        a.outerEndRadius(), a.outerEndPollSeconds()),
+                        a.outerEndRequiresDragonFight(), a.outerEndRadius(), a.outerEndPollSeconds()),
                 base.villagerProgression(), List.of());
     }
 

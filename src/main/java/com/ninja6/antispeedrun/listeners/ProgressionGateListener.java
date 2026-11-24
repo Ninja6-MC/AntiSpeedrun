@@ -1423,7 +1423,7 @@ public final class ProgressionGateListener implements Listener {
      * {@link #UNFIT_LANDINGS}, including the portal blocks. Composing the three is
      * {@link SafeRetreat}'s job, where a test can reach it.
      */
-    private static SafeRetreat.Terrain terrainOf(World world) {
+    static SafeRetreat.Terrain terrainOf(World world) {
         return new SafeRetreat.Terrain() {
             /**
              * Both halves are load-bearing and neither implies the other.

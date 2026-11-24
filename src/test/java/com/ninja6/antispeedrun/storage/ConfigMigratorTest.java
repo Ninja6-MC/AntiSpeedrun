@@ -129,10 +129,13 @@ class ConfigMigratorTest {
         assertFalse(migrated.antiCheese().blockExitPortalCrystalPlace());
         assertFalse(migrated.antiCheese().blockGatewayPreDragon());
         assertFalse(migrated.antiCheese().capSingleHitBossDamage());
+        // Absent from every v0.1.x file, so it reads as its default: on (#278).
+        assertTrue(migrated.antiCheese().outerEndRequiresDragonFight());
         PluginConfig.AntiCheese was = old.antiCheese();
         assertEquals(new PluginConfig.AntiCheese(was.enabled(), false, false,
                 was.maxSingleHitBossDamage(), was.blockEarlyEyeThrowing(),
-                was.earlyEyeRejectionMessage(), false, false, was.outerEndRadius(),
+                was.earlyEyeRejectionMessage(), false, false, was.outerEndRequiresDragonFight(),
+                was.outerEndRadius(),
                 was.outerEndPollSeconds()), migrated.antiCheese());
     }
 

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Personal `dragon-fight` credit for every eligible player who deals positive,
+  uncancelled damage to a dragon of a fight that is then won, including extra dragons of
+  a scaled fight and offline contributors. A secondary dragon's death does not complete a
+  fight. Pending contributors survive restarts in `dragon-contributors.yml`.
+- `anti-cheese.outer-end-requires-dragon-fight`, on by default and when absent, holds each
+  player without `dragon-fight` inside `outer-end-radius` in every End, whoever killed that
+  world's dragon. Pearls and chorus fruit are refused; walking, bridging, Elytra, gateways,
+  commands and plugin teleports are returned by the bounds poll. Existing servers should
+  grant `dragon-fight` to players who fought the dragon before upgrading, or set the key to
+  `false`.
+
+### Changed
+- A player found beyond the outer End boundary with no remembered position inside is
+  returned to standing ground beside the exit portal instead of the boundary's edge.
+
 ### Fixed
 - A dispenser retains gated armor refused for an unqualified player, including on
   servers that fall back to dropping armor after an equip refusal.

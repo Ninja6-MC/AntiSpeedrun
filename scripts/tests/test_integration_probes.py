@@ -11,6 +11,7 @@ import harness  # noqa: E402
 import credits  # noqa: E402
 import probes  # noqa: E402
 import trims  # noqa: E402
+import outer_end  # noqa: E402
 import run as integration_run  # noqa: E402
 
 CONFIG = """\
@@ -50,6 +51,31 @@ class SetRulesTest(unittest.TestCase):
 
     def test_reads_the_configured_cap(self):
         self.assertEqual(anti_cheese.configured_cap(CONFIG), 12.0)
+
+
+class OuterEndRulesTest(unittest.TestCase):
+    SHIPPED = Path(__file__).resolve().parents[2] / "src" / "main" / "resources" / "config.yml"
+
+    def edited(self, personal, world):
+        probe = outer_end.OuterEndProbes.__new__(outer_end.OuterEndProbes)
+        captured = {}
+        probe.reload = lambda edit: captured.setdefault("text", edit(self.SHIPPED.read_text(encoding="utf-8")))
+        probe.rules(personal, world)
+        return captured["text"]
+
+    def test_switches_the_personal_rule_and_leaves_the_world_rule_off(self):
+        off = self.edited(False, False)
+        self.assertIn("  outer-end-requires-dragon-fight: false\n", off)
+        self.assertIn("  block-gateway-pre-dragon: false\n", off)
+        on = self.edited(True, False)
+        self.assertIn("  outer-end-requires-dragon-fight: true\n", on)
+
+    def test_the_shipped_file_has_the_personal_rule_on(self):
+        self.assertIn("  outer-end-requires-dragon-fight: true\n", self.SHIPPED.read_text(encoding="utf-8"))
+
+    def test_runs_last(self):
+        self.assertIs(integration_run.MODULES[-1], outer_end)
+        self.assertIn("outer_end", integration_run.PROBES)
 
 
 class ParseDamageTest(unittest.TestCase):
