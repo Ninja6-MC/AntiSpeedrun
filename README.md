@@ -76,7 +76,9 @@ step, adds optional anti-cheese rules, and can scale the Ender Dragon fight to t
   `multi-dragon.enabled`, `multiplier`, `rounding-mode`, `max-dragons`), with the original
   dragon held until the extra ones are dead so the fight ends in one victory. The
   `multi-dragon.balanced-xp` option sets each extra dragon's reward to 1,000 XP;
-  turning it off retains the earlier 500 XP cap. Ships off: `boss-scaling.enabled` is
+  turning it off retains the earlier 500 XP cap. `multi-dragon.reset-towers-on-scale`
+  (default `false`) restores the pillar crystals and cages when the extra dragons spawn.
+  Ships off: `boss-scaling.enabled` is
   `false` and must be set to `true`.
 - **Armor trim and smithing template gating** (`trim-progression`) -- ships off
   (`enabled: false`). When enabled, duplicating a trim template in a crafting table

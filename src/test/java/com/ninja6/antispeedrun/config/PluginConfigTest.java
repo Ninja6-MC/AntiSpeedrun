@@ -235,6 +235,7 @@ class PluginConfigTest {
             assertEquals(PluginConfig.RoundingMode.HALF_UP, c.bossScaling().multiDragon().roundingMode());
             assertEquals(5, c.bossScaling().multiDragon().maxDragons());
             assertTrue(c.bossScaling().multiDragon().balancedXp());
+            assertFalse(c.bossScaling().multiDragon().resetTowersOnScale());
             assertEquals(PluginConfig.PlacementMode.TOP_PILLAR,
                     c.bossScaling().exitPortalEgg().placementMode());
 
@@ -516,6 +517,21 @@ class PluginConfigTest {
 
             assertTrue(config.bossScaling().multiDragon().enabled());
             assertFalse(config.bossScaling().multiDragon().balancedXp());
+        }
+
+        @Test
+        @DisplayName("reset-towers-on-scale is off when absent and can be turned on")
+        void resetTowersOnScale() throws Exception {
+            assertFalse(PluginConfig.from(yaml("boss-scaling:\n  enabled: true\n"))
+                    .bossScaling().multiDragon().resetTowersOnScale());
+
+            PluginConfig config = PluginConfig.from(yaml("""
+                    boss-scaling:
+                      multi-dragon:
+                        reset-towers-on-scale: true
+                    """));
+            assertTrue(config.bossScaling().multiDragon().resetTowersOnScale());
+            assertFalse(mentions(config.warnings(), "reset-towers-on-scale"));
         }
 
         @Test

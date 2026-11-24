@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   grant `dragon-fight` to players who fought the dragon before upgrading, or set the key to
   `false`.
 
+- `boss-scaling.multi-dragon.reset-towers-on-scale`, off by default, restores every End
+  pillar's crystal and cage when a reinforcement window spawns extra dragons, in the first
+  fight and in resummoned ones. Obsidian and player blocks are left alone, a standing
+  crystal is not doubled, and a pillar with a player in its cage space waits until they
+  leave.
+
 ### Changed
 - A player found beyond the outer End boundary with no remembered position inside is
   returned to standing ground beside the exit portal instead of the boundary's edge.

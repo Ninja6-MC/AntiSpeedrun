@@ -317,6 +317,8 @@ boss-scaling:
     rounding-mode: "HALF_UP"           # Options: HALF_UP, CEIL, FLOOR
     max-dragons: 5
     balanced-xp: true                  # 1st dragon full XP, secondary dragons 1,000 XP
+    # Rebuilds each pillar's End crystal and iron-bar cage when extra dragons spawn.
+    reset-towers-on-scale: false
   exit-portal-egg:
     enabled: true
     placement-mode: "TOP_PILLAR"       # Options: TOP_PILLAR, ITEM_DROP, NONE

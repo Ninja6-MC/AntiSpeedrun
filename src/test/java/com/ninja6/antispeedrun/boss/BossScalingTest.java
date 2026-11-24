@@ -23,7 +23,7 @@ class BossScalingTest {
     private static final int[] CAPS = {1, 2, 3, 5, 10};
 
     private static PluginConfig.MultiDragon config(int hundredths, PluginConfig.RoundingMode mode, int max) {
-        return new PluginConfig.MultiDragon(true, hundredths / 100.0D, mode, max, true);
+        return new PluginConfig.MultiDragon(true, hundredths / 100.0D, mode, max, true, false);
     }
 
     /** {@code round(n * hundredths / 100)} in integers; the product is always a whole number of hundredths. */

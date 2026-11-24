@@ -43,7 +43,7 @@ class DragonReinforcementTest {
 
     private static PluginConfig.MultiDragon multi(boolean enabled, double multiplier,
             PluginConfig.RoundingMode mode, int max) {
-        return new PluginConfig.MultiDragon(enabled, multiplier, mode, max, true);
+        return new PluginConfig.MultiDragon(enabled, multiplier, mode, max, true, false);
     }
 
     @Nested
