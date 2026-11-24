@@ -583,7 +583,9 @@ is treated as that End's fight.
 refused; the player keeps nothing but the throw. Everything else, such as walking,
 bridging, Elytra, Wind Charges, End gateways entered on foot or by pearl, and a command
 or another plugin's teleport, is caught by a poll every `outer-end-poll-seconds` that
-sends the player back to the last position they held inside. A player found outside with
+sends the player back to the last position they stood on the ground inside. Positions in
+mid-air, gliding or flying are not remembered, so a return never drops anyone into the
+void. A player found outside with
 no such position, after logging in out there, losing the credit out there or the rule
 being switched on while they were out there, goes to standing ground beside the exit
 portal. If there is none, the player goes to the Overworld spawn and the log says so.

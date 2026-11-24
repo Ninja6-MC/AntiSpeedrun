@@ -146,6 +146,7 @@ class OuterEndProbes(CreditProbes):
     def credit_cases(self):
         self.arena(END, ARENA_X, ARENA_Y, ARENA_Z)
         self.run(f"give {self.player} minecraft:iron_sword")
+        self.wait_count("iron_sword", 1)
         self.client.request("hold", item="iron_sword")
 
         self.credit("revoke", "dragon-fight")

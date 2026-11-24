@@ -238,6 +238,15 @@ class OuterEndBoundaryRulesTest {
         }
 
         @Test
+        @DisplayName("keeps only standing ground as the place to return to")
+        void remembersStandingGround() {
+            assertTrue(OuterEndBoundaryRules.remembers(true, false, false));
+            assertFalse(OuterEndBoundaryRules.remembers(false, false, false));
+            assertFalse(OuterEndBoundaryRules.remembers(true, true, false));
+            assertFalse(OuterEndBoundaryRules.remembers(true, false, true));
+        }
+
+        @Test
         @DisplayName("remembers a position inside")
         void inside() {
             assertEquals(OuterEndBoundaryRules.Poll.REMEMBER,

@@ -145,13 +145,22 @@ public final class OuterEndBoundaryRules {
         return haveLastInside ? Poll.RETURN_TO_LAST : Poll.RETURN_TO_DRAGON_AREA;
     }
 
+    /**
+     * Whether a position the poll finds inside is worth remembering as the place to send the player
+     * back to: only one where they stand on the ground, not one in mid-air, gliding or flying,
+     * which over the End's void would drop them out of the world when they are returned to it.
+     */
+    public static boolean remembers(boolean onGround, boolean gliding, boolean flying) {
+        return onGround && !gliding && !flying;
+    }
+
     /** The poll's verdict on one player. */
     public enum Poll {
 
         /** Not held: nothing to track. */
         FORGET,
 
-        /** Inside: remember this position as the place to return to. */
+        /** Inside: remember this position as the place to return to, if it is standing ground. */
         REMEMBER,
 
         /** Outside, with a remembered inside position. */

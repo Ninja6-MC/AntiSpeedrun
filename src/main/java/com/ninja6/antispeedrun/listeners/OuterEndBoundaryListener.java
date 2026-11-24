@@ -42,8 +42,9 @@ import net.kyori.adventure.text.format.NamedTextColor;
  * nothing but the throw. Everything else that gets a player across, such as bridging, Elytra, Wind
  * Charge jumps, flying machines, End gateways, a command or another plugin's teleport, and a login
  * out there, is caught by a bounds poll on each player's own {@code EntityScheduler}, never by a
- * move event (finding R-07). The poll remembers the last position found inside and sends a crosser
- * back to it. With nothing remembered, it sends them to standing ground beside the exit portal.
+ * move event (finding R-07). The poll remembers the last position found inside on standing ground
+ * and sends a crosser back to it. With nothing remembered, it sends them to standing ground beside
+ * the exit portal.
  *
  * <h2>Folia</h2>
  *
@@ -176,7 +177,14 @@ public final class OuterEndBoundaryListener implements Listener {
         switch (OuterEndBoundaryRules.poll(hold.held(), at.getX(), at.getZ(), radius,
                 remembered != null)) {
             case FORGET -> lastInside.remove(player.getUniqueId());
-            case REMEMBER -> lastInside.put(player.getUniqueId(), at.clone());
+            case REMEMBER -> {
+                // Only standing ground: between the main island and the radius there is mostly
+                // void, so a position sampled mid-glide or mid-jump is no place to send anyone.
+                if (OuterEndBoundaryRules.remembers(player.isOnGround(), player.isGliding(),
+                        player.isFlying())) {
+                    lastInside.put(player.getUniqueId(), at.clone());
+                }
+            }
             case RETURN_TO_LAST -> sendBack(player, remembered, hold);
             case RETURN_TO_DRAGON_AREA -> returnToDragonArea(player, world);
         }
