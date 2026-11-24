@@ -432,13 +432,15 @@ public record PluginConfig(
                 "exit-portal-lock-release-minutes");
 
         ConfigReader multi = r.child("multi-dragon");
-        multi.expect("enabled", "multiplier", "rounding-mode", "max-dragons", "balanced-xp");
+        multi.expect("enabled", "multiplier", "rounding-mode", "max-dragons", "balanced-xp",
+                "reset-towers-on-scale");
         MultiDragon multiDragon = new MultiDragon(
                 multi.bool("enabled", true),
                 multi.positiveDecimal("multiplier", 0.5D),
                 multi.enumValue("rounding-mode", RoundingMode.class, RoundingMode.HALF_UP),
                 multi.atLeast("max-dragons", 5, 1),
-                multi.bool("balanced-xp", true));
+                multi.bool("balanced-xp", true),
+                multi.bool("reset-towers-on-scale", false));
 
         ConfigReader egg = r.child("exit-portal-egg");
         egg.expect("enabled", "placement-mode");
@@ -908,13 +910,16 @@ public record PluginConfig(
      * @param roundingMode default {@link RoundingMode#HALF_UP}
      * @param maxDragons   default {@code 5}
      * @param balancedXp   first dragon full XP, secondary dragons 1,000 XP; default {@code true}
+     * @param resetTowersOnScale rebuild every pillar's End crystal and cage when a window spawns
+     *                     extra dragons; default {@code false}
      */
     public record MultiDragon(
             boolean enabled,
             double multiplier,
             RoundingMode roundingMode,
             int maxDragons,
-            boolean balancedXp) {
+            boolean balancedXp,
+            boolean resetTowersOnScale) {
         public MultiDragon {
             Objects.requireNonNull(roundingMode, "roundingMode");
         }

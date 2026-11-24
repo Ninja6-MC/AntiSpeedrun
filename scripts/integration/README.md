@@ -107,6 +107,13 @@ below every fixture; the probe finds one from the world seed with vanilla's plac
 | `trim_ancient_city` | Sneaking past a Sculk Sensor set down in the player's box earns `adventure/avoid_vibration` and does not unlock Silence; nor does that advancement granted by command (Ward). Standing at Deep Dark depth under a city, outside its pieces, does not. Opening an Ancient City chest first unlocks them while `count-structure-loot` is on, and stops counting once it is off. `/asrprobe enter` then moves the player into the city's largest piece, which unlocks Silence and Ward; what the structure API reported is noted in `results.json`. |
 | `trim_bastion_end_city` | Without `nether/find_bastion` and `end/find_end_city`, Snout and Spire are removed; each advancement unlocks its own templates (with the netherite upgrade for the Bastion) and not the other's. |
 
+`towers.py` covers the tower restore (#273) in the End's first fight, so it runs before the
+anti-cheese probes win that fight. A second player, `AsrHelper`, makes a party of two:
+
+| Probe | What it does |
+| :--- | :--- |
+| `towers` | With `boss-scaling` on, `multiplier: 1.0` and `reset-towers-on-scale: true`, both players enter the End. During the countdown every crystal is killed, one bar of a caged pillar is removed and another replaced with glass, and the helper stands on an open pillar's bedrock inside a barrier box. Nothing is restored before the extra dragon spawns (control). Then each free pillar has one crystal again, the removed bar is back and the glass stays, while the occupied pillar has none; once the helper leaves it gets its crystal, and no pillar holds two. |
+
 `anti_cheese.py` covers the three section 7 boss rules (#197), each switched on alone through
 `config.yml` and `/asr reload`:
 
@@ -141,6 +148,7 @@ of the way. It always has Resistance V, so explosions beside it do not end the r
 | `credits.py` | The personal-credit probes. |
 | `trims.py` | The trim structure probes. |
 | `anti_cheese.py` | The section 7 probes. |
+| `towers.py` | The End tower restore probe; runs before the anti-cheese probes. |
 | `outer_end.py` | The outer End dragon-fight probes; run last. |
 | `client/` | The scripted player: a [mineflayer](https://github.com/PrismarineJS/mineflayer) client that takes one JSON request per line from `run.py`. |
 | `src/probe/` (repository root) | `AntiSpeedrunProbe`, a test-only plugin that logs one `ASRPROBE` line per boss damage event, crystal click, pickup attempt, container click, trade selection, portal event, world change and loot generation, and answers the harness's console queries (`/asrprobe`), a player's personal credits and advancements, explored trim structures and what the structure API reports among them. Apart from the plugin teleports `teleports` and the trim probes' `enter` ask of it, announced through `expectTeleport` for one of them, the one-shot loot replacement and the `NPC` metadata the credit probes ask of it, it changes nothing. Never install it on a real server. |

@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ThreadLocalRandom;
@@ -55,7 +56,8 @@ import net.kyori.adventure.title.Title;
  * Multi-dragon boss combat (Epic 6). This class currently holds the reinforcement window (#37,
  * Task 6.1.1), its rounding modes (#38, Task 6.1.2), resummoned fights (#20, Task 6.1.3) and
  * single-battle reconciliation (#56, Task 6.1.5), secondary AI and boss bars (#21), and
- * balanced secondary XP (#22), and the resummoned exit lock and trophies (#23).
+ * balanced secondary XP (#22), and the resummoned exit lock and trophies (#23). It starts the
+ * tower restore when extra dragons spawn (#273), which {@link EndTowerRestorer} carries out.
  *
  * <h2>The reinforcement window</h2>
  *
@@ -132,6 +134,7 @@ public final class BossCombatListener implements Listener {
     private final ReinforcedFightStore reinforcedFights;
     private final PortalLockStore portalLocks;
     private final RefusedArrivals refusedArrivals;
+    private final EndTowerRestorer towers;
 
     /** One window per End world, keyed by world UID. Removed when the world unloads. */
     private final Map<UUID, ReinforcementWindow> windows = new ConcurrentHashMap<>();
@@ -166,6 +169,7 @@ public final class BossCombatListener implements Listener {
         this.reinforcedFights = reinforcedFights;
         this.portalLocks = portalLocks;
         this.refusedArrivals = refusedArrivals;
+        this.towers = new EndTowerRestorer(plugin);
         for (World world : plugin.getServer().getWorlds()) {
             recoverExit(world);
         }
@@ -579,14 +583,19 @@ public final class BossCombatListener implements Listener {
                 Component.text(partySize == 1 ? "for a party of 1" : "for a party of " + partySize,
                         NamedTextColor.GRAY),
                 TITLE_TIMES)));
+        // Set once the batch's first secondary is in the world, which then restores the towers (#273).
+        AtomicBoolean towersReset = new AtomicBoolean(!config.bossScaling().multiDragon().resetTowersOnScale());
         for (DragonReinforcementRules.SpawnPoint point : DragonReinforcementRules.spawnPoints(dragons - 1)) {
             plugin.getServer().getRegionScheduler().execute(plugin, world, point.chunkX(), point.chunkZ(),
-                    () -> spawnSecondary(world, point));
+                    () -> spawnSecondary(world, point, towersReset));
         }
     }
 
-    /** On the region owning {@code point}: spawns one tagged secondary dragon. */
-    private void spawnSecondary(World world, DragonReinforcementRules.SpawnPoint point) {
+    /**
+     * On the region owning {@code point}: spawns one tagged secondary dragon. The first of a batch
+     * to enter the world starts the tower restore, unless {@code towersReset} was already set.
+     */
+    private void spawnSecondary(World world, DragonReinforcementRules.SpawnPoint point, AtomicBoolean towersReset) {
         if (!world.isChunkLoaded(point.chunkX(), point.chunkZ())) {
             // The ring sits inside the pillars, which a party on the main island keeps loaded, so this
             // is an empty End rather than a fight. Spawning into an unloaded chunk is not attempted.
@@ -605,6 +614,9 @@ public final class BossCombatListener implements Listener {
         } else {
             activateSecondary(dragon);
             guard(world);
+            if (towersReset.compareAndSet(false, true)) {
+                towers.restore(world, () -> roster(world).living() > 0);
+            }
         }
     }
 

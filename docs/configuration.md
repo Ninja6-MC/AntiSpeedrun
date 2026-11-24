@@ -516,6 +516,21 @@ and a larger party would face an easier fight per dragon. Without it, each extra
 has a fixed 200 health however the crystals go. The client may still draw a crystal
 beam to an extra dragon; the beam heals nothing.
 
+**Tower restore.** With `multi-dragon.reset-towers-on-scale: true` (default `false`),
+the moment a window's first extra dragon enters the world every pillar gets back what
+vanilla put on top of it: its End crystal, and the iron-bar cage on the two caged pillars.
+It applies to the first fight's window and to resummoned ones, once per window that
+spawns extra dragons; a window that counts a party of one, or whose extra dragons all
+fail to spawn, restores nothing. Obsidian is never rebuilt, and a crystal or bar goes
+only into empty space, so blocks players placed stay. A crystal already standing on a
+pillar is left, so no pillar ever holds two. A pillar with a player (other than a
+spectator) inside its 5 by 4 by 5 cage space, standing on the pillar top for example,
+is skipped and checked again every second. It is restored once they leave, or left as
+it is if the fight's last extra dragon dies first. Crystal healing is unchanged: only
+the original dragon heals from the restored crystals. Each pillar is restored on the
+thread that owns it, and the console logs what was restored or skipped. Vanilla's own
+respawn sequence, when the four-crystal ritual runs, rebuilds the whole pillars itself.
+
 During a resummoned fight, `exit-portal-lock-during-battle: true` keeps the existing
 exit portal a solid bedrock basin. Portal transit is refused even if another plugin
 reopens its blocks. The first fight has no exit portal until victory, so it keeps
