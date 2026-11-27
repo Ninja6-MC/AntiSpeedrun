@@ -20,6 +20,7 @@ on:
       - scripts/release-github.py
       - scripts/release-distributors.py
       - scripts/release-publisher.py
+      - scripts/release-description.py
 
 concurrency:
   group: release-candidate-${{ github.ref }}

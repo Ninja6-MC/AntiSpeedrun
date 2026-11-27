@@ -433,3 +433,71 @@ jobs:
             echo "::error::Hangar is $STATE: the version matches the candidate but is not public yet. Re-run this failed job once Hangar has approved it."
             exit 1
           fi
+
+  # N6-REL-06. Neither job holds a secret or writes anything, and neither joins a shared
+  # concurrency group: the paste is the write, and the confirm job checks the owner again
+  # after approval, so the order approvals arrive in does not matter. The checkout fetches
+  # every tag, because a newer tag may own the page by the time the paste is confirmed.
+  check-modrinth-description:
+    name: Check the Public Modrinth Description
+    needs: [plan, publish-modrinth]
+    if: github.ref == format('refs/tags/{0}', inputs.tag) && startsWith(inputs.tag, 'v') && needs.plan.outputs.modrinth == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # actions: read is for reading the confirm environment's protection settings.
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      paste_needed: ${{ steps.description.outputs.paste_needed }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare the Public Body and Request a Paste If Needed
+        id: description
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODRINTH_PROJECT: ${{ vars.MODRINTH_PROJECT }}
+        run: >-
+          python3 scripts/release-description.py check --repository "$GITHUB_REPOSITORY" --tag "$TAG"
+          --project "$MODRINTH_PROJECT" --output "$GITHUB_OUTPUT"
+
+  confirm-modrinth-description:
+    name: Confirm the Pasted Modrinth Description
+    needs: check-modrinth-description
+    if: github.ref == format('refs/tags/{0}', inputs.tag) && startsWith(inputs.tag, 'v') && needs.check-modrinth-description.outputs.paste_needed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Its own protected environment, maintainer as required reviewer and no secrets
+    # (N6-REL-07): approving it says the file named in the check job's summary was pasted.
+    environment: modrinth-description
+    # actions: read is for the approval check, which the gate alone does not give.
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require Maintainer Approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/release-publisher.py approval --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID"
+          --environment modrinth-description
+
+      - name: Recheck the Owner and Read Back the Pasted Description
+        env:
+          MODRINTH_PROJECT: ${{ vars.MODRINTH_PROJECT }}
+        run: >-
+          python3 scripts/release-description.py confirm --repository "$GITHUB_REPOSITORY" --tag "$TAG"
+          --project "$MODRINTH_PROJECT"

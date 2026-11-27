@@ -340,8 +340,9 @@ The first release published while another is in flight is the first real run of 
 ordering. If GitHub behaves differently, the owner check before the write still keeps the
 marker correct; only the approval and waiting described here change.
 
-No workflow syncs a Modrinth or Hangar project page, so the Latest marker is the only shared
-state the publisher writes.
+No workflow writes a Modrinth or Hangar project page, so the Latest marker is the only shared
+state the publisher writes. The Modrinth description is pasted by hand and only confirmed by
+the publisher; see *Modrinth description* below.
 
 **Distributor publication.** `scripts/release-distributors.py publish modrinth` and
 `publish hangar` each run in order:
@@ -387,6 +388,50 @@ Hangar holds a version for review (visibility `needsApproval`). A version awaiti
 not publicly complete, so a new dispatch would ask for an attestation that cannot honestly
 be given; re-run the failed job instead.
 
+**Modrinth description.** The Modrinth project description (`N6-REL-06`) is
+`docs/modrinth-description.md`, generated from `README.md` by
+`scripts/modrinth-description.py`. After changing `README.md`, run
+`python3 scripts/modrinth-description.py` and commit the result; the **Modrinth Description**
+CI job runs it with `--check` and fails when the file is out of date, or when the README
+would break a Modrinth content rule the script checks (a relative link or image, a `#` at the
+start of a line inside a code fence, a malformed heading, non-ASCII prose). No workflow can
+write the description: `MODRINTH_TOKEN` holds only the `N6-REL-04` scopes, and writing the
+project body would need a scope that could change everything else on the project. The text
+on Modrinth is therefore only ever changed by pasting that file, without its leading
+generated comment, into the project's description editor, including when the project is
+created.
+
+When **Publish to Modrinth** succeeds, which means its version is public, the publisher
+confirms the paste for the tag that owns the Modrinth project page: the highest stable
+version public on Modrinth, or the highest pre-release while there is none, as for the
+Latest marker. While Modrinth still reviews the project, Publish to Modrinth fails
+`awaiting-review` and nothing is asked until it is re-run after approval. Modrinth serves
+signed-out API reads from a cache for about a minute, so both jobs read past it, and the
+check waits up to two minutes for the public listing to show this run's version, then fails
+rather than judge the owner from a stale list; re-run it.
+
+1. **Check the Public Modrinth Description** needs no secret and no approval. It reads the
+   public project body signed out and compares it with the file at the owning tag, ignoring
+   line endings and trailing whitespace only. A tag that does not own the page, or a body that
+   already matches, ends the step there and says so in the run summary.
+2. On a difference, it checks that the `modrinth-description` environment is set up as below
+   (`N6-REL-07`), and the run summary names the file and tag to paste from, with links to
+   the file and to the Modrinth description editor. **Confirm the Pasted Modrinth
+   Description** then waits on that environment. Paste the file, then approve the job.
+3. After approval the job checks the owner again, because the paste is the write and a newer
+   version may have taken the page while it waited. It reads the body and compares it with
+   the file at the tag that owns the page now, saying so when this tag was superseded. It
+   fails, with a short diff, unless the body matches. The remedy is to paste the file it
+   names and re-run that job.
+
+Neither job holds a secret or writes anything, and neither joins `release-shared-state`: the
+check after approval makes the order of approvals irrelevant, so a pending paste never holds
+up another tag. Like every job of the run, though, the confirm job is part of the run's own
+group, `release-publish-<tag ref>`. While it waits, the run is in progress: **Re-run failed
+jobs** is not offered for its other jobs, a new dispatch for the same tag queues behind it,
+and an absence attestation for the tag is refused. Paste and approve, or reject the
+deployment, to end it. `scripts/release-description.py` implements both jobs.
+
 **Retrying.** Fix the cause first. Then:
 
 | What failed | Retry |
@@ -396,7 +441,15 @@ be given; re-run the failed job instead.
 | GitHub publication | **Re-run failed jobs**, or dispatch with `destinations: github`. The script resumes the draft, the uploads or the publication, or only re-verifies a complete release. GitHub needs no attestation. |
 | A Modrinth or Hangar upload: outage, upload-only prerequisite | Dispatch with only that destination, after inspecting its owner inventory again and setting its attestation. **Re-run failed jobs** works only if the upload never started: a true attestation is refused on a later attempt. |
 | `awaiting-review` | **Re-run failed jobs** on the same run once the registry has approved it (*First distributor release*). |
+| **Check the Public Modrinth Description**: the `modrinth-description` environment is missing or set up wrongly | Set it up as *Maintainer setup* says, then **Re-run failed jobs**. Modrinth is already published; nothing else runs again. |
+| **Confirm the Pasted Modrinth Description**: the body differs | Paste the file the job names and **Re-run failed jobs**, or re-run the job alone. |
 | The candidate expired (90 days) | Nothing is retried or rebuilt. Record the destination under *Not published*; the next release reaches it. |
+
+A publisher run stays in progress while its description confirmation waits for approval,
+and every run for the tag shares one concurrency group. Approve or reject that job before
+dispatching the same tag again: a later dispatch queues behind it, and its absence
+attestation is refused if the earlier run finishes after it was created. Then inspect the
+owner inventory again and dispatch.
 
 A version already present on a registry is verified, never uploaded again, so a retry
 writes only to what is still missing. Never push a new candidate for a tag that is already
@@ -446,6 +499,12 @@ Configured once, in the repository settings in the browser:
     permission.
 
   Every publish job reads both, for the preflight of every selected destination.
+* **Environments → `modrinth-description`**, created before the first distributor tag, as
+  `N6-REL-07` requires: required reviewer is the maintainer, **Allow administrators to
+  bypass** off, self-review allowed, deployment branches and tags **Selected** with the
+  single tag rule `v*` and no branch rule, and **no secrets**. Approving it means the file
+  named in the run summary has been pasted. The check job reads these settings with the job
+  token and asks for no paste while they are wrong.
 * **Variables → Repository variables**, read by the plan's signed-out checks and shown in
   its summary:
   * `MODRINTH_PROJECT`: the Modrinth project's slug or ID.
@@ -455,8 +514,9 @@ Configured once, in the repository settings in the browser:
   anything is published. A development build needs none of them.
 * **Modrinth project**: created, with the token's owner as a member who may upload
   versions. It need not be approved yet. Submit it for review after the first distributor
-  release uploads its first version. License, icon and description are set in its
-  settings; versions carry only what the workflow sends.
+  release uploads its first version. License and icon are set in its settings; its
+  description is a paste of `docs/modrinth-description.md` (see *Modrinth description*);
+  versions carry only what the workflow sends.
 * **Hangar project**: created, with **Supports Folia** enabled in its settings, and the
   channels `Alpha`, `Beta` and `Release` present. It may stay `new` until the first
   distributor release publishes its first version. Each version is published for the

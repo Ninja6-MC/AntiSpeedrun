@@ -4,7 +4,7 @@
   release-publisher.py select     --tag vX.Y.Z --destinations all|LIST --modrinth-attested B --hangar-attested B
   release-publisher.py provenance --repository owner/name --tag vX.Y.Z --sha <commit> --run-id <candidate run>
   release-publisher.py guard      --repository owner/name --tag vX.Y.Z --run-id <publisher run> --attempt <n> --attested B
-  release-publisher.py approval   --repository owner/name --run-id <publisher run>
+  release-publisher.py approval   --repository owner/name --run-id <publisher run> [--environment <name>]
   release-publisher.py preflight  --own github|modrinth|hangar --github B --modrinth B --hangar B COMMON
 
 B is true or false. COMMON is release-github.py's arguments: --directory, --evidence, --tag,
@@ -19,7 +19,7 @@ expired candidate stops the publisher: nothing is ever rebuilt. `guard` refuses 
 absence attestation on a later attempt of the publisher run, or while another publisher
 run for the same tag overlaps this one; the distributor publish step runs the same checks
 again immediately before its upload. `approval` proceeds only on a person's recorded
-approval of the `release` environment for this run. `preflight` runs every credential check
+approval of the `release` environment (or the one named) for this run. `preflight` runs every credential check
 that writes nothing, for every selected destination, in every publish job. Only the job's own
 destination (`--own`) is also checked for its current version: the jobs start together, so
 another job may already have written to its destination, and its result must not stop this one.
@@ -254,8 +254,8 @@ def approvers(approvals, environment=ENVIRONMENT):
 
 
 def approval(args):
-    people = approvers(gh_json(f"repos/{args.repository}/actions/runs/{args.run_id}/approvals"))
-    log(f"{ENVIRONMENT} approved for run {args.run_id} by {', '.join(people)}")
+    people = approvers(gh_json(f"repos/{args.repository}/actions/runs/{args.run_id}/approvals"), args.environment)
+    log(f"{args.environment} approved for run {args.run_id} by {', '.join(people)}")
 
 
 # --- Cross-destination preflight --------------------------------------------------------
@@ -328,6 +328,7 @@ def parser():
     command = commands.add_parser("approval")
     for option in ("--repository", "--run-id"):
         command.add_argument(option, required=True)
+    command.add_argument("--environment", choices=(ENVIRONMENT, "modrinth-description"), default=ENVIRONMENT)
     command.set_defaults(handler=approval)
 
     command = commands.add_parser("preflight")

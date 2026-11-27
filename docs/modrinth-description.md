@@ -1,0 +1,174 @@
+<!-- Generated from README.md by scripts/modrinth-description.py. Do not edit.
+     Paste everything below this comment into the Modrinth description editor. -->
+
+Part of the [Ninja6-MC](https://github.com/Ninja6-MC) plugin suite.
+
+---
+
+## Status
+
+Under active development. Development builds are published as GitHub pre-releases,
+with the plugin jar and its checksum, on the
+[Releases page](https://github.com/Ninja6-MC/AntiSpeedrun/releases), which lists the
+current build. There is no stable release yet. Everything listed under "Implemented"
+below runs on a server. Some of it ships off and must be enabled by the server
+operator: item and trim progression, every anti-cheese rule except the Eye of Ender
+block, and boss scaling as a whole.
+
+---
+
+## What it does
+
+AntiSpeedrun paces early-game survival progression on multiplayer Minecraft servers:
+it gates dimensions, gear and armor trims behind milestones, points players at their next
+step, adds optional anti-cheese rules, and can scale the Ender Dragon fight to the party.
+
+### Implemented
+
+- **Dimension progression gates** -- Nether and End access is refused until the
+  configured playtime, account age and advancement requirements are met. Covers
+  portals, teleports across dimensions, vehicles and stasis. See `dimension-gates`
+  in `config.yml`.
+- **Item progression gates** -- ships off (`item-progression.enabled: false`).
+  When enabled, tier-gated items cannot be picked up, equipped,
+  fired from dispensers onto a player, taken out of containers and bundles, or taken
+  off armor stands and out of item frames, or handed to or taken back from an Allay,
+  until the player has earned the tier (`item-progression`). Bottling Dragon's Breath
+  requires End access. Dropped items can always be recovered by the player who
+  dropped them.
+- **Mending trade gate** -- optional, off by default
+  (`villager-progression.gate-mending-trade`).
+- **Early Eye of Ender block** -- an Eye of Ender throw is refused until the player
+  has earned `minecraft:nether/find_fortress`
+  (`anti-cheese.block-early-eye-throwing`).
+- **`/progress` card** -- an interactive card of milestones and the next step, with a
+  glyph-safe plain-ASCII mode for Bedrock clients (`progress-card.simple-card`).
+- **Idle reminders** -- a standing-still reminder of the next goal, shown as action
+  bar, title or chat (`idle-reminder`).
+- **Journey Guide Book** -- a written book generated from the live configuration,
+  available through `/journeybook` and delivered on first join
+  (`journey-book.give-on-first-join`).
+- **Administration** -- config reload, configuration profiles, durable dimension
+  unlocks, temporary bypass grants and per-player inspection.
+- **Toggles** -- dimension gates (per dimension), item progression, idle reminders,
+  the Mending trade gate (`villager-progression.gate-mending-trade`, off by default)
+  and the early Eye of Ender block (`anti-cheese.enabled` and
+  `anti-cheese.block-early-eye-throwing`) can be switched in `config.yml`. The
+  `/progress` card, the Journey Guide Book and the administrative commands have no
+  on/off switch.
+- **Multi-dragon boss scaling** (`boss-scaling`) -- the reinforcement
+  window: the extra dragons a party earns on its first End entry and on each
+  four-crystal resummon (`enabled`, `scale-resummoned-dragons`, `battle-prep-seconds`,
+  `multi-dragon.enabled`, `multiplier`, `rounding-mode`, `max-dragons`), with the original
+  dragon held until the extra ones are dead so the fight ends in one victory. The
+  `multi-dragon.balanced-xp` option sets each extra dragon's reward to 1,000 XP;
+  turning it off retains the earlier 500 XP cap. `multi-dragon.reset-towers-on-scale`
+  (default `false`) restores the pillar crystals and cages when the extra dragons spawn.
+  `respawn-on-entry.enabled` starts vanilla's dragon respawn when a player enters an End
+  whose dragon is dead (off by default). Ships off: `boss-scaling.enabled` is `false` and
+  must be set to `true`.
+- **Armor trim and smithing template gating** (`trim-progression`) -- ships off
+  (`enabled: false`). When enabled, duplicating a trim template in a crafting table
+  or Crafter
+  (`block-unearned-template-duplication`), applying a trim at a smithing table
+  (`block-unearned-smithing`) and wearing a trimmed piece (`block-wearing-unearned-trims`)
+  are refused until the player has discovered the matching structure; all three are on by
+  default. With `gate-natural-trim-chests` (default `false`) on, gated templates are also
+  removed from naturally generated chest loot for a player who has not discovered the
+  structure.
+- **Anti-cheese rules** (`anti-cheese`) -- `enabled`,
+  `block-early-eye-throwing`, `early-eye-rejection-message`, the single-hit cap
+  (`cap-single-hit-boss-damage`, off by default, with `max-single-hit-boss-damage`), the
+  exit portal centre crystal block (`block-exit-portal-crystal-place`, off by default), the
+  bed and Respawn Anchor boss damage block (`block-bed-anchor-boss-damage`, off by default) and the
+  Outer End boundary: until the world's first kill (`block-gateway-pre-dragon`, off by default)
+  and until each player has helped win a dragon fight (`outer-end-requires-dragon-fight`, on by
+  default), within `outer-end-radius` and polled every `outer-end-poll-seconds`.
+
+### Next
+
+Further feature groups are tracked in issues and ship in later development builds, ahead
+of the first alpha.
+
+---
+
+## Requirements
+
+- Paper, Minecraft 1.21.4 through 26.3, or Folia, 1.21.4 through 26.2. The plugin compiles
+  against Paper API 1.21.4, so earlier 1.21 releases are not supported even though
+  `api-version: 1.21` lets them load it. Every pull request boots the built jar on Paper and
+  Folia 1.21.4, 1.21.11 and 26.2, and on Paper 26.3 (Folia has no 26.3 build yet); a weekly
+  run boots it on the newest Paper and Folia release as well, so a version above those may
+  work but is not yet claimed.
+- Java 21 to build. The server needs whatever Java its Minecraft version requires: 21 for
+  1.21.x, 25 for 26.1 and newer.
+- Floodgate is optional. When present on the server it lets `/progress` detect
+  Bedrock players and use the glyph-safe card.
+
+Download the plugin jar from the
+[Releases page](https://github.com/Ninja6-MC/AntiSpeedrun/releases), or build it with
+`./gradlew build`. Releases to date are pre-releases. Upgrading from v0.1.x: see
+[docs/administration.md](https://github.com/Ninja6-MC/AntiSpeedrun/blob/main/docs/administration.md#2-installation).
+
+---
+
+## Commands & Permissions
+
+`/asr` is an alias of `/antispeedrun`.
+
+| Command | Permission | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `/progress` (or `/asr progress`) | `antispeedrun.progress` | everyone | Shows your milestones and next step. |
+| `/journeybook` (alias `/rulesbook`, or `/asr book`) | `antispeedrun.book` | everyone | Gives you the Journey Guide Book. |
+| `/asr reload` | `antispeedrun.admin.reload` | op | Reloads `config.yml`, all or nothing. |
+| `/asr profile apply <CORE\|CASUAL\|SMP_STANDARD\|HARDCORE>` | `antispeedrun.admin.profile` | op | Backs up the configuration and applies a preset. |
+| `/asr unlock <nether\|end> [lock]` | `antispeedrun.admin.unlock` | op | Unlocks (or re-locks) a dimension for everyone, persistently. |
+| `/asr bypass <player> [duration\|off]` | `antispeedrun.admin.bypass` | op | Grants or revokes a temporary bypass for a player. |
+| `/asr inspect <player>` | `antispeedrun.admin.inspect` | op | Reports a player's progression state. |
+| `/asr credit <grant\|revoke> <player> <credit\|smelt-iron\|all>` | `antispeedrun.admin.credit` | op | Grants or revokes a personal-action credit, online or offline. |
+
+`antispeedrun.admin` grants all the administrative nodes above. It does not include
+`antispeedrun.bypass`, which exempts the holder from gates and is never granted by
+default; its children `antispeedrun.bypass.gates`, `.items` and `.anticheese` exempt
+from one category each.
+
+---
+
+Fresh installs use `CORE`: dimension gates and the early Eye of Ender block are on, with item
+and trim progression, boss scaling and Mending trade gating off. Existing servers
+keep their configuration. Apply `SMP_STANDARD` to opt in to item and trim gating,
+or enable either section individually; applying a preset replaces the whole file
+after taking a backup. Personal-action credits still apply to dimension gates.
+
+Optional personal Elytra collection is enabled with
+`item-progression.require-elytra-collection: true` while item progression is enabled.
+Each player must collect an original Elytra from a newly generated End Ship; older unmarked
+ships cannot earn credit. See the [collection and upgrade notes](https://github.com/Ninja6-MC/AntiSpeedrun/blob/main/docs/provenance-model.md#optional-personal-elytra-collection)
+before enabling it on an existing world. Operators can restore a credit with
+`/asr credit grant <player> elytra`.
+
+Optional Shulker Shell collection uses `item-progression.require-shulker-collection: true`.
+A player must personally kill a Shulker that drops a shell. Boxes keep their existing tier
+requirements; also enable `gate-shulker-boxes` to require the credit for boxes and all dyes.
+Both options start off. See the [configuration guide](https://github.com/Ninja6-MC/AntiSpeedrun/blob/main/docs/configuration.md).
+
+Totems have their own optional tier requiring a personal Evoker kill; raid kills count.
+The example is off by default and replaces the bundled End-tier Totem entry in new configs.
+Existing custom tables are preserved; follow the [upgrade and opt-in instructions](https://github.com/Ninja6-MC/AntiSpeedrun/blob/main/docs/configuration.md#43-item-progression)
+before enabling it in an older config.
+
+## Documentation
+
+- [Administration guide](https://github.com/Ninja6-MC/AntiSpeedrun/blob/main/docs/administration.md) -- installation, first start, commands
+  and permissions, profiles, dimension unlock, temporary bypass, persisted state,
+  backup boundaries and troubleshooting.
+- [Configuration reference](https://github.com/Ninja6-MC/AntiSpeedrun/blob/main/docs/configuration.md) -- every `config.yml` section, its
+  defaults, validation and reload behavior, and the four profiles.
+- [Real-server integration harness](https://github.com/Ninja6-MC/AntiSpeedrun/blob/main/scripts/integration/README.md) -- gameplay probes
+  that run the built jar on a real Paper server with a scripted player, and how to run them.
+
+---
+
+## License
+
+[GNU General Public License v3.0](https://github.com/Ninja6-MC/AntiSpeedrun/blob/main/LICENSE).
