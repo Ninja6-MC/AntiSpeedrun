@@ -200,8 +200,9 @@ jobs:
     # N6-REL-05 shared state: this job moves GitHub's Latest marker, so it runs in one group for
     # every tag of the repository, not keyed on the tag. Two tags can then never both decide
     # they own the marker; release-github.py rechecks ownership immediately before the write.
-    # GitHub keeps one running and one pending job per group: while this job waits for
-    # approval it holds the group, and a third tag's GitHub job replaces the pending one.
+    # GitHub keeps one running and one pending job per group, and a third tag's GitHub job
+    # replaces the pending one. A job waiting here for the group has not reached the gate, so
+    # it needs its own approval later (RELEASE_PROCESS.md, The Latest marker).
     concurrency:
       group: release-shared-state
       cancel-in-progress: false

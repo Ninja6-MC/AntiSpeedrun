@@ -276,7 +276,8 @@ def latest_owner(api, manifest, release_id):
     The marker is shared state: it belongs to the highest stable release published, and stays
     unset until the first one. It is read from the published releases now, immediately before
     the write, never taken from the candidate. The publish job runs in one repository-wide
-    concurrency group, so no other tag can publish between this read and the write.
+    concurrency group, so no other run of this workflow can publish between this read and the
+    write. A release edited in the browser meanwhile is caught afterwards by check_latest.
     """
     published = [other.get("tag_name", "") for other in api.published_releases()
                  if other.get("id") != release_id and not other.get("prerelease")]

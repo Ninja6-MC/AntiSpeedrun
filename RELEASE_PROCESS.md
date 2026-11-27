@@ -320,12 +320,22 @@ destination.
 shares, so two tags can never both decide they own the marker. This serialises GitHub
 publication across tags, which costs the following:
 
-* GitHub keeps one running and one pending job per group. A GitHub job waiting for its
-  approval holds the group, so another tag's GitHub job waits until it is approved, or
-  rejected, and has finished. Approve or reject a pending publisher run promptly.
-* A third tag's GitHub job, queued while one is running and another is pending, replaces
-  the pending one, which GitHub cancels before it has written anything. Dispatch the
-  cancelled tag again with `destinations: github`.
+* A tag's GitHub job enters the group before it reaches the `release` gate. While another
+  tag's GitHub job holds the group, this one waits **outside** the gate. Approving the run
+  then releases only the jobs at the gate, its Modrinth and Hangar jobs. When the GitHub job
+  gets the group, it stops at the gate again and needs **a second approval** of the same
+  run. Approve it once its summary shows; nothing has been written to GitHub before that.
+* A GitHub job that has entered the group may hold it while it waits for its own approval,
+  so another tag's GitHub job can wait behind an approval. Approve or reject a pending
+  publisher run promptly.
+* GitHub keeps one running and one pending job per group. A third tag's GitHub job, queued
+  while one runs and another is pending, replaces the pending one, which GitHub cancels.
+  A cancelled job is one that never started, so it wrote nothing. Dispatch that tag again
+  with `destinations: github`.
+
+The first release published while another is in flight is the first real run of this
+ordering. If GitHub behaves differently, the owner check before the write still keeps the
+marker correct; only the approval and waiting described here change.
 * Modrinth and Hangar jobs are not in the group and never wait for another tag.
 
 No workflow syncs a Modrinth or Hangar project page, so the Latest marker is the only shared
