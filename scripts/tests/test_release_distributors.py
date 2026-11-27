@@ -30,6 +30,32 @@ def quiet(function, *args, **kwargs):
         return function(*args, **kwargs)
 
 
+class Guard:
+    """An upload guard that records each call and refuses when told to."""
+
+    def __init__(self, refuse=None):
+        self.calls = []
+        self.refuse = refuse
+
+    def __call__(self, name, version):
+        self.calls.append((name, version))
+        if self.refuse:
+            raise rd.DistributorError(self.refuse)
+
+
+class FakePublisher:
+    """release-publisher.py's upload checks, without GitHub."""
+
+    def __init__(self, error=None):
+        self.error = error
+        self.calls = []
+
+    def refuse_reused_attestation(self, repository, tag, run_id, attempt):
+        self.calls.append((repository, tag, run_id, attempt))
+        if self.error:
+            raise ValueError(self.error)
+
+
 class FakeModrinth:
     """An in-memory Modrinth API that records every write."""
 
@@ -192,12 +218,16 @@ class Candidate(unittest.TestCase):
         self.jar = self.directory / f"AntiSpeedrun-{version}.jar"
         return self.manifest
 
-    def run_command(self, command, destination, environ=ENV, tag_commit=lambda tag: SHA, apis=None, **overrides):
-        args = argparse.Namespace(**dict(self.args, **overrides), command=command, destination=destination)
-        return quiet(rd.run, args, environ=environ, tag_commit=tag_commit, apis=apis)
+    def run_command(self, command, destination, environ=ENV, tag_commit=lambda tag: SHA, apis=None,
+                    before_upload=None, **overrides):
+        values = dict(dict(attested="true", publisher_run_id="900", publisher_attempt="1"), **self.args)
+        args = argparse.Namespace(**dict(values, **overrides), command=command, destination=destination)
+        if command == "publish" and before_upload is None:
+            before_upload = Guard()
+        return quiet(rd.run, args, environ=environ, tag_commit=tag_commit, apis=apis, before_upload=before_upload)
 
 
-class PlanTest(unittest.TestCase):
+class EligibilityTest(unittest.TestCase):
     def test_only_alpha_beta_and_stable_from_major_one_are_distributed(self):
         cases = {
             "v0.1.0": False, "v0.2.0": False, "v0.2.0-alpha.1": False, "v0.9.9-beta.3": False,
@@ -206,7 +236,7 @@ class PlanTest(unittest.TestCase):
         }
         for tag, expected in cases.items():
             with self.subTest(tag=tag):
-                self.assertIs(quiet(rd.plan, argparse.Namespace(tag=tag)), expected)
+                self.assertIs(bool(rc.distribution(tag)), expected)
 
     def test_development_builds_are_refused_by_name(self):
         for tag in ("v0.1.0", "v0.2.0-beta.1"):
@@ -221,7 +251,7 @@ class CommandTest(Candidate):
     def test_development_tag_is_refused_before_configuration_or_candidate(self):
         self.args = dict(directory="missing", evidence="missing", tag="v0.2.0", sha=SHA, run_id="7",
                          attempt="1", repository="Ninja6-MC/AntiSpeedrun")
-        for command in ("preflight", "publish"):
+        for command in ("public", "preflight", "publish"):
             for destination in ("modrinth", "hangar"):
                 with self.subTest(command=command, destination=destination):
                     with self.assertRaisesRegex(rd.DistributorError, "development build"):
@@ -268,8 +298,8 @@ class CommandTest(Candidate):
 
 
 class ModrinthTest(Candidate):
-    def publish(self, api):
-        return quiet(rd.modrinth_publish, api, self.manifest, "antispeedrun", self.directory)
+    def publish(self, api, guard=None):
+        return quiet(rd.modrinth_publish, api, self.manifest, "antispeedrun", self.directory, guard or Guard())
 
     def test_fresh_upload_carries_the_candidate_bytes_and_tag_metadata(self):
         for tag, version_type in (("v1.0.0-alpha.1", "alpha"), ("v1.0.0-beta.1", "beta"), ("v1.0.0", "release")):
@@ -397,8 +427,8 @@ class ModrinthTest(Candidate):
 
 
 class HangarTest(Candidate):
-    def publish(self, api):
-        return quiet(rd.hangar_publish, api, self.manifest, "AntiSpeedrun", self.directory)
+    def publish(self, api, guard=None):
+        return quiet(rd.hangar_publish, api, self.manifest, "AntiSpeedrun", self.directory, guard or Guard())
 
     def test_fresh_upload_carries_the_candidate_bytes_and_tag_metadata(self):
         for tag, channel in (("v1.0.0-alpha.1", "Alpha"), ("v1.0.0-beta.1", "Beta"), ("v1.0.0", "Release")):
@@ -473,7 +503,7 @@ class HangarTest(Candidate):
                    "platformDependencies": {"PAPER": VERSIONS}, "files": [{"platforms": ["PAPER"]}]}, b"x", "a.jar")
         cases = {
             "has visibility needsChanges": lambda api: api.details.update(visibility="needsChanges"),
-            "still new but already has versions": lambda api: (api.versions_by_name.update(older.versions_by_name),
+            "still new but already has other versions": lambda api: (api.versions_by_name.update(older.versions_by_name),
                                                                api.details.update(visibility="new")),
             "Supports Folia": lambda api: api.details["settings"].update(tags=[]),
             "no Alpha channel": lambda api: setattr(api, "channel_names", ["Release", "Beta"]),
@@ -543,6 +573,185 @@ class WireTest(Candidate):
     def test_failed_hangar_authentication_stops(self):
         with self.assertRaisesRegex(rd.DistributorError, "rejected HANGAR_API_TOKEN"):
             rd.HangarApi("bad", FakeHttp([(401, b"")])).version("AntiSpeedrun", "1.0.0")
+
+
+class AttestationTest(Candidate):
+    """N6-REL-05: an omitted version is not proof of absence."""
+
+    APIS = {"modrinth": FakeModrinth, "hangar": FakeHangar}
+
+    def test_absent_version_without_attestation_is_never_uploaded(self):
+        self.candidate()
+        for name, fake in self.APIS.items():
+            with self.subTest(name):
+                api = fake()
+                publisher = FakePublisher()
+                args = argparse.Namespace(**self.args, attested="false", publisher_run_id="900",
+                                          publisher_attempt="1", command="publish", destination=name)
+                with self.assertRaisesRegex(rd.DistributorError, f"{name}_absence_confirmed"):
+                    self.run_command("publish", name, apis={name: api}, attested="false",
+                                     before_upload=rd.upload_guard(args, publisher))
+                self.assertEqual(api.uploads, [])
+                self.assertEqual(publisher.calls, [])
+
+    def test_attested_upload_runs_the_attempt_and_overlap_check_first(self):
+        self.candidate()
+        for name, fake in self.APIS.items():
+            with self.subTest(name):
+                api = fake()
+                publisher = FakePublisher()
+                args = argparse.Namespace(**self.args, attested="true", publisher_run_id="900",
+                                          publisher_attempt="1", command="publish", destination=name)
+                self.assertEqual(self.run_command("publish", name, apis={name: api},
+                                                  before_upload=rd.upload_guard(args, publisher)), "complete")
+                self.assertEqual(publisher.calls, [("Ninja6-MC/AntiSpeedrun", "v1.0.0-alpha.1", "900", "1")])
+                self.assertEqual(len(api.uploads), 1)
+
+    def test_reused_or_overlapping_attestation_stops_the_upload(self):
+        self.candidate()
+        for name, fake in self.APIS.items():
+            for error in ("valid only on attempt 1", "for v1.0.0-alpha.1 is in_progress"):
+                with self.subTest(name=name, error=error):
+                    api = fake()
+                    args = argparse.Namespace(**self.args, attested="true", publisher_run_id="900",
+                                              publisher_attempt="2", command="publish", destination=name)
+                    with self.assertRaisesRegex(ValueError, error):
+                        self.run_command("publish", name, apis={name: api},
+                                         before_upload=rd.upload_guard(args, FakePublisher(error)))
+                    self.assertEqual(api.uploads, [])
+
+    def test_a_present_version_is_verified_without_any_attestation(self):
+        self.candidate()
+        for name, fake in self.APIS.items():
+            with self.subTest(name):
+                api = fake()
+                self.run_command("publish", name, apis={name: api})
+                guard = Guard(refuse="must not be asked")
+                self.assertEqual(self.run_command("publish", name, apis={name: api}, attested="false",
+                                                  before_upload=guard), "complete")
+                self.assertEqual(guard.calls, [])
+                self.assertEqual(len(api.uploads), 1)
+
+    def test_publish_refuses_to_run_without_an_upload_guard(self):
+        self.candidate()
+        args = argparse.Namespace(**self.args, attested="true", command="publish", destination="hangar")
+        with self.assertRaisesRegex(rd.DistributorError, "upload guard"):
+            quiet(rd.run, args, environ=ENV, tag_commit=lambda tag: SHA, apis={"hangar": FakeHangar()})
+
+
+class CredentialsTest(Candidate):
+    """What another destination's publish job checks: everything but the version."""
+
+    def test_a_sibling_jobs_upload_or_a_cdn_failure_after_it_does_not_matter(self):
+        self.candidate()
+        for name, fake in (("modrinth", FakeModrinth), ("hangar", FakeHangar)):
+            with self.subTest(name):
+                api = fake()
+                self.run_command("publish", name, apis={name: api})
+                api.serve = b"cdn outage page"
+                with self.assertRaisesRegex(rd.DistributorError, "SHA-256"):
+                    self.run_command("preflight", name, apis={name: api})
+                self.assertEqual(self.run_command("credentials", name, apis={name: api}), "ready")
+
+    def test_a_sibling_first_upload_to_a_new_hangar_project_does_not_stop_it(self):
+        self.candidate()
+        api = FakeHangar()
+        api.details["visibility"] = "new"
+        api.add({"version": "1.0.0-alpha.1", "description": NOTES, "channel": "Alpha",
+                 "platformDependencies": {"PAPER": VERSIONS}, "files": [{"platforms": ["PAPER"]}]}, b"x", "a.jar")
+        api.details["visibility"] = "new"
+        self.assertEqual(self.run_command("credentials", "hangar", apis={"hangar": api}), "ready")
+
+    def test_a_new_hangar_project_holding_only_this_release_awaits_review(self):
+        self.candidate()
+        api = FakeHangar()
+        api.details["visibility"] = "new"
+        api.review_versions = True
+        self.assertEqual(self.run_command("publish", "hangar", apis={"hangar": api}), "awaiting-review")
+        api.details["visibility"] = "new"
+        self.assertEqual(self.run_command("publish", "hangar", apis={"hangar": api}), "awaiting-review")
+        self.assertEqual(len(api.uploads), 1)
+
+    def test_credential_and_project_failures_still_stop_it(self):
+        self.candidate()
+        modrinth = FakeModrinth()
+        modrinth.members_list = []
+        with self.assertRaisesRegex(rd.DistributorError, "cannot upload"):
+            self.run_command("credentials", "modrinth", apis={"modrinth": modrinth})
+        hangar = FakeHangar()
+        hangar.allowed = False
+        with self.assertRaisesRegex(rd.DistributorError, "cannot create versions"):
+            self.run_command("credentials", "hangar", apis={"hangar": hangar})
+        with self.assertRaisesRegex(rd.DistributorError, "Missing MODRINTH_TOKEN"):
+            self.run_command("credentials", "modrinth", environ=dict(ENV, MODRINTH_TOKEN=""),
+                             apis={"modrinth": FakeModrinth()})
+
+
+class PublicTest(Candidate):
+    """The secret-free check in the publisher's plan job."""
+
+    def public(self, name, api, attested, environ=None):
+        environ = {"MODRINTH_PROJECT": "antispeedrun", "HANGAR_PROJECT": "AntiSpeedrun"} if environ is None else environ
+        return self.run_command("public", name, environ=environ, apis={name: api}, attested=attested)
+
+    def test_public_check_needs_only_the_project_variable(self):
+        self.candidate()
+        self.assertEqual(self.public("modrinth", FakeModrinth(), "true"), "absent")
+        self.assertEqual(self.public("hangar", FakeHangar(), "true"), "absent")
+        with self.assertRaisesRegex(rd.DistributorError, "Missing HANGAR_PROJECT"):
+            self.public("hangar", FakeHangar(), "true", environ={})
+
+    def test_not_publicly_complete_requires_an_attestation(self):
+        self.candidate()
+        hidden_modrinth = FakeModrinth()
+        self.run_command("publish", "modrinth", apis={"modrinth": hidden_modrinth})
+        hidden_modrinth.public = False
+        held_hangar = FakeHangar()
+        held_hangar.review_versions = True
+        self.run_command("publish", "hangar", apis={"hangar": held_hangar})
+        new_hangar = FakeHangar()
+        new_hangar.details["visibility"] = "new"
+        cases = {
+            "modrinth absent": ("modrinth", FakeModrinth()),
+            "modrinth hidden from signed-out lookups": ("modrinth", hidden_modrinth),
+            "hangar absent": ("hangar", FakeHangar()),
+            "hangar held for review": ("hangar", held_hangar),
+            "hangar project still new": ("hangar", new_hangar),
+        }
+        for label, (name, api) in cases.items():
+            with self.subTest(label):
+                with self.assertRaisesRegex(rd.DistributorError, f"not publicly complete.*{name}_absence_confirmed"):
+                    self.public(name, api, "false")
+
+    def test_publicly_complete_needs_no_attestation(self):
+        self.candidate()
+        for name, api in (("modrinth", FakeModrinth()), ("hangar", FakeHangar())):
+            with self.subTest(name):
+                self.run_command("publish", name, apis={name: api})
+                self.assertEqual(self.public(name, api, "false"), "complete")
+
+    def test_a_public_version_that_differs_still_stops_the_run(self):
+        self.candidate()
+        api = FakeHangar()
+        self.run_command("publish", "hangar", apis={"hangar": api})
+        api.versions_by_name["1.0.0-alpha.1"]["description"] = "Other"
+        with self.assertRaisesRegex(rd.DistributorError, "description"):
+            self.public("hangar", api, "true")
+
+
+class SignedOutWireTest(unittest.TestCase):
+    def test_modrinth_without_a_token_sends_no_authorization(self):
+        http = FakeHttp([(404, b"")])
+        self.assertIsNone(rd.ModrinthApi(None, http).project("antispeedrun"))
+        self.assertNotIn("Authorization", http.requests[0][2])
+
+    def test_hangar_without_a_key_never_authenticates(self):
+        http = FakeHttp([(404, b"")])
+        self.assertIsNone(rd.HangarApi(None, http).version("AntiSpeedrun", "1.0.0"))
+        [(method, url, headers, _)] = http.requests
+        self.assertEqual(method, "GET")
+        self.assertNotIn("authenticate", url)
+        self.assertNotIn("Authorization", headers)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Promote a verified AntiSpeedrun release candidate to GitHub Releases (N6-REL-03).
 
-  release-github.py --directory candidate --evidence evidence.json --tag vX.Y.Z \
-      --sha <source commit> --run-id <id> --attempt <candidate attempt> --repository owner/name
+  release-github.py [--preflight] --directory candidate --evidence evidence.json --tag vX.Y.Z \
+      --sha <source commit> --run-id <candidate run> --attempt <candidate attempt> --repository owner/name
 
-Runs only in the publisher job behind the protected `release` environment, with GH_TOKEN set
-to that job's token. It builds nothing and changes no file: it uploads the candidate's bytes as
+Publishes only in the GitHub job of the publisher, behind the protected `release`
+environment, with GH_TOKEN set to that job's token. With --preflight it writes nothing and
+runs anywhere with a read token: the candidate and evidence, the tag, and any release that
+already carries the tag are checked, so every publish job can check GitHub before its own
+first write (N6-REL-05). It builds nothing and changes no file: it uploads the candidate's bytes as
 they are. Every run is a resumable promotion of one candidate:
 
   1. the candidate, its manifest, digests and passing boot evidence are re-verified, and the
@@ -342,13 +345,37 @@ def promote(api, manifest, directory, sha):
     return release
 
 
+def preflight(api, manifest, directory, sha):
+    """Writes nothing. The tag must still name the candidate's source, and a release already
+    carrying the tag must be the only one and match the candidate's title, notes and flags.
+
+    A token without write access may not see drafts, so `absent` can hide a draft; the
+    publish step finds and completes it.
+    """
+    tag = manifest["tag"]
+    notes = (Path(directory) / "release-notes.md").read_text(encoding="utf-8")
+    check_source(api, manifest, sha)
+    matches = api.releases(tag)
+    if len(matches) > 1:
+        raise PromotionError(f"{len(matches)} releases carry tag {tag}; reconcile them by hand")
+    if not matches:
+        state = "absent"
+    else:
+        check_metadata(matches[0], manifest, f"{candidate.PLUGIN} {tag}", notes)
+        state = "draft" if matches[0].get("draft") else "published"
+    log(f"github preflight: {tag} is {state}")
+    return state
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--preflight", action="store_true")
     for option in ("--directory", "--evidence", "--tag", "--sha", "--run-id", "--attempt", "--repository"):
         parser.add_argument(option, required=True)
     args = parser.parse_args(argv)
     manifest = candidate.check_evidence(args)
-    promote(GitHubApi(args.repository), manifest, args.directory, args.sha)
+    action = preflight if args.preflight else promote
+    action(GitHubApi(args.repository), manifest, args.directory, args.sha)
 
 
 if __name__ == "__main__":

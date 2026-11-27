@@ -1,25 +1,37 @@
 #!/usr/bin/env python3
-"""Publish a verified AntiSpeedrun release candidate to Modrinth and Hangar (N6-REL-03).
+"""Publish a verified AntiSpeedrun release candidate to Modrinth and Hangar (N6-REL-03, N6-REL-05).
 
-  release-distributors.py plan --tag vX.Y.Z
+  release-distributors.py public    modrinth|hangar COMMON --attested true|false
   release-distributors.py preflight modrinth|hangar COMMON
-  release-distributors.py publish modrinth|hangar COMMON
+  release-distributors.py credentials modrinth|hangar COMMON
+  release-distributors.py publish   modrinth|hangar COMMON --attested true|false
+                                    --publisher-run-id <id> --publisher-attempt <n>
 
-COMMON is --directory, --evidence, --tag, --sha (this run's commit), --run-id, --attempt (the
-candidate job's attempt) and --repository, as for release-github.py.
+COMMON is --directory, --evidence, --tag, --sha (this run's commit), --run-id and --attempt
+(the candidate run and the attempt that built it) and --repository, as for release-github.py.
 
-Runs only in the publisher job behind the protected `release` environment. Each destination
-reads its own token and project from the environment and nothing else:
+Each destination reads its own token and project from the environment and nothing else:
 
   modrinth  MODRINTH_TOKEN (secret), MODRINTH_PROJECT (project slug or ID)
   hangar    HANGAR_API_TOKEN (secret), HANGAR_PROJECT (project slug)
 
-`plan` says whether a tag goes to the distributors at all. A development build (major
-version 0, with or without a suffix) and a release candidate never do; `preflight` and
-`publish` refuse them outright. Everything published is taken from the candidate manifest:
-version, channel, loaders, platforms and Minecraft versions.
+A development build (major version 0, with or without a suffix) and a release candidate
+never reach a distributor; every command refuses them outright. Everything published is
+taken from the candidate manifest: version, channel, loaders, platforms and Minecraft
+versions.
 
-`preflight` writes nothing. It checks the configuration, that the token can see the project
+`public` needs no secret and runs in the publisher's plan job, before approval. It checks
+what a signed-out consumer sees. A version that is not publicly complete may still exist
+hidden: a registry listing can omit draft, unlisted or deleted versions even for the owner's
+token, so an omitted result is not proof of absence. `public` therefore fails unless the
+version is publicly complete or this dispatch carries the maintainer's absence attestation.
+`publish` uploads only when the token's lookup finds the version absent, and then only with
+that attestation, on the first attempt of the publisher run, and while no other publisher
+run for the tag overlaps this one. Those checks run immediately before the upload.
+
+`credentials` is `preflight` without the version lookup: what another destination's publish
+job checks, so that a sibling job's upload, or a registry hiccup just after it, cannot fail
+it (N6-REL-05). `preflight` writes nothing. It checks the configuration, that the token can see the project
 and upload to it, the Hangar channel and Folia tag, and that the destination either lacks
 this version or already holds exactly the candidate. The first release goes to projects that
 are not public yet: Modrinth reviews a project only once it has a version, and a Hangar
@@ -127,7 +139,8 @@ class ModrinthApi:
         self.http = http or Http()
 
     def _get(self, path, what, auth=True, allow_missing=False):
-        headers = {"Authorization": self.token} if auth else {}
+        # Without a token (the secret-free plan job) every call is signed out.
+        headers = {"Authorization": self.token} if auth and self.token else {}
         status, body = self.http.request("GET", MODRINTH + path, headers)
         return optional(status, body, what) if allow_missing else parse(status, body, what)
 
@@ -197,7 +210,8 @@ class HangarApi:
         return self._session
 
     def _get(self, url, what, auth=True, allow_missing=False):
-        status, body = self.http.request("GET", url, self._auth() if auth else {})
+        # Without a key (the secret-free plan job) every call is signed out.
+        status, body = self.http.request("GET", url, self._auth() if auth and self.key else {})
         return optional(status, body, what) if allow_missing else parse(status, body, what)
 
     def project(self, slug, auth=True):
@@ -387,22 +401,41 @@ def unknown(kind, wanted, known):
                                "it does, or move the server pin, before releasing.")
 
 
-def modrinth_preflight(api, manifest, project, directory):
+def modrinth_preflight(api, manifest, project, directory, state=True):
+    """Writes nothing. With `state`, also verify the version is absent or exactly the candidate."""
     dest = destination(manifest, "modrinth")
     # Modrinth rejects a version naming a game version or loader it does not list.
     unknown("Modrinth", dest["game_versions"], api.known_game_versions())
     unknown("Modrinth", dest["loaders"], api.known_loaders())
     project_id, public = modrinth_project(api, project)
     modrinth_upload_access(api, project_id)
+    if not state:
+        return "ready"
     return modrinth_state(api, manifest, dest, project_id, public, directory)
 
 
-def modrinth_publish(api, manifest, project, directory):
+def modrinth_public(api, manifest, project, directory):
+    """What a signed-out consumer sees, through an API without a token. Writes nothing."""
+    dest = destination(manifest, "modrinth")
+    unknown("Modrinth", dest["game_versions"], api.known_game_versions())
+    unknown("Modrinth", dest["loaders"], api.known_loaders())
+    details = api.project(project, auth=False)
+    if not isinstance(details, dict) or not details.get("id"):
+        log(f"Modrinth project {project} is not visible signed out: a draft or a project awaiting review")
+        return "not-public"
+    if project not in (details.get("id"), details.get("slug")):
+        raise DistributorError(f"Modrinth resolved {project} to {details.get('slug')}; set MODRINTH_PROJECT "
+                               "to the project's slug or ID")
+    return modrinth_state(api, manifest, dest, details["id"], True, directory)
+
+
+def modrinth_publish(api, manifest, project, directory, before_upload):
     dest = destination(manifest, "modrinth")
     project_id, public = modrinth_project(api, project)
     state = modrinth_state(api, manifest, dest, project_id, public, directory)
     if state == "absent":
         version = manifest["version"]
+        before_upload("modrinth", version)
         log(f"Uploading {version} to Modrinth project {project} as {dest['version_type']}")
         api.create_version(modrinth_payload(manifest, dest, project_id, directory),
                            Path(directory) / candidate.jar_name(version))
@@ -414,11 +447,14 @@ def modrinth_publish(api, manifest, project, directory):
 
 # --- Hangar -----------------------------------------------------------------------------
 
-def hangar_project(api, slug, dest):
+def hangar_project(api, slug, dest, version=None):
     """The project's numeric ID, checked with the session.
 
     A Hangar project stays `new` until its first version is published, which makes it public,
-    so `new` is accepted for a project without versions. The Folia tag is required.
+    so `new` is accepted for a project without versions, or whose only version is `version`
+    (this release, awaiting Hangar's review). With `version` None, as in another destination's
+    publish job, the versions are not counted: a sibling job may just have uploaded the first
+    one. The Folia tag is required.
     """
     details = api.project(slug)
     namespace = details.get("namespace") if isinstance(details, dict) else None
@@ -429,8 +465,11 @@ def hangar_project(api, slug, dest):
                                "project's slug and use a key of a project member")
     visibility = details.get("visibility")
     if visibility == "new":
-        if api.version_count(slug) != 0:
-            raise DistributorError(f"Hangar project {slug} is still new but already has versions; reconcile it by hand")
+        if version is not None:
+            count = api.version_count(slug)
+            if count > 1 or (count == 1 and api.version(slug, version) is None):
+                raise DistributorError(f"Hangar project {slug} is still new but already has other versions; "
+                                       "reconcile it by hand")
     elif visibility != "public":
         raise DistributorError(f"Hangar project {slug} has visibility {visibility}; it must be public, "
                                "or new without versions")
@@ -496,12 +535,13 @@ def hangar_state(api, manifest, dest, slug, directory):
     return "complete"
 
 
-def hangar_preflight(api, manifest, slug, directory):
+def hangar_preflight(api, manifest, slug, directory, state=True):
+    """Writes nothing. With `state`, also verify the version is absent or exactly the candidate."""
     dest = destination(manifest, "hangar")
     # Hangar rejects an upload naming a platform version it does not list.
     for platform, versions in sorted(dest["platforms"].items()):
         unknown(f"Hangar {platform}", versions, api.known_platform_versions(platform))
-    project_id = hangar_project(api, slug, dest)
+    project_id = hangar_project(api, slug, dest, manifest["version"] if state else None)
     # Through the API, Hangar creates a missing channel only when a colour is sent and fails the
     # upload otherwise; the channel must exist before anything is published anywhere.
     names = [c.get("name") for c in api.channels(project_id) if isinstance(c, dict)]
@@ -510,15 +550,33 @@ def hangar_preflight(api, manifest, slug, directory):
                                "create it in the project settings")
     if not api.can_create_versions(project_id):
         raise DistributorError(f"The HANGAR_API_TOKEN cannot create versions in Hangar project {slug}")
+    if not state:
+        return "ready"
     return hangar_state(api, manifest, dest, slug, directory)
 
 
-def hangar_publish(api, manifest, slug, directory):
+def hangar_public(api, manifest, slug, directory):
+    """What a signed-out consumer sees, through an API without a key. Writes nothing."""
     dest = destination(manifest, "hangar")
-    hangar_project(api, slug, dest)
+    for platform, versions in sorted(dest["platforms"].items()):
+        unknown(f"Hangar {platform}", versions, api.known_platform_versions(platform))
+    details = api.project(slug, auth=False)
+    namespace = details.get("namespace") if isinstance(details, dict) else None
+    if not isinstance(namespace, dict):
+        log(f"Hangar project {slug} is not visible signed out: it stays new until its first version")
+        return "not-public"
+    if namespace.get("slug") != slug:
+        raise DistributorError(f"Hangar resolved {slug} to {namespace.get('slug')}; set HANGAR_PROJECT to the project's slug")
+    return hangar_state(api, manifest, dest, slug, directory)
+
+
+def hangar_publish(api, manifest, slug, directory, before_upload):
+    dest = destination(manifest, "hangar")
+    hangar_project(api, slug, dest, manifest["version"])
     state = hangar_state(api, manifest, dest, slug, directory)
     if state == "absent":
         version = manifest["version"]
+        before_upload("hangar", version)
         log(f"Uploading {version} to Hangar project {slug} on the {dest['channel']} channel")
         api.upload(slug, hangar_payload(manifest, dest, directory), Path(directory) / candidate.jar_name(version))
         state = hangar_state(api, manifest, dest, slug, directory)
@@ -572,63 +630,108 @@ def verified(args, tag_commit=remote_tag_commit):
     return manifest
 
 
-def plan(args):
-    distribute = bool(candidate.distribution(args.tag))
-    if distribute:
-        log(f"{args.tag} goes to GitHub, Modrinth and Hangar")
-    else:
-        try:
-            refuse_ineligible(args.tag)
-        except DistributorError as error:
-            log(f"::notice::{error}")
-    output = os.environ.get("GITHUB_OUTPUT")
-    if output:
-        with open(output, "a", encoding="utf-8", newline="\n") as stream:
-            stream.write(f"distribute={'true' if distribute else 'false'}\n")
-    return distribute
+def require_attestation(name, version, attested):
+    """An omitted version is not proof of absence; only the maintainer's attestation is."""
+    if not attested:
+        raise DistributorError(
+            f"{name} {version} is not publicly complete, and a registry listing can omit draft, unlisted and "
+            f"deleted versions, so that is not proof that it is absent. Inspect the {name} owner inventory for "
+            f"{version} (RELEASE_PROCESS.md section 3) and dispatch again with {name}_absence_confirmed set, "
+            "or leave it out of this dispatch's destinations.")
 
 
 ACTIONS = {
+    ("public", "modrinth"): (ModrinthApi, modrinth_public),
+    ("public", "hangar"): (HangarApi, hangar_public),
     ("preflight", "modrinth"): (ModrinthApi, modrinth_preflight),
     ("preflight", "hangar"): (HangarApi, hangar_preflight),
+    ("credentials", "modrinth"): (ModrinthApi, lambda *a: modrinth_preflight(*a, state=False)),
+    ("credentials", "hangar"): (HangarApi, lambda *a: hangar_preflight(*a, state=False)),
     ("publish", "modrinth"): (ModrinthApi, modrinth_publish),
     ("publish", "hangar"): (HangarApi, hangar_publish),
 }
 
 
-def run(args, environ=None, tag_commit=remote_tag_commit, apis=None):
-    refuse_ineligible(args.tag)
-    token, project = configuration(args.destination, environ)
-    manifest = verified(args, tag_commit)
-    api_class, action = ACTIONS[(args.command, args.destination)]
-    api = (apis or {}).get(args.destination) or api_class(token)
-    state = action(api, manifest, project, args.directory)
-    log(f"{args.destination} {args.command}: {manifest['version']} is {state}")
+def write_state(state, environ):
     output = os.environ.get("GITHUB_OUTPUT") if environ is None else None
     if output:
         with open(output, "a", encoding="utf-8", newline="\n") as stream:
             stream.write(f"state={state}\n")
+
+
+def run(args, environ=None, tag_commit=remote_tag_commit, apis=None, before_upload=None):
+    """One command for one destination. `before_upload` is called, for `publish` only,
+    immediately before an upload; it must raise to stop it."""
+    refuse_ineligible(args.tag)
+    if args.command == "public":
+        # Signed out: the project variable is needed, never the token.
+        key = CONFIG[args.destination][1]
+        project = (os.environ if environ is None else environ).get(key, "").strip()
+        if not project:
+            raise DistributorError(f"Missing {key} for {args.destination}; it is a repository variable, see "
+                                   "RELEASE_PROCESS.md section 3.")
+        token = None
+    else:
+        token, project = configuration(args.destination, environ)
+    manifest = verified(args, tag_commit)
+    api_class, action = ACTIONS[(args.command, args.destination)]
+    api = (apis or {}).get(args.destination) or api_class(token)
+    if args.command == "publish":
+        if before_upload is None:
+            raise DistributorError("publish needs an upload guard")
+        state = action(api, manifest, project, args.directory, before_upload)
+    else:
+        state = action(api, manifest, project, args.directory)
+    log(f"{args.destination} {args.command}: {manifest['version']} is {state}")
+    if args.command == "public":
+        if state == "complete":
+            log(f"{args.destination} {manifest['version']} is publicly complete; no absence attestation is needed")
+        else:
+            require_attestation(args.destination, manifest["version"], args.attested == "true")
+            log(f"::notice::{args.destination} {manifest['version']} is {state} signed out; this dispatch's "
+                "absence attestation is accepted, and the publish job still looks it up with the token")
+    write_state(state, environ)
     return state
+
+
+def load_publisher():
+    spec = importlib.util.spec_from_file_location("release_publisher", Path(__file__).with_name("release-publisher.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def upload_guard(args, publisher=None):
+    """The checks N6-REL-05 puts beside each upload: an attestation for this dispatch, used on
+    the first attempt only, with no other publisher run for the tag overlapping this one."""
+    def check(name, version):
+        require_attestation(name, version, args.attested == "true")
+        (publisher or load_publisher()).refuse_reused_attestation(
+            args.repository, args.tag, args.publisher_run_id, args.publisher_attempt)
+        log(f"{name} {version}: absence attested for publisher run {args.publisher_run_id} "
+            f"attempt {args.publisher_attempt}, with no overlapping run; uploading")
+    return check
 
 
 def parser():
     root = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = root.add_subparsers(dest="command", required=True)
-    commands.add_parser("plan").add_argument("--tag", required=True)
-    for name in ("preflight", "publish"):
+    for name in ("public", "preflight", "credentials", "publish"):
         command = commands.add_parser(name)
         command.add_argument("destination", choices=sorted(CONFIG))
         for option in ("--directory", "--evidence", "--tag", "--sha", "--run-id", "--attempt", "--repository"):
             command.add_argument(option, required=True)
+        if name in ("public", "publish"):
+            command.add_argument("--attested", choices=("true", "false"), required=True)
+        if name == "publish":
+            command.add_argument("--publisher-run-id", required=True)
+            command.add_argument("--publisher-attempt", required=True)
     return root
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
-    if args.command == "plan":
-        plan(args)
-    else:
-        run(args)
+    run(args, before_upload=upload_guard(args) if args.command == "publish" else None)
 
 
 if __name__ == "__main__":
