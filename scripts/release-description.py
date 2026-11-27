@@ -10,9 +10,10 @@ confirm  after the maintainer's paste and approval: check the owner again, then 
          body with the file at the tag that owns the page now
 
 The page belongs to the highest stable version public on Modrinth, or the highest
-pre-release while there is none (N6-REL-05, shared_state_owner in release-candidate.py). A
-project with no public version, such as one still awaiting Modrinth's review, has no owner,
-so nothing is asked. The comparison ignores line endings and trailing whitespace only.
+pre-release while there is none (N6-REL-05, shared_state_owner in release-candidate.py).
+check runs only after this tag's version was verified public, so it waits until the public
+listing shows it rather than trusting a stale one. Signed-out reads bypass Modrinth's CDN
+cache. The comparison ignores line endings and trailing whitespace only.
 Neither command writes anything or holds a secret: MODRINTH_TOKEN cannot write the body,
 so the maintainer's paste into the Modrinth description editor is the write.
 """
@@ -24,8 +25,10 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
+import uuid
 from pathlib import Path
 
 
@@ -82,9 +85,16 @@ def source_body(tag):
     return text.split("-->", 1)[1].strip()
 
 
+# Signed-out API responses are served from a CDN cache for about a minute; a query nobody has
+# asked before bypasses it, so a version just uploaded or a body just pasted is read as it is.
+LISTING_RETRIES = 8
+LISTING_WAIT = 15
+
+
 def modrinth(path, what, missing_ok=False):
-    """Signed out: only what any consumer sees."""
-    status, body = distributors.Http().request("GET", distributors.MODRINTH + path)
+    """Signed out: only what any consumer sees, read past the CDN cache."""
+    url = f"{distributors.MODRINTH}{path}?nocache={uuid.uuid4().hex}"
+    status, body = distributors.Http().request("GET", url)
     if missing_ok and status == 404:
         return None
     return distributors.parse(status, body, what)
@@ -101,17 +111,38 @@ def public_body(project):
     return data["body"]
 
 
-def public_owner(project):
-    """The tag of the version that owns the project page, judged by the listed public versions."""
+def public_tags(project):
+    """The tags of the listed public versions; empty for a project that is not public yet."""
     versions = modrinth(project_path(project) + "/version", "Modrinth versions (signed out)", missing_ok=True)
     if versions is None:
-        return None
+        return []
     if not isinstance(versions, list):
         raise DescriptionError("Cannot list the public Modrinth versions")
-    listed = [f"v{item['version_number']}" for item in versions
-              if isinstance(item, dict) and item.get("status") == "listed"
-              and isinstance(item.get("version_number"), str)]
-    return candidate.shared_state_owner(listed)
+    return [f"v{item['version_number']}" for item in versions
+            if isinstance(item, dict) and item.get("status") == "listed"
+            and isinstance(item.get("version_number"), str)]
+
+
+def public_owner(project):
+    """The tag of the version that owns the project page, judged by the listed public versions."""
+    return candidate.shared_state_owner(public_tags(project))
+
+
+def owner_after_publication(project, tag, sleep=time.sleep):
+    """The page owner, once the listing shows `tag`.
+
+    The check runs only after Publish to Modrinth proved `tag` complete and listed signed out,
+    so a listing without it is stale, never a sign that another version owns the page. It is
+    read again until it shows the tag; skipping on a stale owner would leave the page unconfirmed.
+    """
+    for attempt in range(LISTING_RETRIES):
+        tags = public_tags(project)
+        if tag in tags:
+            return candidate.shared_state_owner(tags)
+        if attempt + 1 < LISTING_RETRIES:
+            sleep(LISTING_WAIT)
+    raise DescriptionError(f"Modrinth does not list {tag} signed out, although Publish to Modrinth verified it; "
+                           "re-run this job once it does")
 
 
 def file_link(repository, tag):
@@ -169,7 +200,7 @@ def write_output(path, value):
 
 
 def check(args):
-    owner = public_owner(args.project)
+    owner = owner_after_publication(args.project, args.tag)
     if owner != args.tag:
         summary(f"Modrinth description skipped for {args.tag}: the project page belongs to "
                 f"{owner or 'no public version yet'}.")

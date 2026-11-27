@@ -42,6 +42,7 @@ class World:
 
         args = argparse.Namespace(repository=REPOSITORY, tag=self.tag, project="antispeedrun", output=str(self.output))
         with mock.patch.object(rd, "public_owner", self.owner), \
+                mock.patch.object(rd, "owner_after_publication", lambda project, tag: self.owner(project)), \
                 mock.patch.object(rd, "public_body", lambda project: self.body), \
                 mock.patch.object(rd, "source_body", lambda tag: FILES[tag].strip()), \
                 mock.patch.object(rd, "check_environment", environment), \
@@ -106,7 +107,6 @@ class CheckTest(Worlds):
         cases = {
             "a pre-release while a stable version is public": ("v1.1.0-beta.1", "v1.0.0"),
             "a stable hotfix below a newer stable version": ("v1.0.0", "v1.1.0"),
-            "no public version yet": ("v1.0.0-alpha.1", None),
         }
         for label, (tag, owner) in cases.items():
             with self.subTest(label):
@@ -152,6 +152,39 @@ class ConfirmTest(Worlds):
         item = self.make("v1.0.0", [None], "Stable page")
         with self.assertRaisesRegex(rd.DescriptionError, "no public version"):
             item.run("confirm")
+
+
+class StaleListingTest(unittest.TestCase):
+    """The check runs after this tag was verified public; a listing without it is stale."""
+
+    def owner(self, listings):
+        listings = list(listings)
+        sleeps = []
+        with mock.patch.object(rd, "public_tags", lambda project: listings.pop(0)):
+            owner = rd.owner_after_publication("antispeedrun", "v1.1.0", sleeps.append)
+        return owner, len(sleeps)
+
+    def test_a_stale_listing_is_read_again_until_it_shows_this_tag(self):
+        self.assertEqual(self.owner([["v1.0.0"], [], ["v1.0.0", "v1.1.0"]]), ("v1.1.0", 2))
+        self.assertEqual(self.owner([["v1.2.0", "v1.1.0"]]), ("v1.2.0", 0))
+
+    def test_a_listing_that_never_shows_this_tag_fails_instead_of_skipping(self):
+        with self.assertRaisesRegex(rd.DescriptionError, "does not list v1.1.0"):
+            self.owner([["v1.0.0"]] * rd.LISTING_RETRIES)
+
+    def test_reads_bypass_the_cdn_cache(self):
+        urls = []
+
+        class Http:
+            def request(self, method, url):
+                urls.append(url)
+                return 200, b"[]"
+
+        with mock.patch.object(rd.distributors, "Http", Http):
+            rd.public_tags("antispeedrun")
+            rd.public_tags("antispeedrun")
+        self.assertTrue(all("?nocache=" in url for url in urls))
+        self.assertNotEqual(urls[0], urls[1])
 
 
 class OwnerTest(unittest.TestCase):

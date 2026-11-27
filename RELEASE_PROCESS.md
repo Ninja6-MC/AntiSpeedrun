@@ -401,10 +401,14 @@ on Modrinth is therefore only ever changed by pasting that file, without its lea
 generated comment, into the project's description editor, including when the project is
 created.
 
-When **Publish to Modrinth** succeeds, the publisher confirms the paste for the tag that owns
-the Modrinth project page: the highest stable version public on Modrinth, or the highest
-pre-release while there is none, as for the Latest marker. A project with no public version
-yet, such as one still awaiting Modrinth's review, has no owner, and nothing is asked.
+When **Publish to Modrinth** succeeds, which means its version is public, the publisher
+confirms the paste for the tag that owns the Modrinth project page: the highest stable
+version public on Modrinth, or the highest pre-release while there is none, as for the
+Latest marker. While Modrinth still reviews the project, Publish to Modrinth fails
+`awaiting-review` and nothing is asked until it is re-run after approval. Modrinth serves
+signed-out API reads from a cache for about a minute, so both jobs read past it, and the
+check waits up to two minutes for the public listing to show this run's version, then fails
+rather than judge the owner from a stale list; re-run it.
 
 1. **Check the Public Modrinth Description** needs no secret and no approval. It reads the
    public project body signed out and compares it with the file at the owning tag, ignoring
@@ -420,9 +424,13 @@ yet, such as one still awaiting Modrinth's review, has no owner, and nothing is 
    fails, with a short diff, unless the body matches. The remedy is to paste the file it
    names and re-run that job.
 
-Neither job holds a secret or writes anything, and neither is in a shared concurrency group:
-the check after approval makes the order of approvals irrelevant.
-`scripts/release-description.py` implements both.
+Neither job holds a secret or writes anything, and neither joins `release-shared-state`: the
+check after approval makes the order of approvals irrelevant, so a pending paste never holds
+up another tag. Like every job of the run, though, the confirm job is part of the run's own
+group, `release-publish-<tag ref>`. While it waits, the run is in progress: **Re-run failed
+jobs** is not offered for its other jobs, a new dispatch for the same tag queues behind it,
+and an absence attestation for the tag is refused. Paste and approve, or reject the
+deployment, to end it. `scripts/release-description.py` implements both jobs.
 
 **Retrying.** Fix the cause first. Then:
 
