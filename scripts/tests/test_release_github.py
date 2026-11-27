@@ -325,6 +325,44 @@ class PromoteTest(unittest.TestCase):
             self.promote(api)
 
 
+class PreflightTest(unittest.TestCase):
+    """--preflight, which every publish job runs for GitHub before its own first write."""
+
+    setUp = PromoteTest.setUp
+    candidate = PromoteTest.candidate
+    promote = PromoteTest.promote
+
+    def preflight(self, api, sha=SHA):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return gh.preflight(api, self.manifest, self.directory, sha)
+
+    def test_reports_the_release_state_and_writes_nothing(self):
+        self.candidate("v1.0.0")
+        api = FakeGitHub()
+        self.assertEqual(self.preflight(api), "absent")
+        api.add_release("v1.0.0", True, False)
+        self.assertEqual(self.preflight(api), "draft")
+        self.promote(api)
+        writes = list(api.writes)
+        self.assertEqual(self.preflight(api), "published")
+        self.assertEqual(api.writes, writes)
+
+    def test_stops_on_what_the_publish_step_would_stop_on(self):
+        self.candidate("v1.0.0")
+        with self.assertRaisesRegex(gh.PromotionError, "moved tag"):
+            self.preflight(FakeGitHub(tag_sha="f" * 40))
+        with self.assertRaisesRegex(gh.PromotionError, "not the candidate's source"):
+            self.preflight(FakeGitHub(), sha="e" * 40)
+        api = FakeGitHub()
+        api.add_release("v1.0.0", False, False, body="Other notes")
+        with self.assertRaisesRegex(gh.PromotionError, "notes"):
+            self.preflight(api)
+        api.add_release("v1.0.0", True, False)
+        with self.assertRaisesRegex(gh.PromotionError, "2 releases"):
+            self.preflight(api)
+        self.assertEqual(api.writes, [])
+
+
 class GitHubApiTest(unittest.TestCase):
     """The gh api calls themselves, with gh faked at the subprocess boundary."""
 

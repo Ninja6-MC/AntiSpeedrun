@@ -271,7 +271,7 @@ def matrix(workflow, job_header):
 class ServerMatrixTest(unittest.TestCase):
     def test_release_boots_exactly_the_ci_servers(self):
         ci = matrix("ci.yml", "\n  server-smoke:\n")
-        release = matrix("release.yml", "\n  verify:\n")
+        release = matrix("release-candidate.yml", "\n  verify:\n")
         self.assertEqual(len(ci), len(rc.SERVER_LEGS))
         self.assertEqual(release, ci)
         self.assertEqual(sorted(f"{platform}-{minecraft}" for platform, minecraft, *_ in release),
