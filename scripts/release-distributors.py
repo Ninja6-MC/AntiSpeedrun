@@ -447,11 +447,14 @@ def modrinth_publish(api, manifest, project, directory, before_upload):
 
 # --- Hangar -----------------------------------------------------------------------------
 
-def hangar_project(api, slug, dest):
+def hangar_project(api, slug, dest, version=None):
     """The project's numeric ID, checked with the session.
 
     A Hangar project stays `new` until its first version is published, which makes it public,
-    so `new` is accepted for a project without versions. The Folia tag is required.
+    so `new` is accepted for a project without versions, or whose only version is `version`
+    (this release, awaiting Hangar's review). With `version` None, as in another destination's
+    publish job, the versions are not counted: a sibling job may just have uploaded the first
+    one. The Folia tag is required.
     """
     details = api.project(slug)
     namespace = details.get("namespace") if isinstance(details, dict) else None
@@ -462,8 +465,11 @@ def hangar_project(api, slug, dest):
                                "project's slug and use a key of a project member")
     visibility = details.get("visibility")
     if visibility == "new":
-        if api.version_count(slug) != 0:
-            raise DistributorError(f"Hangar project {slug} is still new but already has versions; reconcile it by hand")
+        if version is not None:
+            count = api.version_count(slug)
+            if count > 1 or (count == 1 and api.version(slug, version) is None):
+                raise DistributorError(f"Hangar project {slug} is still new but already has other versions; "
+                                       "reconcile it by hand")
     elif visibility != "public":
         raise DistributorError(f"Hangar project {slug} has visibility {visibility}; it must be public, "
                                "or new without versions")
@@ -535,7 +541,7 @@ def hangar_preflight(api, manifest, slug, directory, state=True):
     # Hangar rejects an upload naming a platform version it does not list.
     for platform, versions in sorted(dest["platforms"].items()):
         unknown(f"Hangar {platform}", versions, api.known_platform_versions(platform))
-    project_id = hangar_project(api, slug, dest)
+    project_id = hangar_project(api, slug, dest, manifest["version"] if state else None)
     # Through the API, Hangar creates a missing channel only when a colour is sent and fails the
     # upload otherwise; the channel must exist before anything is published anywhere.
     names = [c.get("name") for c in api.channels(project_id) if isinstance(c, dict)]
@@ -566,7 +572,7 @@ def hangar_public(api, manifest, slug, directory):
 
 def hangar_publish(api, manifest, slug, directory, before_upload):
     dest = destination(manifest, "hangar")
-    hangar_project(api, slug, dest)
+    hangar_project(api, slug, dest, manifest["version"])
     state = hangar_state(api, manifest, dest, slug, directory)
     if state == "absent":
         version = manifest["version"]

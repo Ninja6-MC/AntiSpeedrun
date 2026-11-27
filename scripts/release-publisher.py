@@ -203,7 +203,8 @@ def check_overlap(runs, current_id, created_at, tag):
                 continue
             raise PublisherError(f"Publisher run {run.get('id')} for {tag} is {run.get('status')}; an absence "
                                  "attestation cannot be used beside it")
-        if (run.get("updated_at") or "") > created_at:
+        # Timestamps have one-second resolution, so a run that ended in the same second counts.
+        if (run.get("updated_at") or "") >= created_at:
             raise PublisherError(f"Publisher run {run.get('id')} for {tag} finished after this run was created and "
                                  "may have published a version the attestation did not see. Inspect the owner "
                                  "inventory again and start a new dispatch")

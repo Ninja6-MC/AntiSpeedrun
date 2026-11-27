@@ -503,7 +503,7 @@ class HangarTest(Candidate):
                    "platformDependencies": {"PAPER": VERSIONS}, "files": [{"platforms": ["PAPER"]}]}, b"x", "a.jar")
         cases = {
             "has visibility needsChanges": lambda api: api.details.update(visibility="needsChanges"),
-            "still new but already has versions": lambda api: (api.versions_by_name.update(older.versions_by_name),
+            "still new but already has other versions": lambda api: (api.versions_by_name.update(older.versions_by_name),
                                                                api.details.update(visibility="new")),
             "Supports Folia": lambda api: api.details["settings"].update(tags=[]),
             "no Alpha channel": lambda api: setattr(api, "channel_names", ["Release", "Beta"]),
@@ -652,6 +652,25 @@ class CredentialsTest(Candidate):
                 with self.assertRaisesRegex(rd.DistributorError, "SHA-256"):
                     self.run_command("preflight", name, apis={name: api})
                 self.assertEqual(self.run_command("credentials", name, apis={name: api}), "ready")
+
+    def test_a_sibling_first_upload_to_a_new_hangar_project_does_not_stop_it(self):
+        self.candidate()
+        api = FakeHangar()
+        api.details["visibility"] = "new"
+        api.add({"version": "1.0.0-alpha.1", "description": NOTES, "channel": "Alpha",
+                 "platformDependencies": {"PAPER": VERSIONS}, "files": [{"platforms": ["PAPER"]}]}, b"x", "a.jar")
+        api.details["visibility"] = "new"
+        self.assertEqual(self.run_command("credentials", "hangar", apis={"hangar": api}), "ready")
+
+    def test_a_new_hangar_project_holding_only_this_release_awaits_review(self):
+        self.candidate()
+        api = FakeHangar()
+        api.details["visibility"] = "new"
+        api.review_versions = True
+        self.assertEqual(self.run_command("publish", "hangar", apis={"hangar": api}), "awaiting-review")
+        api.details["visibility"] = "new"
+        self.assertEqual(self.run_command("publish", "hangar", apis={"hangar": api}), "awaiting-review")
+        self.assertEqual(len(api.uploads), 1)
 
     def test_credential_and_project_failures_still_stop_it(self):
         self.candidate()

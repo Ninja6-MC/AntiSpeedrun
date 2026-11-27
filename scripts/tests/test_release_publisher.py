@@ -123,7 +123,9 @@ class AttestationGuardTest(unittest.TestCase):
                            "created_at": "2027-02-01T09:00:00Z", "updated_at": "2027-02-01T09:30:00Z"}
         finished_after = {"id": 6, "head_branch": "v1.0.0", "status": "completed",
                           "created_at": "2027-02-01T09:00:00Z", "updated_at": "2027-02-01T10:05:00Z"}
-        for run, message in ((earlier_running, "is in_progress"), (finished_after, "finished after")):
+        same_second = dict(finished_after, id=7, updated_at=self.CREATED)
+        for run, message in ((earlier_running, "is in_progress"), (finished_after, "finished after"),
+                             (same_second, "finished after")):
             with self.subTest(run["id"]):
                 with self.assertRaisesRegex(rp.PublisherError, message):
                     rp.check_overlap([run], 9, self.CREATED, "v1.0.0")

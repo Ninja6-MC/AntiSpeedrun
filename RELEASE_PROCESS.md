@@ -344,15 +344,16 @@ version. Modrinth reviews a project only once it has one, so `v1.0.0-alpha.1` go
 project that is still a draft. A Hangar project stays `new` until its first version is
 published, which makes it public. Neither is publicly complete, so the first dispatch needs
 both attestations. Preflight checks each project with the token, which sees it in that
-state, and accepts a Hangar project that is `new` only while it has no versions. On that
-first run the Modrinth version is uploaded and verified with the token (metadata and
-SHA-512), but consumers cannot see it yet: **Publish to Modrinth** ends with **Require a
-Signed-out Download** failed and Modrinth `awaiting-review`. Submit the Modrinth project for
-review. Once it is approved, use **Re-run failed jobs** on that publisher run: the job finds
-the version present, needs no attestation, verifies it, and completes the signed-out
-download check. The same applies when Hangar holds a version for review (visibility
-`needsApproval`). A version awaiting review is not publicly complete, so a new dispatch
-would ask for an attestation that cannot honestly be given; re-run the failed job instead.
+state, and accepts a Hangar project that is `new` only while it has no versions, or only
+this release awaiting review. On that first run the Modrinth version is uploaded and
+verified with the token (metadata and SHA-512), but consumers cannot see it yet: **Publish
+to Modrinth** ends with **Require a Signed-out Download** failed and Modrinth
+`awaiting-review`. Submit the Modrinth project for review. Once it is approved, use **Re-run
+failed jobs** on that publisher run: the job finds the version present, needs no
+attestation, verifies it, and completes the signed-out download check. The same applies when
+Hangar holds a version for review (visibility `needsApproval`). A version awaiting review is
+not publicly complete, so a new dispatch would ask for an attestation that cannot honestly
+be given; re-run the failed job instead.
 
 **Retrying.** Fix the cause first. Then:
 
