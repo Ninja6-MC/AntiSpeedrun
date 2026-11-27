@@ -256,6 +256,32 @@ class CandidateTest(unittest.TestCase):
                                           output=str(self.root / "r.json")))
 
 
+class SharedStateOwnerTest(unittest.TestCase):
+    def test_precedence_follows_semver(self):
+        ordered = ["v1.0.0-alpha.1", "v1.0.0-alpha.2", "v1.0.0-beta.1", "v1.0.0-rc.1", "v1.0.0", "v1.0.1",
+                   "v1.9.0", "v1.10.0-alpha.1", "v1.10.0"]
+        self.assertEqual(sorted(reversed(ordered), key=rc.version_key), ordered)
+        self.assertIsNone(rc.version_key("nightly"))
+        self.assertIsNone(rc.version_key("v01.0.0"))
+
+    def test_the_highest_stable_owns_and_a_prerelease_never_displaces_it(self):
+        self.assertEqual(rc.shared_state_owner(["v1.0.0", "v1.1.0-beta.1", "v1.0.1"]), "v1.0.1")
+        self.assertEqual(rc.shared_state_owner(["v1.0.0", "v1.1.0-beta.1"], stable_only=True), "v1.0.0")
+
+    def test_a_stable_hotfix_below_a_newer_stable_does_not_own(self):
+        self.assertEqual(rc.shared_state_owner(["v1.1.0", "v1.0.1"]), "v1.1.0")
+        self.assertEqual(rc.shared_state_owner(["v1.1.0", "v1.0.1"], stable_only=True), "v1.1.0")
+
+    def test_without_a_stable_version_the_highest_prerelease_owns_unless_stable_only(self):
+        tags = ["v1.0.0-alpha.1", "v1.0.0-beta.2", "v0.9.0", "not-a-tag"]
+        self.assertEqual(rc.shared_state_owner(tags), "v1.0.0-beta.2")
+        self.assertIsNone(rc.shared_state_owner(tags, stable_only=True))
+        self.assertIsNone(rc.shared_state_owner([]))
+
+    def test_development_builds_are_never_stable(self):
+        self.assertIsNone(rc.shared_state_owner(["v0.5.0", "v0.4.1"], stable_only=True))
+
+
 MATRIX_LINE = re.compile(r"^\s*- \{ platform: (\w+), minecraft: '([^']+)', build: (\d+), java: '(\d+)', sha256: (\w+) \}$",
                          re.M)
 

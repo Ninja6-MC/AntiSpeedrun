@@ -75,6 +75,33 @@ def release(tag):
     }
 
 
+# SemVer precedence of the pre-release suffixes this project uses: alpha < beta < rc < none.
+PRERELEASE_RANK = {"alpha": 0, "beta": 1, "rc": 2, None: 3}
+
+
+def version_key(tag):
+    """SemVer precedence of a release tag, or None for anything that is not one."""
+    match = TAG.fullmatch(tag or "")
+    if not match:
+        return None
+    major, minor, patch = (int(match.group(i)) for i in (1, 2, 3))
+    return major, minor, patch, PRERELEASE_RANK[match.group(4)], int(match.group(5) or 0)
+
+
+def shared_state_owner(tags, stable_only=False):
+    """The tag that owns a destination's shared state (N6-REL-05), or None.
+
+    `tags` are the release tags published on that destination. The owner is the highest
+    stable one, or, while there is none, the highest pre-release; with `stable_only` (the
+    GitHub Latest marker, which GitHub never gives a pre-release) a pre-release never owns.
+    Stable is a suffix-free tag from 1.0.0 on; a 0.y.z build is a development pre-release.
+    Anything that is not a release tag is ignored.
+    """
+    keyed = [(key, tag) for tag in tags if (key := version_key(tag)) is not None]
+    stable = [item for item in keyed if release(item[1])["channel"] == "stable"]
+    return max(stable if stable or stable_only else keyed, default=(None, None))[1]
+
+
 def jar_name(version):
     return f"{PLUGIN}-{version}.jar"
 

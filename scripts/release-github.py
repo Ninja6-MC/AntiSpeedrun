@@ -17,7 +17,8 @@ they are. Every run is a resumable promotion of one candidate:
   3. on a draft (this run's or an interrupted earlier one), assets GitHub never finished
      receiving are removed, assets already uploaded must match the manifest byte for byte,
      and the missing ones are uploaded;
-  4. the draft is published with the candidate's pre-release and Latest flags;
+  4. the draft is published with the candidate's pre-release flag, and as Latest only when
+     this tag owns the marker at that moment (N6-REL-05, rechecked just before the write);
   5. what an anonymous consumer downloads is hashed against the manifest.
 
 A published release that differs from the candidate in any way stops the run for the
@@ -262,34 +263,45 @@ def complete_draft(api, release, manifest, directory):
             api.upload_asset(release["id"], Path(directory) / name)
 
 
-def stable_key(tag):
-    """SemVer order of a stable release tag, or None for any other tag."""
-    try:
-        info = candidate.release(tag)
-    except candidate.CandidateError:
-        return None
-    if info["channel"] != "stable":
-        return None
-    return tuple(int(part) for part in info["version"].split("."))
+def summary(text):
+    log(text)
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if path:
+        with open(path, "a", encoding="utf-8", newline="\n") as stream:
+            stream.write(text + "\n\n")
+
+
+def latest_owner(api, manifest, release_id):
+    """The tag that owns GitHub's Latest marker once this release is public (N6-REL-05).
+
+    The marker is shared state: it belongs to the highest stable release published, and stays
+    unset until the first one. It is read from the published releases now, immediately before
+    the write, never taken from the candidate. The publish job runs in one repository-wide
+    concurrency group, so no other run of this workflow can publish between this read and the
+    write. A release edited in the browser meanwhile is caught afterwards by check_latest.
+    """
+    published = [other.get("tag_name", "") for other in api.published_releases()
+                 if other.get("id") != release_id and not other.get("prerelease")]
+    return candidate.shared_state_owner(published + [manifest["tag"]], stable_only=True)
 
 
 def should_be_latest(api, manifest, release_id):
-    """Latest goes to a stable release unless a higher stable release is already published.
+    return latest_owner(api, manifest, release_id) == manifest["tag"]
 
-    Re-running an older release's failed job, or approving two stable tags out of order, must
-    not take Latest away from a newer version.
-    """
-    if not manifest["make_latest"]:
-        return False
-    own = stable_key(manifest["tag"])
-    for other in api.published_releases():
-        if other.get("id") == release_id or other.get("prerelease"):
-            continue
-        key = stable_key(other.get("tag_name", ""))
-        if key is not None and key > own:
-            log(f"{other['tag_name']} is a newer stable release, so {manifest['tag']} is not made Latest")
-            return False
-    return True
+
+def decide_latest(api, manifest, release_id):
+    """Recheck ownership immediately before the write, and say in the run what was decided."""
+    tag, owner = manifest["tag"], latest_owner(api, manifest, release_id)
+    if owner == tag:
+        summary(f"{tag} owns GitHub's Latest marker: it is the highest stable release. Publishing it as Latest.")
+        return True
+    if manifest["prerelease"]:
+        reason = "it is a pre-release, and GitHub never marks a pre-release Latest"
+    else:
+        reason = f"{owner} is a higher stable release"
+    summary(f"Skipping the Latest marker for {tag}: {reason}. "
+            f"Latest stays with {owner or 'no release, until the first stable one'}.")
+    return False
 
 
 def check_latest(api, release, manifest):
@@ -297,9 +309,11 @@ def check_latest(api, release, manifest):
     latest = api.latest_id()
     if expected and latest != release["id"]:
         raise PromotionError(f"Stable release {manifest['tag']} is published but is not GitHub's Latest "
-                             f"(Latest is {latest}); reconcile it by hand")
+                             f"(Latest is {latest}); reconcile it by hand "
+                             "(RELEASE_PROCESS.md section 3, Reconciling)")
     if not expected and latest == release["id"]:
-        raise PromotionError(f"{manifest['tag']} is marked Latest although it should not be; reconcile it by hand")
+        raise PromotionError(f"{manifest['tag']} is marked Latest although it should not be; reconcile it by hand "
+                             "(RELEASE_PROCESS.md section 3, Reconciling)")
 
 
 def promote(api, manifest, directory, sha):
@@ -328,7 +342,7 @@ def promote(api, manifest, directory, sha):
         # The approval may have waited days; the tag is checked again right before going public.
         check_source(api, manifest, sha)
         release = api.publish(release["id"], manifest["prerelease"],
-                              should_be_latest(api, manifest, release["id"]))
+                              decide_latest(api, manifest, release["id"]))
         log(f"Published release {release['id']} ({'pre-release' if manifest['prerelease'] else 'stable'})")
         # A tag deleted between that check and publishing is recreated from the default branch.
         # The release is public by then, so this can only report it.

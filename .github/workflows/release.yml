@@ -6,8 +6,10 @@ run-name: Publish ${{ inputs.tag }} ${{ inputs.nonce }}
 # github.ref to be that tag. `plan` needs no approval and no publishing credential, so its
 # failures appear before anyone is asked to approve. Each destination then publishes in its
 # own job; all of them wait on the protected `release` environment together, so one approval
-# covers the run, and a failure in one does not stop the others. RELEASE_PROCESS.md section
-# 3 describes the inputs, the absence attestations and how to retry one destination.
+# covers the run, and a failure in one does not stop the others. The exception: while another
+# tag's GitHub job holds release-shared-state, this run's GitHub job is approved separately
+# once it gets the group. RELEASE_PROCESS.md section 3 describes the inputs, the absence
+# attestations and how to retry one destination.
 on:
   workflow_dispatch:
     inputs:
@@ -43,6 +45,7 @@ on:
 # Evaluated when the run is queued, before any step can validate the inputs, so the group is
 # keyed on the ref the run is on rather than on the tag input. Every workflow able to write a
 # release version must share it; today this is the only one.
+# publish-github also joins the repository-wide release-shared-state group (see that job).
 concurrency:
   group: release-publish-${{ github.ref }}
   cancel-in-progress: false
@@ -196,6 +199,15 @@ jobs:
     # step runs. The only job with write access. actions: read is for the approval check and
     # the candidate's artifacts.
     environment: release
+    # N6-REL-05 shared state: this job moves GitHub's Latest marker, so it runs in one group for
+    # every tag of the repository, not keyed on the tag. Two tags can then never both decide
+    # they own the marker; release-github.py rechecks ownership immediately before the write.
+    # GitHub keeps one running and one pending job per group, and a third tag's GitHub job
+    # replaces the pending one. A job waiting here for the group has not reached the gate, so
+    # it needs its own approval later (RELEASE_PROCESS.md, The Latest marker).
+    concurrency:
+      group: release-shared-state
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: write

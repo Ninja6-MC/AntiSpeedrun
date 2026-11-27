@@ -185,10 +185,57 @@ class PromoteTest(unittest.TestCase):
         self.assertEqual(api.latest, release["id"])
 
     def test_semver_order_is_numeric(self):
-        self.assertGreater(gh.stable_key("v1.10.0"), gh.stable_key("v1.9.0"))
-        self.assertIsNone(gh.stable_key("v1.0.0-rc.1"))
-        self.assertIsNone(gh.stable_key("v0.3.0"))
-        self.assertIsNone(gh.stable_key("nightly"))
+        self.candidate("v1.10.0")
+        api = FakeGitHub()
+        older = api.add_release("v1.9.0", False, False)
+        api.latest = older["id"]
+        release = self.promote(api)
+        self.assertEqual(api.latest, release["id"])
+
+    def test_prerelease_never_takes_latest_from_a_stable_release(self):
+        self.candidate("v1.1.0-beta.1")
+        api = FakeGitHub()
+        stable = api.add_release("v1.0.0", False, False)
+        api.latest = stable["id"]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            gh.promote(api, self.manifest, self.directory, SHA)
+        self.assertEqual(api.latest, stable["id"])
+        self.assertIn("Skipping the Latest marker for v1.1.0-beta.1: it is a pre-release", output.getvalue())
+        self.assertIn("Latest stays with v1.0.0", output.getvalue())
+
+    def test_stable_hotfix_below_a_newer_stable_skips_latest_and_says_so(self):
+        self.candidate("v1.0.1")
+        api = FakeGitHub()
+        newer = api.add_release("v1.1.0", False, False)
+        api.latest = newer["id"]
+        output = io.StringIO()
+        with tempfile.NamedTemporaryFile("r", suffix=".md") as summary, \
+                mock.patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": summary.name}), \
+                contextlib.redirect_stdout(output):
+            gh.promote(api, self.manifest, self.directory, SHA)
+            written = Path(summary.name).read_text(encoding="utf-8")
+        self.assertEqual(api.latest, newer["id"])
+        self.assertIn("Skipping the Latest marker for v1.0.1: v1.1.0 is a higher stable release", written)
+
+    def test_ownership_is_read_immediately_before_the_write(self):
+        """A higher stable release that appeared after approval still keeps Latest."""
+        self.candidate("v1.0.0")
+        api = FakeGitHub()
+        original = api.published_releases
+        reads = []
+
+        def published():
+            # The first read must come after every draft write, right before publishing.
+            reads.append([write[0] for write in api.writes])
+            if len(reads) == 1:
+                api.latest = api.add_release("v1.2.0", False, False)["id"]
+            return original()
+
+        api.published_releases = published
+        self.promote(api)
+        self.assertEqual(reads[0], ["create", "upload", "upload"])
+        self.assertEqual(api.releases_by_id[api.latest]["tag_name"], "v1.2.0")
 
     def test_older_stable_release_marked_latest_stops(self):
         self.candidate("v1.0.0")
