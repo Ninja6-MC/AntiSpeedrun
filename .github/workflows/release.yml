@@ -6,8 +6,10 @@ run-name: Publish ${{ inputs.tag }} ${{ inputs.nonce }}
 # github.ref to be that tag. `plan` needs no approval and no publishing credential, so its
 # failures appear before anyone is asked to approve. Each destination then publishes in its
 # own job; all of them wait on the protected `release` environment together, so one approval
-# covers the run, and a failure in one does not stop the others. RELEASE_PROCESS.md section
-# 3 describes the inputs, the absence attestations and how to retry one destination.
+# covers the run, and a failure in one does not stop the others. The exception: while another
+# tag's GitHub job holds release-shared-state, this run's GitHub job is approved separately
+# once it gets the group. RELEASE_PROCESS.md section 3 describes the inputs, the absence
+# attestations and how to retry one destination.
 on:
   workflow_dispatch:
     inputs:

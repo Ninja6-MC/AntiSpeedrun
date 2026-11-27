@@ -17,7 +17,8 @@ they are. Every run is a resumable promotion of one candidate:
   3. on a draft (this run's or an interrupted earlier one), assets GitHub never finished
      receiving are removed, assets already uploaded must match the manifest byte for byte,
      and the missing ones are uploaded;
-  4. the draft is published with the candidate's pre-release and Latest flags;
+  4. the draft is published with the candidate's pre-release flag, and as Latest only when
+     this tag owns the marker at that moment (N6-REL-05, rechecked just before the write);
   5. what an anonymous consumer downloads is hashed against the manifest.
 
 A published release that differs from the candidate in any way stops the run for the

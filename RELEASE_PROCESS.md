@@ -243,10 +243,12 @@ before anyone is asked to approve. It:
 
 **Approval.** The selected publish jobs, **Publish to GitHub**, **Publish to Modrinth** and
 **Publish to Hangar**, all depend on the plan and all wait on the protected `release`
-environment, so one approval releases them together. Approve only after reading the plan
-summary. Automation never approves it. The environment gate fails open on its own: GitHub
-creates a missing environment without protection, and one that lost its reviewer lets the
-job start unreviewed. Each publish job's first check, **Require Maintainer Approval**
+environment, so one approval releases them together. The exception: while another tag's
+GitHub job holds the shared group, this run's GitHub job is approved separately once it gets
+it (see *The Latest marker*). Approve only after reading the plan summary. Automation never
+approves it. The environment gate fails open on its own: GitHub creates a missing
+environment without protection, and one that lost its reviewer lets the job start
+unreviewed. Each publish job's first check, **Require Maintainer Approval**
 (`release-publisher.py approval`), reads the run's approvals and continues only if a person,
 not a bot or app, approved `release` for this run, and stops on any rejection.
 
