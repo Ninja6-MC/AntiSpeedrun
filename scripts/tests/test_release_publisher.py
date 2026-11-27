@@ -213,7 +213,7 @@ class FakeDistributorsModule:
 
 class PreflightTest(unittest.TestCase):
     def args(self, **selected):
-        values = dict(github="false", modrinth="false", hangar="false", directory="candidate",
+        values = dict(own="github", github="false", modrinth="false", hangar="false", directory="candidate",
                       evidence="evidence.json", tag="v1.0.0", sha=SHA, run_id="77", attempt="1", repository=REPO)
         values.update(selected)
         return argparse.Namespace(**values)
@@ -229,13 +229,26 @@ class PreflightTest(unittest.TestCase):
         github, distributors = FakeGitHubModule(), FakeDistributorsModule()
         self.run_preflight(self.args(github="true", hangar="true"), github, distributors)
         self.assertEqual(github.calls, [REPO])
-        self.assertEqual(distributors.calls, [("preflight", "hangar")])
+        self.assertEqual(distributors.calls, [("credentials", "hangar")])
+
+    def test_only_the_jobs_own_destination_is_looked_up(self):
+        for own in ("modrinth", "hangar"):
+            with self.subTest(own):
+                distributors = FakeDistributorsModule()
+                self.run_preflight(self.args(own=own, github="true", modrinth="true", hangar="true"),
+                                   FakeGitHubModule(), distributors)
+                self.assertEqual(distributors.calls, [("preflight" if name == own else "credentials", name)
+                                                      for name in ("modrinth", "hangar")])
+
+    def test_the_jobs_own_destination_must_be_selected(self):
+        with self.assertRaisesRegex(rp.PublisherError, "hangar is not a destination"):
+            self.run_preflight(self.args(own="hangar", github="true"), FakeGitHubModule(), FakeDistributorsModule())
 
     def test_one_failing_destination_stops_all_after_checking_each(self):
         github, distributors = FakeGitHubModule(), FakeDistributorsModule({"modrinth": "Missing MODRINTH_TOKEN"})
         with self.assertRaisesRegex(rp.PublisherError, "Preflight failed for modrinth; nothing was published"):
             self.run_preflight(self.args(github="true", modrinth="true", hangar="true"), github, distributors)
-        self.assertEqual(distributors.calls, [("preflight", "modrinth"), ("preflight", "hangar")])
+        self.assertEqual(distributors.calls, [("credentials", "modrinth"), ("credentials", "hangar")])
         self.assertEqual(github.calls, [REPO])
 
 
@@ -286,7 +299,7 @@ class PublisherWorkflowTest(unittest.TestCase):
                 self.assertIn("environment: release\n", job)
                 self.assertIn(f"needs.plan.outputs.{name} == 'true'", job)
                 approval = job.index("release-publisher.py approval")
-                preflight = job.index("release-publisher.py preflight --github")
+                preflight = job.index(f"release-publisher.py preflight --own {name} --github")
                 self.assertLess(approval, preflight)
                 writes = {"github": "release-github.py --directory",
                           "modrinth": "release-distributors.py publish modrinth",

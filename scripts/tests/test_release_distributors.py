@@ -639,6 +639,35 @@ class AttestationTest(Candidate):
             quiet(rd.run, args, environ=ENV, tag_commit=lambda tag: SHA, apis={"hangar": FakeHangar()})
 
 
+class CredentialsTest(Candidate):
+    """What another destination's publish job checks: everything but the version."""
+
+    def test_a_sibling_jobs_upload_or_a_cdn_failure_after_it_does_not_matter(self):
+        self.candidate()
+        for name, fake in (("modrinth", FakeModrinth), ("hangar", FakeHangar)):
+            with self.subTest(name):
+                api = fake()
+                self.run_command("publish", name, apis={name: api})
+                api.serve = b"cdn outage page"
+                with self.assertRaisesRegex(rd.DistributorError, "SHA-256"):
+                    self.run_command("preflight", name, apis={name: api})
+                self.assertEqual(self.run_command("credentials", name, apis={name: api}), "ready")
+
+    def test_credential_and_project_failures_still_stop_it(self):
+        self.candidate()
+        modrinth = FakeModrinth()
+        modrinth.members_list = []
+        with self.assertRaisesRegex(rd.DistributorError, "cannot upload"):
+            self.run_command("credentials", "modrinth", apis={"modrinth": modrinth})
+        hangar = FakeHangar()
+        hangar.allowed = False
+        with self.assertRaisesRegex(rd.DistributorError, "cannot create versions"):
+            self.run_command("credentials", "hangar", apis={"hangar": hangar})
+        with self.assertRaisesRegex(rd.DistributorError, "Missing MODRINTH_TOKEN"):
+            self.run_command("credentials", "modrinth", environ=dict(ENV, MODRINTH_TOKEN=""),
+                             apis={"modrinth": FakeModrinth()})
+
+
 class PublicTest(Candidate):
     """The secret-free check in the publisher's plan job."""
 

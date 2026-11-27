@@ -3,6 +3,7 @@
 
   release-distributors.py public    modrinth|hangar COMMON --attested true|false
   release-distributors.py preflight modrinth|hangar COMMON
+  release-distributors.py credentials modrinth|hangar COMMON
   release-distributors.py publish   modrinth|hangar COMMON --attested true|false
                                     --publisher-run-id <id> --publisher-attempt <n>
 
@@ -28,7 +29,9 @@ version is publicly complete or this dispatch carries the maintainer's absence a
 that attestation, on the first attempt of the publisher run, and while no other publisher
 run for the tag overlaps this one. Those checks run immediately before the upload.
 
-`preflight` writes nothing. It checks the configuration, that the token can see the project
+`credentials` is `preflight` without the version lookup: what another destination's publish
+job checks, so that a sibling job's upload, or a registry hiccup just after it, cannot fail
+it (N6-REL-05). `preflight` writes nothing. It checks the configuration, that the token can see the project
 and upload to it, the Hangar channel and Folia tag, and that the destination either lacks
 this version or already holds exactly the candidate. The first release goes to projects that
 are not public yet: Modrinth reviews a project only once it has a version, and a Hangar
@@ -398,13 +401,16 @@ def unknown(kind, wanted, known):
                                "it does, or move the server pin, before releasing.")
 
 
-def modrinth_preflight(api, manifest, project, directory):
+def modrinth_preflight(api, manifest, project, directory, state=True):
+    """Writes nothing. With `state`, also verify the version is absent or exactly the candidate."""
     dest = destination(manifest, "modrinth")
     # Modrinth rejects a version naming a game version or loader it does not list.
     unknown("Modrinth", dest["game_versions"], api.known_game_versions())
     unknown("Modrinth", dest["loaders"], api.known_loaders())
     project_id, public = modrinth_project(api, project)
     modrinth_upload_access(api, project_id)
+    if not state:
+        return "ready"
     return modrinth_state(api, manifest, dest, project_id, public, directory)
 
 
@@ -523,7 +529,8 @@ def hangar_state(api, manifest, dest, slug, directory):
     return "complete"
 
 
-def hangar_preflight(api, manifest, slug, directory):
+def hangar_preflight(api, manifest, slug, directory, state=True):
+    """Writes nothing. With `state`, also verify the version is absent or exactly the candidate."""
     dest = destination(manifest, "hangar")
     # Hangar rejects an upload naming a platform version it does not list.
     for platform, versions in sorted(dest["platforms"].items()):
@@ -537,6 +544,8 @@ def hangar_preflight(api, manifest, slug, directory):
                                "create it in the project settings")
     if not api.can_create_versions(project_id):
         raise DistributorError(f"The HANGAR_API_TOKEN cannot create versions in Hangar project {slug}")
+    if not state:
+        return "ready"
     return hangar_state(api, manifest, dest, slug, directory)
 
 
@@ -630,6 +639,8 @@ ACTIONS = {
     ("public", "hangar"): (HangarApi, hangar_public),
     ("preflight", "modrinth"): (ModrinthApi, modrinth_preflight),
     ("preflight", "hangar"): (HangarApi, hangar_preflight),
+    ("credentials", "modrinth"): (ModrinthApi, lambda *a: modrinth_preflight(*a, state=False)),
+    ("credentials", "hangar"): (HangarApi, lambda *a: hangar_preflight(*a, state=False)),
     ("publish", "modrinth"): (ModrinthApi, modrinth_publish),
     ("publish", "hangar"): (HangarApi, hangar_publish),
 }
@@ -699,7 +710,7 @@ def upload_guard(args, publisher=None):
 def parser():
     root = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = root.add_subparsers(dest="command", required=True)
-    for name in ("public", "preflight", "publish"):
+    for name in ("public", "preflight", "credentials", "publish"):
         command = commands.add_parser(name)
         command.add_argument("destination", choices=sorted(CONFIG))
         for option in ("--directory", "--evidence", "--tag", "--sha", "--run-id", "--attempt", "--repository"):

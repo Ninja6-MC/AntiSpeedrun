@@ -230,8 +230,9 @@ jobs:
           run-id: ${{ inputs.candidate_run_id }}
           github-token: ${{ github.token }}
 
-      # Every selected destination, not only GitHub: a prerequisite that can be checked without
-      # writing stops all of them before the first public write.
+      # Every selected destination, not only GitHub: a credential or project prerequisite that
+      # can be checked without writing stops all of them before the first public write. The
+      # other destinations' versions are not looked up: a sibling job may already have written.
       - name: Preflight Every Selected Destination
         env:
           GH_TOKEN: ${{ github.token }}
@@ -243,7 +244,7 @@ jobs:
           HANGAR_API_TOKEN: ${{ needs.plan.outputs.hangar == 'true' && secrets.HANGAR_API_TOKEN || '' }}
           HANGAR_PROJECT: ${{ vars.HANGAR_PROJECT }}
         run: >-
-          python3 scripts/release-publisher.py preflight --github "$SELECT_GITHUB" --modrinth "$SELECT_MODRINTH"
+          python3 scripts/release-publisher.py preflight --own github --github "$SELECT_GITHUB" --modrinth "$SELECT_MODRINTH"
           --hangar "$SELECT_HANGAR" --directory candidate --evidence evidence/evidence.json --tag "$TAG"
           --sha "$GITHUB_SHA" --run-id "$CANDIDATE_RUN" --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
 
@@ -310,7 +311,7 @@ jobs:
           HANGAR_API_TOKEN: ${{ needs.plan.outputs.hangar == 'true' && secrets.HANGAR_API_TOKEN || '' }}
           HANGAR_PROJECT: ${{ vars.HANGAR_PROJECT }}
         run: >-
-          python3 scripts/release-publisher.py preflight --github "$SELECT_GITHUB" --modrinth "$SELECT_MODRINTH"
+          python3 scripts/release-publisher.py preflight --own modrinth --github "$SELECT_GITHUB" --modrinth "$SELECT_MODRINTH"
           --hangar "$SELECT_HANGAR" --directory candidate --evidence evidence/evidence.json --tag "$TAG"
           --sha "$GITHUB_SHA" --run-id "$CANDIDATE_RUN" --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
 
@@ -393,7 +394,7 @@ jobs:
           HANGAR_API_TOKEN: ${{ needs.plan.outputs.hangar == 'true' && secrets.HANGAR_API_TOKEN || '' }}
           HANGAR_PROJECT: ${{ vars.HANGAR_PROJECT }}
         run: >-
-          python3 scripts/release-publisher.py preflight --github "$SELECT_GITHUB" --modrinth "$SELECT_MODRINTH"
+          python3 scripts/release-publisher.py preflight --own hangar --github "$SELECT_GITHUB" --modrinth "$SELECT_MODRINTH"
           --hangar "$SELECT_HANGAR" --directory candidate --evidence evidence/evidence.json --tag "$TAG"
           --sha "$GITHUB_SHA" --run-id "$CANDIDATE_RUN" --attempt "$CANDIDATE_ATTEMPT" --repository "$GITHUB_REPOSITORY"
 

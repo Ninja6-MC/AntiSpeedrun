@@ -254,11 +254,14 @@ not a bot or app, approved `release` for this run, and stops on any rejection.
 1. downloads the candidate and evidence again and verifies them;
 2. **preflights every selected destination**, not only its own
    (`release-publisher.py preflight`): GitHub as in the plan; for Modrinth, that the token
-   and project are set, the token sees the project, its owner is a member who may upload
-   versions, and the version is absent or exactly the candidate; for Hangar, the same with
-   the project's Supports Folia tag, the target channel and the key's `create_version`
-   permission. A failure in any of them stops every job before the first public write, so
-   publishing only some destinations is always a choice made in `destinations`.
+   and project are set, the token sees the project and its owner is a member who may upload
+   versions; for Hangar, the same with the project's Supports Folia tag, the target channel
+   and the key's `create_version` permission. A failure in any of them stops every job
+   before the first public write, so publishing only some destinations is always a choice
+   made in `destinations`. Only the job's own destination is also looked up with the token,
+   to find the version absent or exactly the candidate: the jobs start together, so a
+   sibling job may already have uploaded to its destination, and nothing that happens there
+   after the upload may stop this job.
 
 Only then does each job publish its own destination, independently: a failure in one, such
 as a registry outage, does not stop the others. **Publish to GitHub** is the only job with

@@ -5,7 +5,7 @@
   release-publisher.py provenance --repository owner/name --tag vX.Y.Z --sha <commit> --run-id <candidate run>
   release-publisher.py guard      --repository owner/name --tag vX.Y.Z --run-id <publisher run> --attempt <n> --attested B
   release-publisher.py approval   --repository owner/name --run-id <publisher run>
-  release-publisher.py preflight  --github B --modrinth B --hangar B COMMON
+  release-publisher.py preflight  --own github|modrinth|hangar --github B --modrinth B --hangar B COMMON
 
 B is true or false. COMMON is release-github.py's arguments: --directory, --evidence, --tag,
 --sha, --run-id and --attempt (the candidate run and the attempt that built it) and
@@ -19,8 +19,10 @@ expired candidate stops the publisher: nothing is ever rebuilt. `guard` refuses 
 absence attestation on a later attempt of the publisher run, or while another publisher
 run for the same tag overlaps this one; the distributor publish step runs the same checks
 again immediately before its upload. `approval` proceeds only on a person's recorded
-approval of the `release` environment for this run. `preflight` runs every credential and
-destination check that writes nothing, for every selected destination, in every publish job.
+approval of the `release` environment for this run. `preflight` runs every credential check
+that writes nothing, for every selected destination, in every publish job. Only the job's own
+destination (`--own`) is also checked for its current version: the jobs start together, so
+another job may already have written to its destination, and its result must not stop this one.
 GitHub calls go through the gh CLI with GH_TOKEN.
 """
 
@@ -258,8 +260,11 @@ def approval(args):
 # --- Cross-destination preflight --------------------------------------------------------
 
 def preflight(args, github=None, distributors=None):
-    """Every write-free check for every selected destination, whichever job runs it, so a
-    prerequisite that could be checked stops all destinations before the first public write."""
+    """Every write-free credential check for every selected destination, whichever job runs
+    it, so a prerequisite that could be checked stops all destinations before the first public
+    write. The version lookup is made for the job's own destination only."""
+    if not flag(getattr(args, args.own)):
+        raise PublisherError(f"{args.own} is not a destination of this dispatch")
     github = github or _load("release_github", "release-github.py")
     distributors = distributors or _load("release_distributors", "release-distributors.py")
     common = {key: getattr(args, key) for key in
@@ -273,7 +278,8 @@ def preflight(args, github=None, distributors=None):
                 manifest = candidate.check_evidence(argparse.Namespace(**common))
                 github.preflight(github.GitHubApi(args.repository), manifest, args.directory, args.sha)
             else:
-                distributors.run(argparse.Namespace(**common, command="preflight", destination=name))
+                command = "preflight" if name == args.own else "credentials"
+                distributors.run(argparse.Namespace(**common, command=command, destination=name))
         except (OSError, ValueError, KeyError, json.JSONDecodeError, subprocess.CalledProcessError,
                 urllib.error.URLError) as error:
             log(f"::error::{name} preflight: {error}")
@@ -324,6 +330,7 @@ def parser():
     command.set_defaults(handler=approval)
 
     command = commands.add_parser("preflight")
+    command.add_argument("--own", choices=DESTINATIONS, required=True)
     for name in DESTINATIONS:
         command.add_argument(f"--{name}", **boolean)
     for option in ("--directory", "--evidence", "--tag", "--sha", "--run-id", "--attempt", "--repository"):
