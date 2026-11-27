@@ -147,8 +147,9 @@ pull request; its scripts are covered by the unit tests that the rehearsal and C
 ### Step 4: Candidate identity and evidence
 
 `manifest.json` records the schema, candidate identifier (`<run id>-<attempt>-<commit>`),
-artifact name, repository, source commit SHA, tag, version, channel, pre-release and Latest
-flags, run ID and attempt, the destinations, and the SHA-256 of every file. The
+artifact name, repository, source commit SHA, tag, version, channel, pre-release flag,
+whether the channel may be Latest at all (whether it actually takes the marker is decided at
+publication), run ID and attempt, the destinations, and the SHA-256 of every file. The
 destinations are `github` (this repository, the tag) and, for a distributor tag only,
 `modrinth` (version type, loaders, Minecraft versions) and `hangar` (channel, platform
 versions, Folia support). Both listings are derived from `SERVER_LEGS` in
@@ -296,20 +297,39 @@ here is a failure of that destination alone; fix it and retry that destination:
    are uploaded from the candidate.
 5. Re-read the draft, check every asset again, re-check the tag, publish, then check the
    tag once more: a tag recreated in between fails the run, with the release already
-   public. A pre-release is published with `make_latest=false`. A stable release is published with
-   `make_latest=true` only when no published stable release has a higher SemVer version.
-   Otherwise it gets `make_latest=false`. This covers re-running an older release's failed
-   job, or approving two stable tags out of order. It does not cover two stable publish
-   jobs **running at the same time**: the concurrency group is per tag, so both can decide
-   before either publishes, and an older release published last can take Latest. Step 6
-   catches this and fails the older job, but does not prevent it. Approve one stable
-   release at a time.
+   public. Immediately before publishing, the script reads the published releases again
+   and decides who owns the Latest marker (see *The Latest marker* below). It publishes
+   with `make_latest=true` only when this tag owns it, and otherwise with
+   `make_latest=false`, saying in the run summary that it skipped the marker and which
+   release keeps it.
 6. Download each public asset signed out, from the address a user would use, and compare
    it with the manifest. Then check Latest: a stable release with no higher stable release
    published must now be GitHub's Latest, and any other release must not be.
 
-No workflow syncs a Modrinth or Hangar project page. The GitHub Latest marker is the only
-shared state the publisher writes.
+**The Latest marker.** GitHub's Latest marker is shared state under `N6-REL-05`: it belongs
+to the highest stable release published on GitHub, judged by SemVer, and stays unset until
+the first stable release. GitHub never marks a pre-release Latest, so a pre-release never
+owns it, even while no stable release exists. A stable hotfix below a newer stable release,
+such as `v1.0.1` after `v1.1.0`, does not own it either. Ownership is decided from the
+releases published at the moment of the write, never from the candidate, so re-running an
+older release's job, or approving tags out of order, cannot move the marker backwards.
+`shared_state_owner` in `scripts/release-candidate.py` is the one owner rule for every
+destination.
+
+**Publish to GitHub** runs in the concurrency group `release-shared-state`, which every tag
+shares, so two tags can never both decide they own the marker. This serialises GitHub
+publication across tags, which costs the following:
+
+* GitHub keeps one running and one pending job per group. A GitHub job waiting for its
+  approval holds the group, so another tag's GitHub job waits until it is approved, or
+  rejected, and has finished. Approve or reject a pending publisher run promptly.
+* A third tag's GitHub job, queued while one is running and another is pending, replaces
+  the pending one, which GitHub cancels before it has written anything. Dispatch the
+  cancelled tag again with `destinations: github`.
+* Modrinth and Hangar jobs are not in the group and never wait for another tag.
+
+No workflow syncs a Modrinth or Hangar project page, so the Latest marker is the only shared
+state the publisher writes.
 
 **Distributor publication.** `scripts/release-distributors.py publish modrinth` and
 `publish hangar` each run in order:
@@ -376,9 +396,11 @@ a Latest flag other than the one step 6 expects. It also stops for a draft carry
 mismatched asset, or several releases for one tag. Nothing public is overwritten or
 deleted. Inspect the release in the browser:
 
-* **An older stable release took Latest** (two stable publish jobs ran at once). The release
-  itself is correct, so do not delete it. Edit the newer stable release in the browser and
-  mark it Latest, then re-run the older release's failed job; it now finds everything complete.
+* **The Latest marker is on the wrong release**, for example after someone changed it in the
+  browser. The release itself is correct, so do not delete it. Open the release that owns
+  the marker (the highest stable release published) in the browser, choose **Edit**, tick
+  **Set as the latest release**, and save. Then re-run the failed job; it finds everything
+  complete.
 * **Anything else is wrong with the release:** delete the release, never the tag, and
   re-run the failed job. If the tag must change, it names a new version.
 * **A Modrinth or Hangar version differs from the candidate**, or the candidate JAR is on

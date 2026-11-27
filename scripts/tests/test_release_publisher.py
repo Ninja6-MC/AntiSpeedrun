@@ -313,6 +313,12 @@ class PublisherWorkflowTest(unittest.TestCase):
         for name in ("modrinth", "hangar"):
             self.assertNotIn("contents: write", self.jobs[f"publish-{name}"])
 
+    def test_the_github_job_runs_in_one_group_for_every_tag(self):
+        job = self.jobs["publish-github"]
+        self.assertIn("\n    concurrency:\n      group: release-shared-state\n      cancel-in-progress: false\n", job)
+        for name in ("modrinth", "hangar"):
+            self.assertNotIn("concurrency:", self.jobs[f"publish-{name}"])
+
     def test_distributor_uploads_carry_this_runs_attempt_and_dispatch_attestation(self):
         for name in ("modrinth", "hangar"):
             with self.subTest(name):

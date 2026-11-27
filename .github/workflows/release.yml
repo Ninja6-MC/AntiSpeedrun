@@ -43,6 +43,7 @@ on:
 # Evaluated when the run is queued, before any step can validate the inputs, so the group is
 # keyed on the ref the run is on rather than on the tag input. Every workflow able to write a
 # release version must share it; today this is the only one.
+# publish-github also joins the repository-wide release-shared-state group (see that job).
 concurrency:
   group: release-publish-${{ github.ref }}
   cancel-in-progress: false
@@ -196,6 +197,14 @@ jobs:
     # step runs. The only job with write access. actions: read is for the approval check and
     # the candidate's artifacts.
     environment: release
+    # N6-REL-05 shared state: this job moves GitHub's Latest marker, so it runs in one group for
+    # every tag of the repository, not keyed on the tag. Two tags can then never both decide
+    # they own the marker; release-github.py rechecks ownership immediately before the write.
+    # GitHub keeps one running and one pending job per group: while this job waits for
+    # approval it holds the group, and a third tag's GitHub job replaces the pending one.
+    concurrency:
+      group: release-shared-state
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: write
