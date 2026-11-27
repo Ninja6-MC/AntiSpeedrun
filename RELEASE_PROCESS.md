@@ -433,7 +433,15 @@ the check after approval makes the order of approvals irrelevant.
 | GitHub publication | **Re-run failed jobs**, or dispatch with `destinations: github`. The script resumes the draft, the uploads or the publication, or only re-verifies a complete release. GitHub needs no attestation. |
 | A Modrinth or Hangar upload: outage, upload-only prerequisite | Dispatch with only that destination, after inspecting its owner inventory again and setting its attestation. **Re-run failed jobs** works only if the upload never started: a true attestation is refused on a later attempt. |
 | `awaiting-review` | **Re-run failed jobs** on the same run once the registry has approved it (*First distributor release*). |
+| **Check the Public Modrinth Description**: the `modrinth-description` environment is missing or set up wrongly | Set it up as *Maintainer setup* says, then **Re-run failed jobs**. Modrinth is already published; nothing else runs again. |
+| **Confirm the Pasted Modrinth Description**: the body differs | Paste the file the job names and **Re-run failed jobs**, or re-run the job alone. |
 | The candidate expired (90 days) | Nothing is retried or rebuilt. Record the destination under *Not published*; the next release reaches it. |
+
+A publisher run stays in progress while its description confirmation waits for approval,
+and every run for the tag shares one concurrency group. Approve or reject that job before
+dispatching the same tag again: a later dispatch queues behind it, and its absence
+attestation is refused if the earlier run finishes after it was created. Then inspect the
+owner inventory again and dispatch.
 
 A version already present on a registry is verified, never uploaded again, so a retry
 writes only to what is still missing. Never push a new candidate for a tag that is already

@@ -177,7 +177,8 @@ class OwnerTest(unittest.TestCase):
 
 
 def environment(**changes):
-    value = {"protection_rules": [{"type": "required_reviewers", "reviewers": [{"type": "User", "reviewer": {"id": 1}}]}],
+    value = {"protection_rules": [{"type": "required_reviewers", "prevent_self_review": False,
+                                   "reviewers": [{"type": "User", "reviewer": {"id": 1}}]}],
              "can_admins_bypass": False,
              "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}}
     value.update(changes)
@@ -197,6 +198,9 @@ class EnvironmentTest(unittest.TestCase):
         cases = {
             "no required reviewer": (environment(protection_rules=[]), None),
             "bypass": (environment(can_admins_bypass=True), None),
+            "self-review": (environment(protection_rules=[{"type": "required_reviewers", "prevent_self_review": True,
+                                                           "reviewers": [{"type": "User", "reviewer": {"id": 1}}]}]),
+                            None),
             "v\\* tags with custom": (environment(deployment_branch_policy={"protected_branches": True}), None),
             "only the v\\* tag policy": (environment(), [{"type": "branch", "name": "main"}]),
             "only the v\\* tag policy ": (environment(), []),
@@ -233,6 +237,8 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("environment: modrinth-description\n", confirm)
         self.assertIn("needs.check-modrinth-description.outputs.paste_needed == 'true'", confirm)
         self.assertIn("release-description.py confirm", confirm)
+        self.assertLess(confirm.index("release-publisher.py approval"), confirm.index("release-description.py confirm"))
+        self.assertIn("--environment modrinth-description", confirm)
 
     def test_ci_checks_the_committed_description(self):
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

@@ -176,6 +176,10 @@ def approval(state, login="maintainer", kind="User", environment="release"):
 class ApprovalTest(unittest.TestCase):
     def test_a_person_approving_release_is_required(self):
         self.assertEqual(rp.approvers([approval("approved")]), ["maintainer"])
+        description = [approval("approved", environment="modrinth-description")]
+        self.assertEqual(rp.approvers(description, "modrinth-description"), ["maintainer"])
+        with self.assertRaisesRegex(rp.PublisherError, "No one approved the modrinth-description"):
+            rp.approvers([approval("approved")], "modrinth-description")
         cases = {
             "rejected": [approval("approved"), approval("rejected", login="other")],
             "No one approved": [],

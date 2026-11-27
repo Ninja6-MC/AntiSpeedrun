@@ -142,11 +142,14 @@ def check_environment(repository, read=gh_json):
     base = f"repos/{repository}/environments/{ENVIRONMENT}"
     try:
         environment = read(base)
-        reviewers = [item for rule in environment.get("protection_rules") or []
-                     if rule.get("type") == "required_reviewers" for item in rule.get("reviewers") or []]
+        rules = [rule for rule in environment.get("protection_rules") or [] if rule.get("type") == "required_reviewers"]
+        reviewers = [item for rule in rules for item in rule.get("reviewers") or []]
         if not any(item.get("type") in ("User", "Team") and (item.get("reviewer") or {}).get("id")
                    for item in reviewers):
             raise DescriptionError(f"{ENVIRONMENT} has no required reviewer; configure it before a paste is requested")
+        if any(rule.get("prevent_self_review") is not False for rule in rules):
+            raise DescriptionError(f"{ENVIRONMENT} must allow self-review, or the maintainer who started the run "
+                                   "cannot approve it")
         if environment.get("can_admins_bypass") is not False:
             raise DescriptionError(f"{ENVIRONMENT} must not let administrators bypass its protection rules")
         policy = environment.get("deployment_branch_policy") or {}

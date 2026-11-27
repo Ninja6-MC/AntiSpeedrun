@@ -476,7 +476,9 @@ jobs:
     # Its own protected environment, maintainer as required reviewer and no secrets
     # (N6-REL-07): approving it says the file named in the check job's summary was pasted.
     environment: modrinth-description
+    # actions: read is for the approval check, which the gate alone does not give.
     permissions:
+      actions: read
       contents: read
 
     steps:
@@ -485,6 +487,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Require Maintainer Approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/release-publisher.py approval --repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID"
+          --environment modrinth-description
 
       - name: Recheck the Owner and Read Back the Pasted Description
         env:
