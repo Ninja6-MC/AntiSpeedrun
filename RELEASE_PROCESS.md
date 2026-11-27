@@ -334,11 +334,11 @@ publication across tags, which costs the following:
   while one runs and another is pending, replaces the pending one, which GitHub cancels.
   A cancelled job is one that never started, so it wrote nothing. Dispatch that tag again
   with `destinations: github`.
+* Modrinth and Hangar jobs are not in the group and never wait for another tag.
 
 The first release published while another is in flight is the first real run of this
 ordering. If GitHub behaves differently, the owner check before the write still keeps the
 marker correct; only the approval and waiting described here change.
-* Modrinth and Hangar jobs are not in the group and never wait for another tag.
 
 No workflow syncs a Modrinth or Hangar project page, so the Latest marker is the only shared
 state the publisher writes.
