@@ -166,6 +166,26 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # docs/modrinth-description.md is the Modrinth project description (N6-REL-06): generated
+  # from README.md, committed so its wording is reviewed in the pull request that changes it,
+  # and pasted into Modrinth by hand. This job fails when it is out of date with the README, or
+  # when the README would break a Modrinth content rule. Its own job, not a step of Build and
+  # Test: it needs no Java, and a stale description should report as itself. No paths filter:
+  # it takes seconds, and a path-scoped check could never be required.
+  modrinth-description:
+    name: Modrinth Description
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fail If the Committed Description Is Out of Date
+        run: python3 scripts/modrinth-description.py --check
+
   server-smoke:
     name: Server Boot (${{ matrix.platform }} ${{ matrix.minecraft }})
     runs-on: ubuntu-latest

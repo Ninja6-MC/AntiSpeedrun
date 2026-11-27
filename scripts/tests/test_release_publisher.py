@@ -278,7 +278,8 @@ class PublisherWorkflowTest(unittest.TestCase):
         self.assertIn("group: release-publish-${{ github.ref }}\n", self.text)
 
     def test_every_job_runs_only_on_the_tag_it_was_given(self):
-        self.assertEqual(sorted(self.jobs), ["plan", "publish-github", "publish-hangar", "publish-modrinth"])
+        self.assertEqual(sorted(self.jobs), ["check-modrinth-description", "confirm-modrinth-description", "plan",
+                                            "publish-github", "publish-hangar", "publish-modrinth"])
         for name, job in self.jobs.items():
             with self.subTest(name):
                 self.assertIn(self.GUARD, job)
